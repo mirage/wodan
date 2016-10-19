@@ -1,0 +1,10 @@
+/Makefile
+/_build/
+/key_gen.ml
+/log
+/main.ml
+/mir-storage.virtio
+/storage.xe
+/storage.xl
+/storage.xl.in
+/storage_libvirt.xml
