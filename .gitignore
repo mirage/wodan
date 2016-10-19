@@ -9,3 +9,10 @@
 /storage.xl.in
 /storage_libvirt.xml
 *_tests.native
+/disk.img
+/main.native
+/mir-storage
+/Makefile.ukvm
+/_build-ukvm/
+/mir-storage.ukvm
+/ukvm-bin

@@ -4,6 +4,7 @@
 let (&&&) = Int32.logand
 let (^^^) = Int32.logxor
 let (>>>) = Int32.shift_right_logical
+let (~~~) = Int32.lognot
 
 let crc_table = [|
     0x00000000l; 0xf26b8303l; 0xe13b70f7l; 0x1350f3f4l;
@@ -69,7 +70,7 @@ let crc_table = [|
     0xf36e6f75l; 0x0105ec76l; 0x12551f82l; 0xe03e9c81l;
     0x34f4f86al; 0xc69f7b69l; 0xd5cf889dl; 0x27a40b9el;
     0x79b737bal; 0x8bdcb4b9l; 0x988c474dl; 0x6ae7c44el;
-    0xbe2da0a5l; 0x4c4623a6l; 0x5f16d052l; 0xad7d5351l
+    0xbe2da0a5l; 0x4c4623a6l; 0x5f16d052l; 0xad7d5351l;
 |]
 
 let string_fold_left f acc str offset length =
@@ -95,8 +96,19 @@ let update_crc acc c =
    string "Thou hast made me, and shall thy work decay?" 0 44 = 0x866374c0l
  *)
 let string ?(crc=0l) str offset length =
-  (string_fold_left update_crc (crc ^^^ 0xffffffffl) str offset length) ^^^ 0xffffffffl
+  ~~~(string_fold_left update_crc ~~~crc str offset length)
 
 let cstruct ?(crc=0l) str =
-  (cstruct_fold_left update_crc (crc ^^^ 0xffffffffl) str) ^^^ 0xffffffffl
+  ~~~(cstruct_fold_left update_crc ~~~crc str)
+
+let cstruct_valid str =
+  ~~~(cstruct str) = 0l
+
+(*$T cstruct_reset
+let cstr = Cstruct.of_string "123456789...." in begin cstruct_reset cstr; cstruct_valid cstr end
+*)
+let cstruct_reset str =
+  let sublen = (Cstruct.len str) - 4 in
+  let crc = cstruct (Cstruct.sub str 0 sublen) in
+  Cstruct.LE.set_uint32 str sublen ~~~crc
 
