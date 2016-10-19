@@ -8,3 +8,4 @@
 /storage.xl
 /storage.xl.in
 /storage_libvirt.xml
+*_tests.native
