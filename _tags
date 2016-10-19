@@ -1,2 +1,3 @@
-true: package(cstruct,qcheck)
+<storage.*>: package(cstruct.ppx,mirage-types,lwt,io-page)
+<crc32c*>: package(cstruct,qcheck)
 
