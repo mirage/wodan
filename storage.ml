@@ -14,6 +14,7 @@ exception WriteError
 
 exception BadKey of string
 exception ValueTooLarge of Cstruct.t
+exception BadNodeType of int
 
 (* 512 bytes.  The rest of the block isn't crc-controlled. *)
 [%%cstruct type superblock = {
@@ -95,7 +96,6 @@ type node = [
   |`Root of Cstruct.t * keydata_index * nonleaf
   |`Inner of Cstruct.t * keydata_index * nonleaf
   |`Leaf of Cstruct.t * keydata_index]
-
 
 let cstruct_of_node = function
   |`Root (cstr, _, _)
@@ -195,6 +195,26 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     then Lwt.fail @@ BadKey key
     else Lwt.return key
 
+  let block_end = P.block_size - sizeof_crc
+
+  let _load_node cache cstr =
+    let () = assert (Cstruct.len cstr = P.block_size) in
+    if not (Crc32c.cstruct_valid cstr)
+    then Lwt.fail BadCRC
+    else let%lwt node =
+      match get_anynode_hdr_nodetype cstr with
+      |1 -> Lwt.return @@ `Root (cstr,
+        {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;},
+        {childlinks_offset=block_end;})
+      |2 -> Lwt.return @@ `Inner (cstr,
+        {keydata_offsets=[]; next_keydata_offset=sizeof_innernode_hdr;},
+        {childlinks_offset=block_end;})
+      |3 -> Lwt.return @@ `Leaf (cstr,
+        {keydata_offsets=[]; next_keydata_offset=sizeof_leafnode_hdr;})
+      |ty -> Lwt.fail @@ BadNodeType ty
+    in
+      Lwt.return ()
+
   let free_space = function
     |`Root (_, kd, cl)
     |`Inner (_, kd, cl) -> cl.childlinks_offset - kd.next_keydata_offset - 8
@@ -224,6 +244,10 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
           then failwith "Implement log spilling"
           else blit_keydata cstr kd
     end;
+    Lwt.return ()
+
+  let rec lookup node key =
+    let%lwt key = check_key key in
     Lwt.return ()
 
   type filesystem = {
