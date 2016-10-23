@@ -1,8 +1,8 @@
 open Mirage
 
 let client =
-  let packages = [ "io-page" ] in
-  let libraries = [ "io-page"; "lwt.ppx" ] in
+  let packages = [ "io-page"; "lru-cache"; ] in
+  let libraries = [ "io-page"; "lwt.ppx"; "lru-cache"; ] in
   foreign
     ~libraries ~packages
     "Unikernel.Client" @@ console @-> block @-> job
