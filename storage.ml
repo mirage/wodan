@@ -50,9 +50,12 @@ let sizeof_crc = 4
 (* Contents: child node links, and logged data *)
 (* All node types end with a CRC *)
 (* rootnode_hdr
- * logged data: length-prefixed strings, grow from the left end towards the right
- * separation: at least one nul byte
- * child links: logical offsets, grow from the right end towards the left
+ * logged data: (key, datalen, data)*, grow from the left end towards the right
+ *
+ * separation: at least at uint64_t of all zeroes
+ * disambiguates from a valid logical offset
+ *
+ * child links: (key, logical offset)*, grow from the right end towards the left
  * crc *)
 
 [%%cstruct type innernode_hdr = {
@@ -71,43 +74,36 @@ let sizeof_crc = 4
 (* Contents: keys and data *)
 (* leafnode_hdr
  * (key, datalen, data)*
+ * optional padding
  * crc *)
 
 let sizeof_datalen = 2
 
 type nonleaf = {
-  (* in descending order. if the list isn't empty, last item must be
-   * sizeof_rootnode_hdr or sizeof_innernode_hdr respectively *)
-  mutable logdata_offsets: int list;
-  mutable next_logdata_offset: int;
   (* starts at blocksize - sizeof_crc, if there are no children *)
   mutable childlinks_offset: int;
 }
 
-type leaf = {
-  (* in descending order *)
+type keydata_index = {
+  (* in descending order. if the list isn't empty,
+   * last item must be sizeof_*node_hdr *)
   mutable keydata_offsets: int list;
   mutable next_keydata_offset: int;
 }
 
 type node = [
-  |`Root of Cstruct.t * nonleaf
-  |`Inner of Cstruct.t * nonleaf
-  |`Leaf of Cstruct.t * leaf]
+  |`Root of Cstruct.t * keydata_index * nonleaf
+  |`Inner of Cstruct.t * keydata_index * nonleaf
+  |`Leaf of Cstruct.t * keydata_index]
 
 
 let cstruct_of_node = function
-  |`Root (cstr, _)
-  |`Inner (cstr, _)
+  |`Root (cstr, _, _)
+  |`Inner (cstr, _, _)
   |`Leaf (cstr, _) -> cstr
 
 let generation_of_node node =
   get_anynode_hdr_generation @@ cstruct_of_node node
-
-let free_space = function
-  |`Root (cstr, nl)
-  |`Inner (cstr, nl) -> nl.childlinks_offset - nl.next_logdata_offset - 1
-  |`Leaf (cstr, lf) -> (Cstruct.len cstr) - lf.next_keydata_offset - sizeof_crc
 
 let rec make_fanned_io_list size cstr =
   if Cstruct.len cstr = 0 then []
@@ -154,12 +150,12 @@ type node_cache = {
 
 let rec mark_dirty cache old_generation =
   let entry = LRU.get cache.lru old_generation
-  (fun og -> failwith "Missing old_generation") in
+  (fun _ -> failwith "Missing old_generation") in
   let new_dn () =
     { dirty_node = entry.cached_node; dirty_children = []; } in
   match entry.cached_dirty_node with Some dn -> dn | None -> let dn = begin
     match entry.cached_node with
-    |`Root (cstr, _) ->
+    |`Root (cstr, _, _) ->
         let tree_id = get_rootnode_hdr_tree_id cstr in
         begin match Hashtbl.find_all cache.dirty_roots tree_id with
           |[] -> begin let dn = new_dn () in Hashtbl.add cache.dirty_roots tree_id dn; dn end
@@ -168,12 +164,12 @@ let rec mark_dirty cache old_generation =
     |`Inner _
     |`Leaf _ ->
         match ParentCache.find_all cache.parent_links entry.cached_node with
-        |[parent] -> let parent_dn = mark_dirty cache (generation_of_node parent) in
+        |[parent] -> let parent_dn = mark_dirty cache (generation_of_node parent) in begin
           match List.filter (fun dn -> dn.dirty_node == entry.cached_node) parent_dn.dirty_children with
             |[] -> begin let dn = new_dn () in parent_dn.dirty_children <- dn::parent_dn.dirty_children; dn end
             |[dn] -> dn
-            |_ -> failwith "dirty_node inconsistent"
-    |_ -> failwith "parent_links inconsistent"
+            |_ -> failwith "dirty_node inconsistent" end
+        |_ -> failwith "parent_links inconsistent"
   end in entry.cached_dirty_node <- Some dn; dn
 
 module type PARAMS = sig
@@ -199,21 +195,36 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     then Lwt.fail @@ BadKey key
     else Lwt.return key
 
-  let rec insert node key value =
+  let free_space = function
+    |`Root (_, kd, cl)
+    |`Inner (_, kd, cl) -> cl.childlinks_offset - kd.next_keydata_offset - 8
+    |`Leaf (_, kd) -> P.block_size - kd.next_keydata_offset - sizeof_crc
+
+  let insert node key value =
     let%lwt key = check_key key in
+    let free = free_space node in
     let len = Cstruct.len value in
     if len >= 65536 then Lwt.fail @@ ValueTooLarge value else
-    let free = free_space node in
-    match node with
-    |`Leaf (cstr, lf) ->
-        let len1 = P.key_size + sizeof_datalen + len in
-        if free < len1
-        then failwith "Implement leaf splitting"
-        else let off = lf.next_keydata_offset in
-        let () = lf.next_keydata_offset <- lf.next_keydata_offset + len1 in
-        let () = Cstruct.blit_from_string key 0 cstr off P.key_size in
-        let () = Cstruct.LE.set_uint16 cstr (off + P.key_size) len in
-        Lwt.return @@ Cstruct.blit value 0 cstr lf.next_keydata_offset len
+    let len1 = P.key_size + sizeof_datalen + len in
+    let blit_keydata cstr kd =
+      let off = kd.next_keydata_offset in begin
+        kd.next_keydata_offset <- kd.next_keydata_offset + len1;
+        Cstruct.blit_from_string key 0 cstr off P.key_size;
+        Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
+        Cstruct.blit value 0 cstr kd.next_keydata_offset len;
+    end in begin
+      match node with
+      |`Leaf (cstr, kd) ->
+          if free < len1
+          then failwith "Implement leaf splitting"
+          else blit_keydata cstr kd
+      |`Inner (cstr, kd, _)
+      |`Root (cstr, kd, _) ->
+          if free < len1
+          then failwith "Implement log spilling"
+          else blit_keydata cstr kd
+    end;
+    Lwt.return ()
 
   type filesystem = {
     (* Backing device *)
