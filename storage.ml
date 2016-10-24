@@ -196,7 +196,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let block_end = P.block_size - sizeof_crc
 
-  let _load_node cache cstr =
+  let _load_node cache cstr parent_key =
     let () = assert (Cstruct.len cstr = P.block_size) in
     if not (Crc32c.cstruct_valid cstr)
     then Lwt.fail BadCRC
@@ -212,7 +212,14 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
         {keydata_offsets=[]; next_keydata_offset=sizeof_leafnode_hdr;})
       |ty -> Lwt.fail @@ BadNodeType ty
     in
-      Lwt.return ()
+      let generation = generation_of_node node in
+      let key = LRUKey.ByGeneration generation in
+      let entry = {cached_node=node; cached_dirty_node=None; alloc_id=0L;} in
+      let entry1 = LRU.get cache.lru key (fun _ -> entry) in
+      let () = assert (entry == entry1) in
+      match parent_key with
+        |Some pk -> ParentCache.add cache.parent_links pk key;
+      Lwt.return (key, entry)
 
   let free_space = function
     |`Root (_, kd, cl)
