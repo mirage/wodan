@@ -116,41 +116,40 @@ type dirty_node = {
 }
 
 type lru_entry = {
-  mutable cached_dirty_node: dirty_node option;
   cached_node: node;
+  (* None if not dirty *)
+  mutable cached_dirty_node: dirty_node option;
+  (* 0 if not anonymous *)
+  alloc_id: int64;
 }
 
-module CachedNode = struct
-  type t = node
-  (* modulo 2**31 or 2**63 *)
-  let hash a = Int64.to_int (generation_of_node a)
-  let equal a b = Int64.equal (generation_of_node a) (generation_of_node b)
-end
-
-module ParentCache = Ephemeron.K1.Make(CachedNode)
-
 module LRUKey = struct
-  (* old_generation *)
-  type t = int64
-  let compare = Int64.compare
-  let witness = Int64.zero
+  type t = ByGeneration of int64 | ByAllocId of int64 | Sentinel
+  let compare = compare
+  let witness = Sentinel
+  let hash = Hashtbl.hash
+  let equal = (=)
 end
 
 module LRU = Lru_cache.Make(LRUKey)
+module ParentCache = Ephemeron.K1.Make(LRUKey)
 
 type node_cache = {
-  (* node -> node *)
-  parent_links: node ParentCache.t;
-  (* old_generation -> lru_entry
-   * keeps entry.cached_node alive in the ParentCache *)
+  (* LRUKey.t -> LRUKey.t *)
+  parent_links: LRUKey.t ParentCache.t;
+  (* LRUKey.t -> lru_entry
+   * keeps the ParentCache alive
+   * anonymous nodes are keyed by their alloc_id,
+   * everybody else by their generation *)
   lru: lru_entry LRU.t;
   (* tree_id -> dirty_node *)
   dirty_roots: (int32, dirty_node) Hashtbl.t;
+  next_alloc_id: int64;
 }
 
-let rec mark_dirty cache old_generation =
-  let entry = LRU.get cache.lru old_generation
-  (fun _ -> failwith "Missing old_generation") in
+let rec mark_dirty cache lru_key =
+  let entry = LRU.get cache.lru lru_key
+  (fun _ -> failwith "Missing LRU key") in
   let new_dn () =
     { dirty_node = entry.cached_node; dirty_children = []; } in
   match entry.cached_dirty_node with Some dn -> dn | None -> let dn = begin
@@ -163,8 +162,8 @@ let rec mark_dirty cache old_generation =
           |_ -> failwith "dirty_roots inconsistent" end
     |`Inner _
     |`Leaf _ ->
-        match ParentCache.find_all cache.parent_links entry.cached_node with
-        |[parent] -> let parent_dn = mark_dirty cache (generation_of_node parent) in begin
+        match ParentCache.find_all cache.parent_links lru_key with
+        |[parent_key] -> let parent_dn = mark_dirty cache parent_key in begin
           match List.filter (fun dn -> dn.dirty_node == entry.cached_node) parent_dn.dirty_children with
             |[] -> begin let dn = new_dn () in parent_dn.dirty_children <- dn::parent_dn.dirty_children; dn end
             |[dn] -> dn
