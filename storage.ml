@@ -12,7 +12,7 @@ exception BadCRC
 exception ReadError
 exception WriteError
 
-exception BadKey of string
+exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
 
@@ -230,9 +230,13 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
   type key = string
 
   let check_key key =
-    if String.length key <> P.key_size
+    if Cstruct.len key <> P.key_size
     then raise @@ BadKey key
     else key
+
+  let check_value_len value =
+    let len = Cstruct.len value in
+    if len >= 65536 then raise @@ ValueTooLarge value else len
 
   let block_end = P.block_size - sizeof_crc
 
@@ -262,7 +266,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       end;
       entry
 
-  let _load_node_at cache logical parent_key =
+  let _load_node_at open_fs logical highest_key parent_key =
+    (* TODO perform IO *)
     failwith "_load_node_at"
 
   let flush cache = ()
@@ -272,20 +277,47 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     |`Inner (_, kd, cl) -> cl.childlinks_offset - kd.next_keydata_offset - sizeof_logical
     |`Leaf (_, kd) -> P.block_size - kd.next_keydata_offset - sizeof_crc
 
-  let insert node key value =
+  type filesystem = {
+    (* Backing device *)
+    disk: B.t;
+    (* The exact size of IO the BLOCK accepts.
+     * Even larger powers of two won't work *)
+    (* 4096 with target=unix, 512 with virtualisation *)
+    sector_size: int;
+    (* IO on an erase block *)
+    block_io: Cstruct.t;
+    (* A view on block_io split as sector_size sized views *)
+    block_io_fanned: Cstruct.t list;
+  }
+
+  type open_fs = {
+    filesystem: filesystem;
+    node_cache: node_cache;
+  }
+
+  type root = {
+    open_fs: open_fs;
+    root_key: LRUKey.t;
+  }
+
+  let entry_of_root root =
+    LRU.get root.open_fs.node_cache.lru root.root_key
+    (fun _ -> failwith "missing root")
+
+  let insert root key value =
     let key = check_key key in
-    let free = free_space node in
-    let len = Cstruct.len value in
-    if len >= 65536 then raise @@ ValueTooLarge value else
+    let len = check_value_len value in
+    let entry = entry_of_root root in
+    let free = free_space entry.cached_node in
     let len1 = P.key_size + sizeof_datalen + len in
     let blit_keydata cstr kd =
       let off = kd.next_keydata_offset in begin
         kd.next_keydata_offset <- kd.next_keydata_offset + len1;
-        Cstruct.blit_from_string key 0 cstr off P.key_size;
+        Cstruct.blit key 0 cstr off P.key_size;
         Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
         Cstruct.blit value 0 cstr kd.next_keydata_offset len;
     end in begin
-      match node with
+      match entry.cached_node with
       |`Leaf (cstr, kd) ->
           if free < len1
           then failwith "Implement leaf splitting"
@@ -337,12 +369,12 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     |`AnonymousChild _ ->
         LRUKey.ByAllocId data
 
-  let rec _lookup cache lru_key key =
-    let cached_node = LRU.get cache.lru lru_key
+  let rec _lookup open_fs lru_key key =
+    let cached_node = LRU.get open_fs.node_cache.lru lru_key
     (fun _ -> failwith "Missing LRU entry") in
     let cstr = cstruct_of_node cached_node.cached_node in
     if cached_node.cache_state = NoKeysCached then
-      _cache_keydata cache cached_node;
+      _cache_keydata open_fs.node_cache cached_node;
       cached_node.cache_state <- LogKeysCached;
       match
         CstructKeyedMap.find key cached_node.logindex
@@ -353,39 +385,26 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
         |exception Not_found ->
             if has_childen cached_node.cached_node then
             if cached_node.cache_state = LogKeysCached then
-              _cache_children cache cached_node;
-            let _, cl = CstructKeyedMap.find_first (
+              _cache_children open_fs.node_cache cached_node;
+            let key1, cl = CstructKeyedMap.find_first (
               fun k -> Cstruct.compare k key >= 0) cached_node.children in
             match cl with
             |`CleanChild _ ->
                 let logical = _data_of_cl cstr cl in
                 let child_lru_key = LRUKey.ByLogical logical in
-                let child_entry = LRU.get cache.lru child_lru_key
-                (fun _ -> _load_node_at cache logical (Some lru_key)) in
-                _lookup cache child_lru_key key
+                let child_entry = LRU.get open_fs.node_cache.lru child_lru_key
+                (fun _ -> _load_node_at open_fs logical key1 (Some lru_key)) in
+                _lookup open_fs child_lru_key key
             |`DirtyChild _
             |`AnonymousChild _ ->
                 let child_lru_key = _lru_key_of_cl cstr cl in
-                let child_entry = LRU.get cache.lru child_lru_key
+                let child_entry = LRU.get open_fs.node_cache.lru child_lru_key
                 (fun _ -> failwith "Missing LRU entry for anonymous/dirty child") in
-                _lookup cache child_lru_key key
+                _lookup open_fs child_lru_key key
 
   let lookup root key =
     let key = check_key key in
-    ()
-
-  type filesystem = {
-    (* Backing device *)
-    disk: B.t;
-    (* The exact size of IO the BLOCK accepts.
-     * Even larger powers of two won't work *)
-    (* 4096 with target=unix, 512 with virtualisation *)
-    sector_size: int;
-    (* IO on an erase block *)
-    block_io: Cstruct.t;
-    (* A view on block_io split as sector_size sized views *)
-    block_io_fanned: Cstruct.t list;
-  }
+    _lookup root.open_fs root.root_key key
 
   let _sb_io block_io =
     Cstruct.sub block_io 0 sizeof_superblock
