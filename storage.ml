@@ -80,7 +80,14 @@ let sizeof_crc = 4
 
 let sizeof_datalen = 2
 
-type nonleaf = {
+let sizeof_logical = 8
+
+let rec make_fanned_io_list size cstr =
+  if Cstruct.len cstr = 0 then []
+  else let head, rest = Cstruct.split cstr size in
+  head::make_fanned_io_list size rest
+
+type childlinks = {
   (* starts at blocksize - sizeof_crc, if there are no children *)
   mutable childlinks_offset: int;
 }
@@ -92,9 +99,23 @@ type keydata_index = {
   mutable next_keydata_offset: int;
 }
 
+(* Use offsets so that data isn't duplicated
+ * Don't reference nodes directly, always go through the
+ * LRU to bump recently accessed nodes *)
+type childlink_entry = [
+  |`CleanChild of int (* offset, logical is at offset + P.key_size *)
+  |`DirtyChild of int (* offset, logical is at offset + P.key_size *)
+  |`AnonymousChild of int ] (* offset, alloc_id is at offset + P.key_size *)
+
+let offset_of_cl = function
+  |`CleanChild off
+  |`DirtyChild off
+  |`AnonymousChild off ->
+      off
+
 type node = [
-  |`Root of Cstruct.t * keydata_index * nonleaf
-  |`Inner of Cstruct.t * keydata_index * nonleaf
+  |`Root of Cstruct.t * keydata_index * childlinks
+  |`Inner of Cstruct.t * keydata_index * childlinks
   |`Leaf of Cstruct.t * keydata_index]
 
 let cstruct_of_node = function
@@ -102,18 +123,27 @@ let cstruct_of_node = function
   |`Inner (cstr, _, _)
   |`Leaf (cstr, _) -> cstr
 
+let keydata_of_node = function
+  |`Root (_, kd, _)
+  |`Inner (_, kd, _)
+  |`Leaf (_, kd) -> kd
+
 let generation_of_node node =
   get_anynode_hdr_generation @@ cstruct_of_node node
 
-let rec make_fanned_io_list size cstr =
-  if Cstruct.len cstr = 0 then []
-  else let head, rest = Cstruct.split cstr size in
-  head::make_fanned_io_list size rest
+let has_childen = function
+  |`Root _
+  |`Inner _ -> true
+  |_ -> false
 
 type dirty_node = {
   dirty_node: node;
   mutable dirty_children: dirty_node list;
 }
+
+module CstructKeyedMap = Map_pr869.Make(Cstruct)
+
+type cache_state = NoKeysCached | LogKeysCached | AllKeysCached
 
 type lru_entry = {
   cached_node: node;
@@ -121,10 +151,14 @@ type lru_entry = {
   mutable cached_dirty_node: dirty_node option;
   (* 0 if not anonymous *)
   alloc_id: int64;
+  mutable children: childlink_entry CstructKeyedMap.t;
+  mutable logindex: int CstructKeyedMap.t;
+  mutable highest_key: Cstruct.t;
+  mutable cache_state: cache_state;
 }
 
 module LRUKey = struct
-  type t = ByGeneration of int64 | ByAllocId of int64 | Sentinel
+  type t = ByLogical of int64 | ByAllocId of int64 | Sentinel
   let compare = compare
   let witness = Sentinel
   let hash = Hashtbl.hash
@@ -145,6 +179,8 @@ type node_cache = {
   (* tree_id -> dirty_node *)
   dirty_roots: (int32, dirty_node) Hashtbl.t;
   next_alloc_id: int64;
+  (* The next generation number we'll allocate *)
+  (*mutable next_generation: int64;*)
 }
 
 let rec mark_dirty cache lru_key =
@@ -163,7 +199,11 @@ let rec mark_dirty cache lru_key =
     |`Inner _
     |`Leaf _ ->
         match ParentCache.find_all cache.parent_links lru_key with
-        |[parent_key] -> let parent_dn = mark_dirty cache parent_key in begin
+        |[parent_key] ->
+            let parent_entry = LRU.get cache.lru parent_key
+            (fun _ -> failwith "missing parent_entry") in
+            let parent_dn = mark_dirty cache parent_key in
+        begin
           match List.filter (fun dn -> dn.dirty_node == entry.cached_node) parent_dn.dirty_children with
             |[] -> begin let dn = new_dn () in parent_dn.dirty_children <- dn::parent_dn.dirty_children; dn end
             |[dn] -> dn
@@ -191,46 +231,52 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let check_key key =
     if String.length key <> P.key_size
-    then Lwt.fail @@ BadKey key
-    else Lwt.return key
+    then raise @@ BadKey key
+    else key
 
   let block_end = P.block_size - sizeof_crc
 
-  let _load_node cache cstr parent_key =
+  let _load_node cache cstr logical highest_key parent_key =
     let () = assert (Cstruct.len cstr = P.block_size) in
     if not (Crc32c.cstruct_valid cstr)
-    then Lwt.fail BadCRC
-    else let%lwt node =
+    then raise BadCRC
+    else let node =
       match get_anynode_hdr_nodetype cstr with
-      |1 -> Lwt.return @@ `Root (cstr,
+      |1 -> `Root (cstr,
         {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;},
         {childlinks_offset=block_end;})
-      |2 -> Lwt.return @@ `Inner (cstr,
+      |2 -> `Inner (cstr,
         {keydata_offsets=[]; next_keydata_offset=sizeof_innernode_hdr;},
         {childlinks_offset=block_end;})
-      |3 -> Lwt.return @@ `Leaf (cstr,
+      |3 -> `Leaf (cstr,
         {keydata_offsets=[]; next_keydata_offset=sizeof_leafnode_hdr;})
-      |ty -> Lwt.fail @@ BadNodeType ty
+      |ty -> raise @@ BadNodeType ty
     in
-      let generation = generation_of_node node in
-      let key = LRUKey.ByGeneration generation in
-      let entry = {cached_node=node; cached_dirty_node=None; alloc_id=0L;} in
+      let key = LRUKey.ByLogical logical in
+      let entry = {cached_node=node; cached_dirty_node=None; alloc_id=0L; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
-      match parent_key with
-        |Some pk -> ParentCache.add cache.parent_links pk key;
-      Lwt.return (key, entry)
+      begin match parent_key with
+        |Some pk -> ParentCache.add cache.parent_links pk key
+        |_ -> ()
+      end;
+      entry
+
+  let _load_node_at cache logical parent_key =
+    failwith "_load_node_at"
+
+  let flush cache = ()
 
   let free_space = function
     |`Root (_, kd, cl)
-    |`Inner (_, kd, cl) -> cl.childlinks_offset - kd.next_keydata_offset - 8
+    |`Inner (_, kd, cl) -> cl.childlinks_offset - kd.next_keydata_offset - sizeof_logical
     |`Leaf (_, kd) -> P.block_size - kd.next_keydata_offset - sizeof_crc
 
   let insert node key value =
-    let%lwt key = check_key key in
+    let key = check_key key in
     let free = free_space node in
     let len = Cstruct.len value in
-    if len >= 65536 then Lwt.fail @@ ValueTooLarge value else
+    if len >= 65536 then raise @@ ValueTooLarge value else
     let len1 = P.key_size + sizeof_datalen + len in
     let blit_keydata cstr kd =
       let off = kd.next_keydata_offset in begin
@@ -250,11 +296,83 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
           then failwith "Implement log spilling"
           else blit_keydata cstr kd
     end;
-    Lwt.return ()
+    ()
 
-  let rec lookup node key =
-    let%lwt key = check_key key in
-    Lwt.return ()
+  let _cache_keydata cache cached_node =
+    let kd = keydata_of_node cached_node.cached_node in
+    cached_node.logindex <- List.fold_left (
+      fun acc off ->
+        let key = Cstruct.sub (
+          cstruct_of_node cached_node.cached_node) off P.key_size in
+        CstructKeyedMap.add key off acc)
+      CstructKeyedMap.empty kd.keydata_offsets
+
+  let rec _gen_childlink_offsets start =
+    if start >= P.block_size - sizeof_crc then []
+    else start::(_gen_childlink_offsets @@ start + P.key_size + sizeof_logical)
+
+  let _cache_children cache cached_node =
+    match cached_node.cached_node with
+    |`Leaf _ -> failwith "leaves have no children"
+    |`Root (_, _, cl)
+    |`Inner (_, _, cl) ->
+        cached_node.children <- List.fold_left (
+          fun acc off ->
+            let key = Cstruct.sub (
+              cstruct_of_node cached_node.cached_node) off P.key_size in
+            CstructKeyedMap.add key (`CleanChild off) acc)
+          CstructKeyedMap.empty (_gen_childlink_offsets cl.childlinks_offset)
+
+  let _read_data_from_log cached_node key = ()
+
+  let _data_of_cl cstr cl =
+    let off = offset_of_cl cl in
+    Cstruct.LE.get_uint64 cstr (off + P.key_size)
+
+  let _lru_key_of_cl cstr cl =
+    let data = _data_of_cl cstr cl in match cl with
+    |`CleanChild _
+    |`DirtyChild _ ->
+        LRUKey.ByLogical data
+    |`AnonymousChild _ ->
+        LRUKey.ByAllocId data
+
+  let rec _lookup cache lru_key key =
+    let cached_node = LRU.get cache.lru lru_key
+    (fun _ -> failwith "Missing LRU entry") in
+    let cstr = cstruct_of_node cached_node.cached_node in
+    if cached_node.cache_state = NoKeysCached then
+      _cache_keydata cache cached_node;
+      cached_node.cache_state <- LogKeysCached;
+      match
+        CstructKeyedMap.find key cached_node.logindex
+      with
+        |logoffset ->
+            let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
+            Cstruct.sub cstr (logoffset + P.key_size + 2) len
+        |exception Not_found ->
+            if has_childen cached_node.cached_node then
+            if cached_node.cache_state = LogKeysCached then
+              _cache_children cache cached_node;
+            let _, cl = CstructKeyedMap.find_first (
+              fun k -> Cstruct.compare k key >= 0) cached_node.children in
+            match cl with
+            |`CleanChild _ ->
+                let logical = _data_of_cl cstr cl in
+                let child_lru_key = LRUKey.ByLogical logical in
+                let child_entry = LRU.get cache.lru child_lru_key
+                (fun _ -> _load_node_at cache logical (Some lru_key)) in
+                _lookup cache child_lru_key key
+            |`DirtyChild _
+            |`AnonymousChild _ ->
+                let child_lru_key = _lru_key_of_cl cstr cl in
+                let child_entry = LRU.get cache.lru child_lru_key
+                (fun _ -> failwith "Missing LRU entry for anonymous/dirty child") in
+                _lookup cache child_lru_key key
+
+  let lookup root key =
+    let key = check_key key in
+    ()
 
   type filesystem = {
     (* Backing device *)
@@ -273,19 +391,19 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     Cstruct.sub block_io 0 sizeof_superblock
 
   let _read_superblock fs =
-    B.read fs.disk 0L fs.block_io_fanned >>= function
-      |`Error _ -> Lwt.fail ReadError
+    B.read fs.disk 0L fs.block_io_fanned >>= Lwt.wrap1 begin function
+      |`Error _ -> raise ReadError
       |`Ok () ->
           let sb = _sb_io fs.block_io in
       if Cstruct.to_string @@ get_superblock_magic sb <> superblock_magic
-      then Lwt.fail BadMagic
+      then raise BadMagic
       else if get_superblock_version sb <> superblock_version
-      then Lwt.fail BadVersion
+      then raise BadVersion
       else if get_superblock_incompat_flags sb <> 0l
-      then Lwt.fail BadFlags
+      then raise BadFlags
       else if not @@ Crc32c.cstruct_valid sb
-      then Lwt.fail BadCRC
-      else Lwt.return ()
+      then raise BadCRC
+      else () end
 
   (* Just the superblock for now.
    * Requires the caller to discard the entire device first.
