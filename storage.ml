@@ -16,6 +16,8 @@ exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
 
+exception TryAgain
+
 (* 512 bytes.  The rest of the block isn't crc-controlled. *)
 [%%cstruct type superblock = {
   magic: uint8_t [@len 16];
@@ -147,6 +149,7 @@ type lru_entry = {
   mutable highest_key: Cstruct.t;
   mutable cache_state: cache_state;
   raw_node: Cstruct.t;
+  io_data: Cstruct.t list;
   keydata: keydata_index;
 }
 
@@ -236,7 +239,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let block_end = P.block_size - sizeof_crc
 
-  let _load_node cache cstr logical highest_key parent_key =
+  let _load_node cache cstr io_data logical highest_key parent_key =
     let () = assert (Cstruct.len cstr = P.block_size) in
     if not (Crc32c.cstruct_valid cstr)
     then raise BadCRC
@@ -251,7 +254,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; keydata; cached_dirty_node=None; alloc_id=0L; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; alloc_id=0L; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       begin match parent_key with
@@ -259,10 +262,6 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
         |_ -> ()
       end;
       entry
-
-  let _load_node_at open_fs logical highest_key parent_key =
-    (* TODO perform IO *)
-    failwith "_load_node_at"
 
   let flush cache = ()
 
@@ -298,6 +297,18 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
   let entry_of_root root =
     LRU.get root.open_fs.node_cache.lru root.root_key
     (fun _ -> failwith "missing root")
+
+  let _load_node_at open_fs logical highest_key parent_key =
+    let cstr = Io_page.get_buf ~n:(P.block_size/Io_page.page_size) () in
+    let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
+    B.read open_fs.filesystem.disk 0L io_data >>= Lwt.wrap1 begin function
+      |`Error _ -> raise ReadError
+      |`Ok () ->
+          if not @@ Crc32c.cstruct_valid cstr
+          then raise BadCRC
+          else _load_node
+            open_fs.node_cache cstr io_data logical highest_key parent_key
+    end
 
   let insert root key value =
     let key = check_key key in
@@ -378,7 +389,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       with
         |logoffset ->
             let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
-            Cstruct.sub cstr (logoffset + P.key_size + 2) len
+            Lwt.return @@ Cstruct.sub cstr (logoffset + P.key_size + 2) len
         |exception Not_found ->
             if has_childen cached_node.cached_node then
             if cached_node.cache_state = LogKeysCached then
@@ -389,8 +400,14 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             |`CleanChild _ ->
                 let logical = _data_of_cl cstr cl in
                 let child_lru_key = LRUKey.ByLogical logical in
-                let child_entry = LRU.get open_fs.node_cache.lru child_lru_key
-                (fun _ -> _load_node_at open_fs logical key1 (Some lru_key)) in
+                let%lwt child_entry = match
+                  LRU.get open_fs.node_cache.lru child_lru_key
+                    (fun _ -> raise TryAgain) with
+                  |ce -> Lwt.return ce
+                  |exception TryAgain ->
+                      _load_node_at open_fs logical key1 (Some lru_key) >>= function ce ->
+                      Lwt.return @@ LRU.get open_fs.node_cache.lru child_lru_key (fun _ -> ce)
+                in
                 _lookup open_fs child_lru_key key
             |`DirtyChild _
             |`AnonymousChild _ ->
