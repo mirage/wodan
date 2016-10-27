@@ -114,26 +114,17 @@ let offset_of_cl = function
       off
 
 type node = [
-  |`Root of Cstruct.t * keydata_index * childlinks
-  |`Inner of Cstruct.t * keydata_index * childlinks
-  |`Leaf of Cstruct.t * keydata_index]
-
-let cstruct_of_node = function
-  |`Root (cstr, _, _)
-  |`Inner (cstr, _, _)
-  |`Leaf (cstr, _) -> cstr
-
-let keydata_of_node = function
-  |`Root (_, kd, _)
-  |`Inner (_, kd, _)
-  |`Leaf (_, kd) -> kd
-
-let generation_of_node node =
-  get_anynode_hdr_generation @@ cstruct_of_node node
+  |`Root of childlinks
+  |`Inner of childlinks
+  |`Leaf]
 
 let has_childen = function
   |`Root _
   |`Inner _ -> true
+  |_ -> false
+
+let is_root = function
+  |`Root _ -> true
   |_ -> false
 
 type dirty_node = {
@@ -155,7 +146,12 @@ type lru_entry = {
   mutable logindex: int CstructKeyedMap.t;
   mutable highest_key: Cstruct.t;
   mutable cache_state: cache_state;
+  raw_node: Cstruct.t;
+  keydata: keydata_index;
 }
+
+let generation_of_node entry =
+  get_anynode_hdr_generation entry.raw_node
 
 module LRUKey = struct
   type t = ByLogical of int64 | ByAllocId of int64 | Sentinel
@@ -190,14 +186,14 @@ let rec mark_dirty cache lru_key =
     { dirty_node = entry.cached_node; dirty_children = []; } in
   match entry.cached_dirty_node with Some dn -> dn | None -> let dn = begin
     match entry.cached_node with
-    |`Root (cstr, _, _) ->
-        let tree_id = get_rootnode_hdr_tree_id cstr in
+    |`Root _ ->
+        let tree_id = get_rootnode_hdr_tree_id entry.raw_node in
         begin match Hashtbl.find_all cache.dirty_roots tree_id with
           |[] -> begin let dn = new_dn () in Hashtbl.add cache.dirty_roots tree_id dn; dn end
           |[dn] -> dn
           |_ -> failwith "dirty_roots inconsistent" end
     |`Inner _
-    |`Leaf _ ->
+    |`Leaf ->
         match ParentCache.find_all cache.parent_links lru_key with
         |[parent_key] ->
             let parent_entry = LRU.get cache.lru parent_key
@@ -244,20 +240,18 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let () = assert (Cstruct.len cstr = P.block_size) in
     if not (Crc32c.cstruct_valid cstr)
     then raise BadCRC
-    else let node =
+    else let cached_node, keydata =
       match get_anynode_hdr_nodetype cstr with
-      |1 -> `Root (cstr,
-        {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;},
-        {childlinks_offset=block_end;})
-      |2 -> `Inner (cstr,
-        {keydata_offsets=[]; next_keydata_offset=sizeof_innernode_hdr;},
-        {childlinks_offset=block_end;})
-      |3 -> `Leaf (cstr,
-        {keydata_offsets=[]; next_keydata_offset=sizeof_leafnode_hdr;})
+      |1 -> `Root {childlinks_offset=block_end;},
+        {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;}
+      |2 -> `Inner {childlinks_offset=block_end;},
+        {keydata_offsets=[]; next_keydata_offset=sizeof_innernode_hdr;}
+      |3 -> `Leaf,
+        {keydata_offsets=[]; next_keydata_offset=sizeof_leafnode_hdr;}
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node=node; cached_dirty_node=None; alloc_id=0L; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+      let entry = {cached_node; raw_node=cstr; keydata; cached_dirty_node=None; alloc_id=0L; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       begin match parent_key with
@@ -272,10 +266,11 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let flush cache = ()
 
-  let free_space = function
-    |`Root (_, kd, cl)
-    |`Inner (_, kd, cl) -> cl.childlinks_offset - kd.next_keydata_offset - sizeof_logical
-    |`Leaf (_, kd) -> P.block_size - kd.next_keydata_offset - sizeof_crc
+  let free_space entry =
+    match entry.cached_node with
+    |`Root cl
+    |`Inner cl -> cl.childlinks_offset - entry.keydata.next_keydata_offset - sizeof_logical
+    |`Leaf -> P.block_size - entry.keydata.next_keydata_offset - sizeof_crc
 
   type filesystem = {
     (* Backing device *)
@@ -308,9 +303,11 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let key = check_key key in
     let len = check_value_len value in
     let entry = entry_of_root root in
-    let free = free_space entry.cached_node in
+    let free = free_space entry in
     let len1 = P.key_size + sizeof_datalen + len in
-    let blit_keydata cstr kd =
+    let blit_keydata () =
+      let cstr = entry.raw_node in
+      let kd = entry.keydata in
       let off = kd.next_keydata_offset in begin
         kd.next_keydata_offset <- kd.next_keydata_offset + len1;
         Cstruct.blit key 0 cstr off P.key_size;
@@ -318,24 +315,24 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
         Cstruct.blit value 0 cstr kd.next_keydata_offset len;
     end in begin
       match entry.cached_node with
-      |`Leaf (cstr, kd) ->
+      |`Leaf ->
           if free < len1
           then failwith "Implement leaf splitting"
-          else blit_keydata cstr kd
-      |`Inner (cstr, kd, _)
-      |`Root (cstr, kd, _) ->
+          else blit_keydata ()
+      |`Inner _
+      |`Root _ ->
           if free < len1
           then failwith "Implement log spilling"
-          else blit_keydata cstr kd
+          else blit_keydata ()
     end;
     ()
 
   let _cache_keydata cache cached_node =
-    let kd = keydata_of_node cached_node.cached_node in
+    let kd = cached_node.keydata in
     cached_node.logindex <- List.fold_left (
       fun acc off ->
         let key = Cstruct.sub (
-          cstruct_of_node cached_node.cached_node) off P.key_size in
+          cached_node.raw_node) off P.key_size in
         CstructKeyedMap.add key off acc)
       CstructKeyedMap.empty kd.keydata_offsets
 
@@ -345,13 +342,13 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let _cache_children cache cached_node =
     match cached_node.cached_node with
-    |`Leaf _ -> failwith "leaves have no children"
-    |`Root (_, _, cl)
-    |`Inner (_, _, cl) ->
+    |`Leaf -> failwith "leaves have no children"
+    |`Root cl
+    |`Inner cl ->
         cached_node.children <- List.fold_left (
           fun acc off ->
             let key = Cstruct.sub (
-              cstruct_of_node cached_node.cached_node) off P.key_size in
+              cached_node.raw_node) off P.key_size in
             CstructKeyedMap.add key (`CleanChild off) acc)
           CstructKeyedMap.empty (_gen_childlink_offsets cl.childlinks_offset)
 
@@ -372,7 +369,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
   let rec _lookup open_fs lru_key key =
     let cached_node = LRU.get open_fs.node_cache.lru lru_key
     (fun _ -> failwith "Missing LRU entry") in
-    let cstr = cstruct_of_node cached_node.cached_node in
+    let cstr = cached_node.raw_node in
     if cached_node.cache_state = NoKeysCached then
       _cache_keydata open_fs.node_cache cached_node;
       cached_node.cache_state <- LogKeysCached;
