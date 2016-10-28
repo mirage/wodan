@@ -45,9 +45,10 @@ let sizeof_crc = 4
 [%%cstruct type rootnode_hdr = {
   (* nodetype = 1 *)
   nodetype: uint8_t;
-  (* will this wrap? there's no uint128_t *)
+  (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
   generation: uint64_t;
   tree_id: uint32_t;
+  next_tree_id: uint32_t;
   prev_tree: uint64_t;
 }[@@little_endian]]
 (* Contents: child node links, and logged data *)
@@ -142,8 +143,6 @@ type lru_entry = {
   cached_node: node;
   (* None if not dirty *)
   mutable cached_dirty_node: dirty_node option;
-  (* 0 if not anonymous *)
-  alloc_id: int64;
   mutable children: childlink_entry CstructKeyedMap.t;
   mutable logindex: int CstructKeyedMap.t;
   mutable highest_key: Cstruct.t;
@@ -177,10 +176,26 @@ type node_cache = {
   lru: lru_entry LRU.t;
   (* tree_id -> dirty_node *)
   dirty_roots: (int32, dirty_node) Hashtbl.t;
-  next_alloc_id: int64;
+  mutable next_tree_id: int32;
+  mutable next_alloc_id: int64;
   (* The next generation number we'll allocate *)
-  (*mutable next_generation: int64;*)
+  mutable next_generation: int64;
 }
+
+let next_tree_id cache =
+  let r = cache.next_tree_id in
+  let () = cache.next_tree_id <- Int32.add cache.next_tree_id 1l in
+  r
+
+let next_alloc_id cache =
+  let r = cache.next_alloc_id in
+  let () = cache.next_alloc_id <- Int64.add cache.next_alloc_id 1L in
+  r
+
+let next_generation cache =
+  let r = cache.next_generation in
+  let () = cache.next_generation <- Int64.add cache.next_generation 1L in
+  r
 
 let rec mark_dirty cache lru_key =
   let entry = LRU.get cache.lru lru_key
@@ -239,6 +254,9 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let block_end = P.block_size - sizeof_crc
 
+  let _get_block_io () =
+    Io_page.get_buf ~n:(P.block_size/Io_page.page_size) ()
+
   let _load_node cache cstr io_data logical highest_key parent_key =
     let () = assert (Cstruct.len cstr = P.block_size) in
     if not (Crc32c.cstruct_valid cstr)
@@ -254,7 +272,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; alloc_id=0L; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       begin match parent_key with
@@ -299,7 +317,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     (fun _ -> failwith "missing root")
 
   let _load_node_at open_fs logical highest_key parent_key =
-    let cstr = Io_page.get_buf ~n:(P.block_size/Io_page.page_size) () in
+    let cstr = _get_block_io () in
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
     B.read open_fs.filesystem.disk 0L io_data >>= Lwt.wrap1 begin function
       |`Error _ -> raise ReadError
@@ -309,6 +327,26 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
           else _load_node
             open_fs.node_cache cstr io_data logical highest_key parent_key
     end
+
+  let top_key = Cstruct.of_string @@ String.make P.key_size '\255'
+
+  let _new_root open_fs =
+    let cache = open_fs.node_cache in
+    let cstr = _get_block_io () in
+    let () = assert (Cstruct.len cstr = P.block_size) in
+    (* going through _load_node would simplify things, but waste a
+       bit of io and cpu computing and rechecking a crc *)
+    let () = set_rootnode_hdr_nodetype cstr 1 in
+    let () = set_rootnode_hdr_tree_id cstr @@ next_tree_id cache in
+    let key = LRUKey.ByAllocId (next_alloc_id cache) in
+    let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
+    let cached_node = `Root {childlinks_offset=block_end;} in
+    let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
+    let highest_key = top_key in
+    let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+      let entry1 = LRU.get cache.lru key (fun _ -> entry) in
+      let () = assert (entry == entry1) in
+      entry
 
   let insert root key value =
     let key = check_key key in
@@ -348,7 +386,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       CstructKeyedMap.empty kd.keydata_offsets
 
   let rec _gen_childlink_offsets start =
-    if start >= P.block_size - sizeof_crc then []
+    if start >= block_end then []
     else start::(_gen_childlink_offsets @@ start + P.key_size + sizeof_logical)
 
   let _cache_children cache cached_node =
@@ -460,7 +498,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       let () = assert (page_size >= sector_size) in
       let () = assert (block_size mod page_size = 0) in
       let () = assert (page_size mod sector_size = 0) in
-      let block_io = Io_page.get_buf ~n:(block_size/page_size) () in
+      let block_io = _get_block_io () in
       let fs = {
         disk;
         sector_size;
