@@ -27,9 +27,11 @@ exception TryAgain
   (* refuse to mount if unknown incompat_flags are set *)
   incompat_flags: uint32_t;
   block_size: uint32_t;
+  (* TODO make this a per-tree setting *)
   key_size: uint8_t;
   first_block_written: uint64_t;
-  reserved: uint8_t [@len 467];
+  logical_size: uint64_t;
+  reserved: uint8_t [@len 459];
   crc: uint32_t;
 }[@@little_endian]]
 
@@ -91,7 +93,7 @@ let rec make_fanned_io_list size cstr =
   head::make_fanned_io_list size rest
 
 type childlinks = {
-  (* starts at blocksize - sizeof_crc, if there are no children *)
+  (* starts at block_size - sizeof_crc, if there are no children *)
   mutable childlinks_offset: int;
 }
 
@@ -214,7 +216,7 @@ let rec mark_dirty cache lru_key =
     |`Leaf ->
         match ParentCache.find_all cache.parent_links lru_key with
         |[parent_key] ->
-            let parent_entry = LRU.get cache.lru parent_key
+            let _parent_entry = LRU.get cache.lru parent_key
             (fun _ -> failwith "missing parent_entry") in
             let parent_dn = mark_dirty cache parent_key in
         begin
@@ -237,7 +239,9 @@ module StandardParams : PARAMS = struct
   let key_size = 20;
 end
 
-type deviceOpenMode = OpenExistingDevice|FormatEmptyDevice
+type deviceOpenMode =
+  |OpenExistingDevice
+  |FormatEmptyDevice of int64
 
 
 module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
@@ -281,13 +285,15 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       end;
       entry
 
-  let flush cache = ()
+  let flush open_fs =
+    ignore open_fs;
+    failwith "flush"
 
   let free_space entry =
     match entry.cached_node with
     |`Root cl
     |`Inner cl -> cl.childlinks_offset - entry.keydata.next_keydata_offset - sizeof_logical
-    |`Leaf -> P.block_size - entry.keydata.next_keydata_offset - sizeof_crc
+    |`Leaf -> block_end - entry.keydata.next_keydata_offset
 
   type filesystem = {
     (* Backing device *)
@@ -296,6 +302,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
      * Even larger powers of two won't work *)
     (* 4096 with target=unix, 512 with virtualisation *)
     sector_size: int;
+    (* the sector size that's used for the write offset *)
+    other_sector_size: int;
     (* IO on an erase block *)
     block_io: Cstruct.t;
     (* A view on block_io split as sector_size sized views *)
@@ -319,7 +327,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
   let _load_node_at open_fs logical highest_key parent_key =
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
-    B.read open_fs.filesystem.disk 0L io_data >>= Lwt.wrap1 begin function
+    B.read open_fs.filesystem.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= Lwt.wrap1 begin function
       |`Error _ -> raise ReadError
       |`Ok () ->
           if not @@ Crc32c.cstruct_valid cstr
@@ -328,7 +336,19 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             open_fs.node_cache cstr io_data logical highest_key parent_key
     end
 
-  let top_key = Cstruct.of_string @@ String.make P.key_size '\255'
+  let top_key = Cstruct.of_string (String.make P.key_size '\255')
+
+  let _write_node_at open_fs alloc_id logical =
+    let key = LRUKey.ByAllocId alloc_id in
+    let cache = open_fs.node_cache in
+    let entry = LRU.get cache.lru key (
+      fun _ -> failwith "missing lru entry in _write_node_at") in
+    Crc32c.cstruct_reset entry.raw_node;
+    Logs.info (fun m -> m "_write_node_at logical:%Ld" logical);
+    B.write open_fs.filesystem.disk
+        Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
+      |`Ok () -> Lwt.return ()
+      |`Error _ -> Lwt.fail WriteError
 
   let _new_root open_fs =
     let cache = open_fs.node_cache in
@@ -338,7 +358,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
        bit of io and cpu computing and rechecking a crc *)
     let () = set_rootnode_hdr_nodetype cstr 1 in
     let () = set_rootnode_hdr_tree_id cstr @@ next_tree_id cache in
-    let key = LRUKey.ByAllocId (next_alloc_id cache) in
+    let alloc_id = next_alloc_id cache in
+    let key = LRUKey.ByAllocId alloc_id in
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
     let cached_node = `Root {childlinks_offset=block_end;} in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
@@ -346,7 +367,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
-      entry
+      alloc_id, entry
 
   let insert root key value =
     let key = check_key key in
@@ -377,6 +398,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     ()
 
   let _cache_keydata cache cached_node =
+    ignore cache;
     let kd = cached_node.keydata in
     cached_node.logindex <- List.fold_left (
       fun acc off ->
@@ -390,6 +412,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     else start::(_gen_childlink_offsets @@ start + P.key_size + sizeof_logical)
 
   let _cache_children cache cached_node =
+    ignore cache;
     match cached_node.cached_node with
     |`Leaf -> failwith "leaves have no children"
     |`Root cl
@@ -401,7 +424,10 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             CstructKeyedMap.add key (`CleanChild off) acc)
           CstructKeyedMap.empty (_gen_childlink_offsets cl.childlinks_offset)
 
-  let _read_data_from_log cached_node key = ()
+  let _read_data_from_log cached_node key =
+    ignore cached_node;
+    ignore key;
+    failwith "_read_data_from_log"
 
   let _data_of_cl cstr cl =
     let off = offset_of_cl cl in
@@ -438,7 +464,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             |`CleanChild _ ->
                 let logical = _data_of_cl cstr cl in
                 let child_lru_key = LRUKey.ByLogical logical in
-                let%lwt child_entry = match
+                let%lwt _child_entry = match
                   LRU.get open_fs.node_cache.lru child_lru_key
                     (fun _ -> raise TryAgain) with
                   |ce -> Lwt.return ce
@@ -450,7 +476,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             |`DirtyChild _
             |`AnonymousChild _ ->
                 let child_lru_key = _lru_key_of_cl cstr cl in
-                let child_entry = LRU.get open_fs.node_cache.lru child_lru_key
+                let _child_entry = LRU.get open_fs.node_cache.lru child_lru_key
                 (fun _ -> failwith "Missing LRU entry for anonymous/dirty child") in
                 _lookup open_fs child_lru_key key
 
@@ -476,22 +502,26 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       then raise BadCRC
       else () end
 
-  (* Just the superblock for now.
-   * Requires the caller to discard the entire device first.
-   * Don't add call sites beyond prepare_io, the io pages must be zeroed *)
-  let _format fs =
-    let sb = _sb_io fs.block_io in
+  (* Requires the caller to discard the entire device first.
+     Don't add call sites beyond prepare_io, the io pages must be zeroed *)
+  let _format open_fs logical_size =
+    let alloc_id, _root = _new_root open_fs in
+    let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
+    let%lwt () = _write_node_at open_fs alloc_id first_block_written in
+    let sb = _sb_io open_fs.filesystem.block_io in
     let () = set_superblock_magic superblock_magic 0 sb in
     let () = set_superblock_version sb superblock_version in
     let () = set_superblock_block_size sb (Int32.of_int P.block_size) in
+    let () = set_superblock_first_block_written sb first_block_written in
+    let () = set_superblock_logical_size sb logical_size in
     let () = Crc32c.cstruct_reset sb in
-    B.write fs.disk 0L fs.block_io_fanned >>= function
+    B.write open_fs.filesystem.disk 0L open_fs.filesystem.block_io_fanned >>= function
       |`Ok () -> Lwt.return ()
       |`Error _ -> Lwt.fail WriteError
 
-  let prepare_io mode disk =
+  let prepare_io mode disk cache_size =
     B.get_info disk >>= fun info ->
-      let sector_size = info.B.sector_size in
+      let sector_size = if false then info.B.sector_size else 4096 in
       let block_size = P.block_size in
       let page_size = Io_page.page_size in
       let () = assert (block_size >= page_size) in
@@ -502,16 +532,38 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       let fs = {
         disk;
         sector_size;
+        other_sector_size=info.B.sector_size;
         block_io;
         block_io_fanned = make_fanned_io_list sector_size block_io;
-      } in match mode with
-        |OpenExistingDevice -> let%lwt () = _read_superblock fs in Lwt.return fs
-        |FormatEmptyDevice -> let%lwt () = _format fs in Lwt.return fs
+      } in
+      match mode with
+        |OpenExistingDevice ->
+            let%lwt () = _read_superblock fs in Lwt.return fs
+        |FormatEmptyDevice logical_size ->
+            let cache = {
+              parent_links=ParentCache.create 100; (* use the flush size? *)
+              lru=LRU.init ~size:cache_size;
+              dirty_roots=Hashtbl.create 1;
+              next_tree_id=1l;
+              next_alloc_id=1L;
+              next_generation=1L;
+            } in
+            let open_fs = { filesystem=fs; node_cache=cache; } in
+            let%lwt () = _format open_fs logical_size in
+            Lwt.return fs
 
-  let write_block fs logical = failwith "write_block"
+  let write_block fs logical =
+    ignore fs;
+    ignore logical;
+    failwith "write_block"
 
-  let read_block fs logical = failwith "read_block"
+  let read_block fs logical =
+    ignore fs;
+    ignore logical;
+    failwith "read_block"
 
-  let find_newest_root fs = failwith "find_newest_root"
+  let find_newest_root fs =
+    ignore fs;
+    failwith "find_newest_root"
 end
 
