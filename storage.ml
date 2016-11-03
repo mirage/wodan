@@ -138,6 +138,7 @@ type dirty_node = {
 }
 
 module CstructKeyedMap = Map_pr869.Make(Cstruct)
+module RootMap = Map.Make(Int32)
 
 type cache_state = NoKeysCached | LogKeysCached | AllKeysCached
 
@@ -455,6 +456,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
             Lwt.return @@ Cstruct.sub cstr (logoffset + P.key_size + 2) len
         |exception Not_found ->
+            let () = Logs.info (fun m -> m "_lookup") in
             if has_childen cached_node.cached_node then
             if cached_node.cache_state = LogKeysCached then
               _cache_children open_fs.node_cache cached_node;
@@ -538,19 +540,21 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       } in
       match mode with
         |OpenExistingDevice ->
-            let%lwt () = _read_superblock fs in Lwt.return fs
+            let%lwt () = _read_superblock fs in failwith "parse root and cache values"
         |FormatEmptyDevice logical_size ->
+            let root_tree_id=1l in
             let cache = {
               parent_links=ParentCache.create 100; (* use the flush size? *)
               lru=LRU.init ~size:cache_size;
               dirty_roots=Hashtbl.create 1;
-              next_tree_id=1l;
+              next_tree_id=root_tree_id;
               next_alloc_id=1L;
               next_generation=1L;
             } in
             let open_fs = { filesystem=fs; node_cache=cache; } in
             let%lwt () = _format open_fs logical_size in
-            Lwt.return fs
+            let root_key = LRUKey.ByAllocId 1L in
+            Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
 
   let write_block fs logical =
     ignore fs;
