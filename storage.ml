@@ -383,7 +383,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
         kd.next_keydata_offset <- kd.next_keydata_offset + len1;
         Cstruct.blit key 0 cstr off P.key_size;
         Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
-        Cstruct.blit value 0 cstr kd.next_keydata_offset len;
+        Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
+        kd.keydata_offsets <- off::kd.keydata_offsets;
     end in begin
       match entry.cached_node with
       |`Leaf ->
@@ -414,6 +415,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let _cache_children cache cached_node =
     ignore cache;
+    (*let () = Logs.info (fun m -> m "_cache_children") in*)
     match cached_node.cached_node with
     |`Leaf -> failwith "leaves have no children"
     |`Root cl
@@ -460,8 +462,10 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             if has_childen cached_node.cached_node then
             if cached_node.cache_state = LogKeysCached then
               _cache_children open_fs.node_cache cached_node;
+            (*let () = Logs.info (fun m -> m "find_first A") in*)
             let key1, cl = CstructKeyedMap.find_first (
               fun k -> Cstruct.compare k key >= 0) cached_node.children in
+            (*let () = Logs.info (fun m -> m "find_first B") in*)
             match cl with
             |`CleanChild _ ->
                 let logical = _data_of_cl cstr cl in
