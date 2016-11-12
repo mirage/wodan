@@ -35,6 +35,7 @@ exception TryAgain
   crc: uint32_t;
 }[@@little_endian]]
 
+let () = assert (String.length superblock_magic = 16)
 let () = assert (sizeof_superblock = 512)
 
 let sizeof_crc = 4
@@ -183,6 +184,7 @@ type node_cache = {
   mutable next_alloc_id: int64;
   (* The next generation number we'll allocate *)
   mutable next_generation: int64;
+  logical_size: int64;
 }
 
 let next_tree_id cache =
@@ -262,40 +264,6 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
   let _get_block_io () =
     Io_page.get_buf ~n:(P.block_size/Io_page.page_size) ()
 
-  let _load_node cache cstr io_data logical highest_key parent_key =
-    let () = assert (Cstruct.len cstr = P.block_size) in
-    if not (Crc32c.cstruct_valid cstr)
-    then raise BadCRC
-    else let cached_node, keydata =
-      match get_anynode_hdr_nodetype cstr with
-      |1 -> `Root {childlinks_offset=block_end;},
-        {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;}
-      |2 -> `Inner {childlinks_offset=block_end;},
-        {keydata_offsets=[]; next_keydata_offset=sizeof_innernode_hdr;}
-      |3 -> `Leaf,
-        {keydata_offsets=[]; next_keydata_offset=sizeof_leafnode_hdr;}
-      |ty -> raise @@ BadNodeType ty
-    in
-      let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
-      let entry1 = LRU.get cache.lru key (fun _ -> entry) in
-      let () = assert (entry == entry1) in
-      begin match parent_key with
-        |Some pk -> ParentCache.add cache.parent_links pk key
-        |_ -> ()
-      end;
-      entry
-
-  let flush open_fs =
-    ignore open_fs;
-    failwith "flush"
-
-  let free_space entry =
-    match entry.cached_node with
-    |`Root cl
-    |`Inner cl -> cl.childlinks_offset - entry.keydata.next_keydata_offset - sizeof_logical
-    |`Leaf -> block_end - entry.keydata.next_keydata_offset
-
   type filesystem = {
     (* Backing device *)
     disk: B.t;
@@ -316,6 +284,53 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     node_cache: node_cache;
   }
 
+  let _load_data_at filesystem logical =
+    let cstr = _get_block_io () in
+    let io_data = make_fanned_io_list filesystem.sector_size cstr in
+    B.read filesystem.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= Lwt.wrap1 begin function
+      |`Error _ -> raise ReadError
+      |`Ok () ->
+          if not @@ Crc32c.cstruct_valid cstr
+          then raise BadCRC
+          else cstr, io_data end
+
+  let _load_node_at open_fs logical highest_key parent_key =
+    let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
+    let cache = open_fs.node_cache in
+    let () = assert (Cstruct.len cstr = P.block_size) in
+    (*if not (Crc32c.cstruct_valid cstr)
+    then raise BadCRC
+    else*) (* checked by _load_data_at *)
+      let cached_node, keydata =
+      match get_anynode_hdr_nodetype cstr with
+      |1 -> `Root {childlinks_offset=block_end;},
+        {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;}
+      |2 -> `Inner {childlinks_offset=block_end;},
+        {keydata_offsets=[]; next_keydata_offset=sizeof_innernode_hdr;}
+      |3 -> `Leaf,
+        {keydata_offsets=[]; next_keydata_offset=sizeof_leafnode_hdr;}
+      |ty -> raise @@ BadNodeType ty
+    in
+      let key = LRUKey.ByLogical logical in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+      let entry1 = LRU.get cache.lru key (fun _ -> entry) in
+      let () = assert (entry == entry1) in
+      begin match parent_key with
+        |Some pk -> ParentCache.add cache.parent_links pk key
+        |_ -> ()
+      end;
+      Lwt.return entry
+
+  let flush open_fs =
+    ignore open_fs;
+    failwith "flush"
+
+  let free_space entry =
+    match entry.cached_node with
+    |`Root cl
+    |`Inner cl -> cl.childlinks_offset - entry.keydata.next_keydata_offset - sizeof_logical
+    |`Leaf -> block_end - entry.keydata.next_keydata_offset
+
   type root = {
     open_fs: open_fs;
     root_key: LRUKey.t;
@@ -325,19 +340,11 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     LRU.get root.open_fs.node_cache.lru root.root_key
     (fun _ -> failwith "missing root")
 
-  let _load_node_at open_fs logical highest_key parent_key =
-    let cstr = _get_block_io () in
-    let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
-    B.read open_fs.filesystem.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= Lwt.wrap1 begin function
-      |`Error _ -> raise ReadError
-      |`Ok () ->
-          if not @@ Crc32c.cstruct_valid cstr
-          then raise BadCRC
-          else _load_node
-            open_fs.node_cache cstr io_data logical highest_key parent_key
-    end
-
+  let zero_key = Cstruct.create P.key_size
   let top_key = Cstruct.of_string (String.make P.key_size '\255')
+  let zero_data = Cstruct.create P.block_size
+  let is_zero_data cstr =
+    Cstruct.equal cstr zero_data
 
   let _write_node_at open_fs alloc_id logical =
     let key = LRUKey.ByAllocId alloc_id in
@@ -355,7 +362,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let cache = open_fs.node_cache in
     let cstr = _get_block_io () in
     let () = assert (Cstruct.len cstr = P.block_size) in
-    (* going through _load_node would simplify things, but waste a
+    (* going through _load_node_at would simplify things, but waste a
        bit of io and cpu computing and rechecking a crc *)
     let () = set_rootnode_hdr_nodetype cstr 1 in
     let () = set_rootnode_hdr_tree_id cstr @@ next_tree_id cache in
@@ -506,7 +513,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       then raise BadFlags
       else if not @@ Crc32c.cstruct_valid sb
       then raise BadCRC
-      else () end
+      else get_superblock_first_block_written sb, get_superblock_logical_size sb
+    end
 
   (* Requires the caller to discard the entire device first.
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
@@ -525,6 +533,45 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       |`Ok () -> Lwt.return ()
       |`Error _ -> Lwt.fail WriteError
 
+  let _mid_range start end_ lsize = (* might overflow, limit lsize *)
+    (* if start = end_, we pick the farthest logical address *)
+    if Int64.(succ start) = end_ || (
+      Int64.(succ start) = lsize && end_ = 1L) then None else
+    let end_ = if Int64.compare start end_ < 0 then end_ else Int64.(add end_ lsize) in
+    let mid = Int64.(shift_right_logical (add start end_) 1) in
+    let mid = Int64.(rem mid lsize) in
+    let mid = if mid = 0L then 1L else mid in
+    Some mid
+
+  let _scan_for_root fs start0 lsize =
+    let cstr = _get_block_io () in
+    let io_data = make_fanned_io_list fs.sector_size cstr in
+
+    let read logical =
+      B.read fs.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= function
+      |`Error _ -> Lwt.fail ReadError
+      |`Ok () -> Lwt.return () in
+
+    let scan_range start =
+      (* Placeholder.
+         TODO scan_range start end
+         TODO use is_zero_data, type checks, crc checks, and loop *)
+      let%lwt () = read start in
+      Lwt.return (start, get_anynode_hdr_generation cstr) in
+
+    let rec sfr_rec start0 end0 gen0 =
+      (* end/start swapped on purpose *)
+      match _mid_range end0 start0 lsize with
+      | None -> Lwt.return end0
+      | Some start1 ->
+      let%lwt end1, gen1 = scan_range start1 in
+      if gen0 < gen1
+      then sfr_rec start0 end1 gen1
+      else sfr_rec start1 end0 gen0 in
+
+    let%lwt end0, gen0 = scan_range start0
+    in sfr_rec start0 end0 gen0
+
   let prepare_io mode disk cache_size =
     B.get_info disk >>= fun info ->
       let sector_size = if false then info.B.sector_size else 4096 in
@@ -538,24 +585,44 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       let fs = {
         disk;
         sector_size;
-        other_sector_size=info.B.sector_size;
+        other_sector_size = info.B.sector_size;
         block_io;
         block_io_fanned = make_fanned_io_list sector_size block_io;
       } in
       match mode with
         |OpenExistingDevice ->
-            let%lwt () = _read_superblock fs in failwith "parse root and cache values"
+            let%lwt fbw, logical_size = _read_superblock fs in
+            let%lwt lroot = _scan_for_root fs fbw logical_size in
+            let%lwt cstr, _io_data = _load_data_at fs lroot in
+            let typ = get_anynode_hdr_nodetype cstr in
+            let () = if typ <> 1 then raise @@ BadNodeType typ in
+            let root_generation = get_rootnode_hdr_generation cstr in
+            let root_tree_id = get_rootnode_hdr_tree_id cstr in
+            let node_cache = {
+              parent_links=ParentCache.create 100;
+              lru=LRU.init ~size:cache_size;
+              dirty_roots=Hashtbl.create 1;
+              next_tree_id=get_rootnode_hdr_next_tree_id cstr;
+              next_alloc_id=1L;
+              next_generation=Int64.add 1L root_generation;
+              logical_size;
+            } in
+            let open_fs = { filesystem=fs; node_cache; } in
+            let root_key = LRUKey.ByLogical lroot in
+            (* TODO parse other roots *)
+            Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
         |FormatEmptyDevice logical_size ->
             let root_tree_id=1l in
-            let cache = {
+            let node_cache = {
               parent_links=ParentCache.create 100; (* use the flush size? *)
               lru=LRU.init ~size:cache_size;
               dirty_roots=Hashtbl.create 1;
               next_tree_id=root_tree_id;
               next_alloc_id=1L;
               next_generation=1L;
+              logical_size;
             } in
-            let open_fs = { filesystem=fs; node_cache=cache; } in
+            let open_fs = { filesystem=fs; node_cache; } in
             let%lwt () = _format open_fs logical_size in
             let root_key = LRUKey.ByAllocId 1L in
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
