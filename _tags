@@ -1,6 +1,6 @@
 <main.*>: package(cstruct.ppx,mirage-types,mirage-logs,lwt.ppx,io-page,lru-cache,logs,nocrypto)
 <storage.*>: package(cstruct.ppx,mirage-types,mirage-logs,lwt.ppx,io-page,lru-cache,logs,nocrypto)
-<key_gen.*>: package(functoria.runtime,mirage.runtime)
+<key_gen.*>: package(functoria-runtime,mirage-runtime)
 <unikernel.*>: package(mirage-types,lwt.ppx,cstruct)
 <crc32c*>: package(cstruct)
 

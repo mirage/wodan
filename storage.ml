@@ -2,6 +2,7 @@ open Lwt.Infix
 
 let superblock_magic = "kvqnsfmnlsvqfpge"
 let superblock_version = 1l
+let max_dirty = 128
 
 
 exception BadMagic
@@ -113,7 +114,7 @@ type childlink_entry = [
   |`DirtyChild of int (* offset, logical is at offset + P.key_size *)
   |`AnonymousChild of int ] (* offset, alloc_id is at offset + P.key_size *)
 
-let offset_of_cl = function
+let offset_of_cl : childlink_entry -> int = function
   |`CleanChild off
   |`DirtyChild off
   |`AnonymousChild off ->
@@ -133,20 +134,30 @@ let is_root = function
   |`Root _ -> true
   |_ -> false
 
-type dirty_node = {
-  dirty_node: node;
-  mutable dirty_children: dirty_node list;
-}
-
 module CstructKeyedMap = Map_pr869.Make(Cstruct)
 module RootMap = Map.Make(Int32)
+
+module LRUKey = struct
+  type t = ByLogical of int64 | ByAllocId of int64 | Sentinel
+  let compare = compare
+  let witness = Sentinel
+  let hash = Hashtbl.hash
+  let equal = (=)
+end
+
+type dirty_info = {
+  (* These LRU keys are of the form ByAllocId alloc_id *)
+  mutable dirty_children: LRUKey.t list;
+}
 
 type cache_state = NoKeysCached | LogKeysCached | AllKeysCached
 
 type lru_entry = {
   cached_node: node;
-  (* None if not dirty *)
-  mutable cached_dirty_node: dirty_node option;
+  (* A node is dirty iff it's referenced from dirty_roots
+     through a dirty_children list.
+     We use an option here to make checking for dirtiness faster *)
+  mutable dirty_info: dirty_info option;
   mutable children: childlink_entry CstructKeyedMap.t;
   mutable logindex: int CstructKeyedMap.t;
   mutable highest_key: Cstruct.t;
@@ -159,15 +170,10 @@ type lru_entry = {
 let generation_of_node entry =
   get_anynode_hdr_generation entry.raw_node
 
-module LRUKey = struct
-  type t = ByLogical of int64 | ByAllocId of int64 | Sentinel
-  let compare = compare
-  let witness = Sentinel
-  let hash = Hashtbl.hash
-  let equal = (=)
-end
-
 module LRU = Lru_cache.Make(LRUKey)
+(* LRUKey.t -> parent LRUKey.t *)
+(* parent is only alive as long as the lru_key is *)
+(* TODO: use LRUKey.t in more places where alloc_id is used, to ensure liveness *)
 module ParentCache = Ephemeron.K1.Make(LRUKey)
 
 type node_cache = {
@@ -178,8 +184,8 @@ type node_cache = {
    * anonymous nodes are keyed by their alloc_id,
    * everybody else by their generation *)
   lru: lru_entry LRU.t;
-  (* tree_id -> dirty_node *)
-  dirty_roots: (int32, dirty_node) Hashtbl.t;
+  (* tree_id -> ByAllocId alloc_id *)
+  dirty_roots: (int32, LRUKey.t) Hashtbl.t;
   mutable next_tree_id: int32;
   mutable next_alloc_id: int64;
   (* The next generation number we'll allocate *)
@@ -202,18 +208,16 @@ let next_generation cache =
   let () = cache.next_generation <- Int64.add cache.next_generation 1L in
   r
 
-let rec mark_dirty cache lru_key =
+let rec mark_dirty cache lru_key : dirty_info =
   let entry = LRU.get cache.lru lru_key
   (fun _ -> failwith "Missing LRU key") in
-  let new_dn () =
-    { dirty_node = entry.cached_node; dirty_children = []; } in
-  match entry.cached_dirty_node with Some dn -> dn | None -> let dn = begin
+  match entry.dirty_info with
+  |None -> begin
     match entry.cached_node with
     |`Root _ ->
         let tree_id = get_rootnode_hdr_tree_id entry.raw_node in
         begin match Hashtbl.find_all cache.dirty_roots tree_id with
-          |[] -> begin let dn = new_dn () in Hashtbl.add cache.dirty_roots tree_id dn; dn end
-          |[dn] -> dn
+          |[] -> begin Hashtbl.add cache.dirty_roots tree_id lru_key end
           |_ -> failwith "dirty_roots inconsistent" end
     |`Inner _
     |`Leaf ->
@@ -221,14 +225,14 @@ let rec mark_dirty cache lru_key =
         |[parent_key] ->
             let _parent_entry = LRU.get cache.lru parent_key
             (fun _ -> failwith "missing parent_entry") in
-            let parent_dn = mark_dirty cache parent_key in
+            let parent_di = mark_dirty cache parent_key in
         begin
-          match List.filter (fun dn -> dn.dirty_node == entry.cached_node) parent_dn.dirty_children with
-            |[] -> begin let dn = new_dn () in parent_dn.dirty_children <- dn::parent_dn.dirty_children; dn end
-            |[dn] -> dn
+          match List.filter (fun lk -> lk == lru_key) parent_di.dirty_children with
+            |[] -> begin parent_di.dirty_children <- lru_key::parent_di.dirty_children end
             |_ -> failwith "dirty_node inconsistent" end
-        |_ -> failwith "parent_links inconsistent"
-  end in entry.cached_dirty_node <- Some dn; dn
+        |_ -> failwith "parent_links inconsistent";
+    end; let di = { dirty_children=[]; } in entry.dirty_info <- Some di; di
+  |Some di -> di
 
 module type PARAMS = sig
   (* in bytes *)
@@ -312,7 +316,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       begin match parent_key with
@@ -322,7 +326,17 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       Lwt.return entry
 
   let flush open_fs =
-    ignore open_fs;
+    let rec flush_rec lru_key = begin (* TODO write to disk *)
+      let entry = LRU.get open_fs.node_cache.lru lru_key
+        (fun _ -> failwith "missing lru_key") in
+      let Some di = entry.dirty_info in
+      List.iter flush_rec di.dirty_children;
+      ()
+    end in
+    Hashtbl.iter begin fun tid root ->
+        flush_rec root
+      end
+      open_fs.node_cache.dirty_roots;
     failwith "flush"
 
   let free_space entry =
@@ -372,7 +386,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let cached_node = `Root {childlinks_offset=block_end;} in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
     let highest_key = top_key in
-    let entry = {cached_node; raw_node=cstr; io_data; keydata; cached_dirty_node=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+    let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       alloc_id, entry
@@ -443,6 +457,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let off = offset_of_cl cl in
     Cstruct.LE.get_uint64 cstr (off + P.key_size)
 
+  (* LRU key for a child link *)
   let _lru_key_of_cl cstr cl =
     let data = _data_of_cl cstr cl in match cl with
     |`CleanChild _
