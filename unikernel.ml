@@ -6,7 +6,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
   let start _con disk _crypto =
     let%lwt info = B.get_info disk in
     let%lwt roots = Stor.prepare_io (Storage.FormatEmptyDevice
-      Int64.(div (mul info.B.size_sectors @@ of_int info.B.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
+      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
     (*let%lwt roots1 = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in*)
     let root = Storage.RootMap.find 1l roots in
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in

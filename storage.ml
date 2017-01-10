@@ -292,8 +292,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list filesystem.sector_size cstr in
     B.read filesystem.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= Lwt.wrap1 begin function
-      |`Error _ -> raise ReadError
-      |`Ok () ->
+      |Result.Error _ -> raise ReadError
+      |Result.Ok () ->
           if not @@ Crc32c.cstruct_valid cstr
           then raise BadCRC
           else cstr, io_data end
@@ -325,20 +325,6 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       end;
       Lwt.return entry
 
-  let flush open_fs =
-    let rec flush_rec lru_key = begin (* TODO write to disk *)
-      let entry = LRU.get open_fs.node_cache.lru lru_key
-        (fun _ -> failwith "missing lru_key") in
-      let Some di = entry.dirty_info in
-      List.iter flush_rec di.dirty_children;
-      ()
-    end in
-    Hashtbl.iter begin fun tid root ->
-        flush_rec root
-      end
-      open_fs.node_cache.dirty_roots;
-    failwith "flush"
-
   let free_space entry =
     match entry.cached_node with
     |`Root cl
@@ -369,8 +355,22 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     Logs.info (fun m -> m "_write_node_at logical:%Ld" logical);
     B.write open_fs.filesystem.disk
         Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
-      |`Ok () -> Lwt.return ()
-      |`Error _ -> Lwt.fail WriteError
+      |Result.Ok () -> Lwt.return ()
+      |Result.Error _ -> Lwt.fail WriteError
+
+  let flush open_fs =
+    let rec flush_rec (completion_list : unit Lwt.t list) lru_key = begin (* TODO write to disk *)
+      let entry = LRU.get open_fs.node_cache.lru lru_key
+        (fun _ -> failwith "missing lru_key") in
+      let Some di = entry.dirty_info in
+      let completion_list = List.fold_left flush_rec completion_list di.dirty_children in
+      let logical = failwith "Implement bitmap tracking" in
+      let LRUKey.ByAllocId alloc_id = lru_key in
+      (_write_node_at open_fs alloc_id logical) :: completion_list
+    end in
+    Hashtbl.fold (fun tid lru_key completion_list ->
+        flush_rec completion_list lru_key)
+      open_fs.node_cache.dirty_roots []
 
   let _new_root open_fs =
     let cache = open_fs.node_cache in
@@ -517,8 +517,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let _read_superblock fs =
     B.read fs.disk 0L fs.block_io_fanned >>= Lwt.wrap1 begin function
-      |`Error _ -> raise ReadError
-      |`Ok () ->
+      |Result.Error _ -> raise ReadError
+      |Result.Ok () ->
           let sb = _sb_io fs.block_io in
       if Cstruct.to_string @@ get_superblock_magic sb <> superblock_magic
       then raise BadMagic
@@ -545,8 +545,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let () = set_superblock_logical_size sb logical_size in
     let () = Crc32c.cstruct_reset sb in
     B.write open_fs.filesystem.disk 0L open_fs.filesystem.block_io_fanned >>= function
-      |`Ok () -> Lwt.return ()
-      |`Error _ -> Lwt.fail WriteError
+      |Result.Ok () -> Lwt.return ()
+      |Result.Error _ -> Lwt.fail WriteError
 
   let _mid_range start end_ lsize = (* might overflow, limit lsize *)
     (* if start = end_, we pick the farthest logical address *)
@@ -564,8 +564,8 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
     let read logical =
       B.read fs.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= function
-      |`Error _ -> Lwt.fail ReadError
-      |`Ok () -> Lwt.return () in
+      |Result.Error _ -> Lwt.fail ReadError
+      |Result.Ok () -> Lwt.return () in
 
     let scan_range start =
       (* Placeholder.
@@ -589,7 +589,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
 
   let prepare_io mode disk cache_size =
     B.get_info disk >>= fun info ->
-      let sector_size = if false then info.B.sector_size else 4096 in
+      let sector_size = if false then info.sector_size else 4096 in
       let block_size = P.block_size in
       let page_size = Io_page.page_size in
       let () = assert (block_size >= page_size) in
@@ -600,7 +600,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       let fs = {
         disk;
         sector_size;
-        other_sector_size = info.B.sector_size;
+        other_sector_size = info.sector_size;
         block_io;
         block_io_fanned = make_fanned_io_list sector_size block_io;
       } in

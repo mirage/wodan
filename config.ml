@@ -1,10 +1,9 @@
 open Mirage
 
 let client =
-  let packages = [ "mirage-logs"; "nocrypto"; "io-page"; "lru-cache"; ] in
-  let libraries = [ "mirage-logs"; "nocrypto"; "io-page"; "lwt.ppx"; "lru-cache"; ] in
+  let packages = [ package "mirage-logs"; package "nocrypto"; package "io-page"; package "lru-cache"; ] in
   foreign
-    ~libraries ~packages
+    ~packages
     ~deps:[abstract nocrypto]
     "Unikernel.Client" @@ console @-> block @-> job
 
