@@ -191,6 +191,8 @@ type node_cache = {
   (* The next generation number we'll allocate *)
   mutable next_generation: int64;
   logical_size: int64;
+  (* Logical -> bit.  Zero iff free. *)
+  space_map: Bitv.t;
 }
 
 let next_tree_id cache =
@@ -353,6 +355,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
       fun _ -> failwith "missing lru entry in _write_node_at") in
     Crc32c.cstruct_reset entry.raw_node;
     Logs.info (fun m -> m "_write_node_at logical:%Ld" logical);
+    Bitv.set cache.space_map (Int64.to_int logical) true; (* XXX are ints enough *)
     B.write open_fs.filesystem.disk
         Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
       |Result.Ok () -> Lwt.return ()
@@ -613,6 +616,9 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             let () = if typ <> 1 then raise @@ BadNodeType typ in
             let root_generation = get_rootnode_hdr_generation cstr in
             let root_tree_id = get_rootnode_hdr_tree_id cstr in
+            let space_map = Bitv.create (Int64.to_int logical_size) false in (* XXX unchecked truncation *)
+            Bitv.set space_map 0 true;
+            (* TODO scan space map *)
             let node_cache = {
               parent_links=ParentCache.create 100;
               lru=LRU.init ~size:cache_size;
@@ -621,13 +627,16 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
               next_alloc_id=1L;
               next_generation=Int64.add 1L root_generation;
               logical_size;
+              space_map;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             let root_key = LRUKey.ByLogical lroot in
             (* TODO parse other roots *)
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
         |FormatEmptyDevice logical_size ->
-            let root_tree_id=1l in
+            let root_tree_id = 1l in
+            let space_map = Bitv.create (Int64.to_int logical_size) false in (* XXX unchecked truncation *)
+            Bitv.set space_map 0 true;
             let node_cache = {
               parent_links=ParentCache.create 100; (* use the flush size? *)
               lru=LRU.init ~size:cache_size;
@@ -636,6 +645,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
               next_alloc_id=1L;
               next_generation=1L;
               logical_size;
+              space_map;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             let%lwt () = _format open_fs logical_size in
