@@ -515,6 +515,23 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
     let key = check_key key in
     _lookup root.open_fs root.root_key key
 
+  let rec _scan_all_nodes open_fs logical =
+    (* TODO add more fsck style checks *)
+    let log_int = Int64.to_int logical in (* XXX check truncation *)
+    let sm = Bitv.get open_fs.node_cache.space_map log_int in
+    if sm then failwith "logical address referenced twice";
+    Bitv.set open_fs.node_cache.space_map log_int true;
+    let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
+    match get_anynode_hdr_nodetype cstr with
+    |1 (* root *)
+    |2 (* inner *) ->
+        let rec scan_key off =
+        let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
+        if log1 != 0L then let%lwt () = _scan_all_nodes open_fs log1 in scan_key (off - P.key_size - sizeof_logical) else Lwt.return ()
+        in scan_key (block_end - P.key_size - sizeof_logical)
+    |3 (* leaf *) -> Lwt.return ()
+    |ty -> Lwt.fail (BadNodeType ty)
+
   let _sb_io block_io =
     Cstruct.sub block_io 0 sizeof_superblock
 
@@ -618,7 +635,6 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
             let root_tree_id = get_rootnode_hdr_tree_id cstr in
             let space_map = Bitv.create (Int64.to_int logical_size) false in (* XXX unchecked truncation *)
             Bitv.set space_map 0 true;
-            (* TODO scan space map *)
             let node_cache = {
               parent_links=ParentCache.create 100;
               lru=LRU.init ~size:cache_size;
@@ -630,6 +646,7 @@ module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
               space_map;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
+            let%lwt () = _scan_all_nodes open_fs lroot in
             let root_key = LRUKey.ByLogical lroot in
             (* TODO parse other roots *)
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
