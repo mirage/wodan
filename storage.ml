@@ -253,7 +253,7 @@ type deviceOpenMode =
   |FormatEmptyDevice of int64
 
 
-module Make(B: V1_LWT.BLOCK)(P: PARAMS) = struct
+module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   type key = string
 
   let check_key key =

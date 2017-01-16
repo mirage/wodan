@@ -1,4 +1,4 @@
-open V1_LWT
+open Mirage_types_lwt
 
 module Client (C: CONSOLE) (B: BLOCK) = struct
   module Stor = Storage.Make(B)(Storage.StandardParams)
