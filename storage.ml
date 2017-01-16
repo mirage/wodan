@@ -190,10 +190,25 @@ type node_cache = {
   mutable next_alloc_id: int64;
   (* The next generation number we'll allocate *)
   mutable next_generation: int64;
+  (* The next logical address we'll allocate (if free) *)
+  mutable next_logical_alloc: int64;
+  mutable free_count: int64;
   logical_size: int64;
   (* Logical -> bit.  Zero iff free. *)
   space_map: Bitv.t;
 }
+
+let next_logical_novalid cache logical =
+  let log1 = Int64.succ logical in
+  if log1 = cache.logical_size then 1L else log1
+
+let next_logical_alloc_valid cache =
+  if cache.free_count = 0L then failwith "No free space";
+  let rec after log =
+    if not @@ Bitv.get cache.space_map (Int64.to_int log (*XXX*)) then log else
+      after @@ Int64.succ log
+  in let loc = after cache.next_logical_alloc in
+  cache.next_logical_alloc <- next_logical_novalid cache loc; loc
 
 let next_tree_id cache =
   let r = cache.next_tree_id in
@@ -348,14 +363,16 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let is_zero_data cstr =
     Cstruct.equal cstr zero_data
 
-  let _write_node_at open_fs alloc_id logical =
+  let _write_node open_fs alloc_id =
     let key = LRUKey.ByAllocId alloc_id in
     let cache = open_fs.node_cache in
     let entry = LRU.get cache.lru key (
-      fun _ -> failwith "missing lru entry in _write_node_at") in
+      fun _ -> failwith "missing lru entry in _write_node") in
     Crc32c.cstruct_reset entry.raw_node;
-    Logs.info (fun m -> m "_write_node_at logical:%Ld" logical);
+    let logical = next_logical_alloc_valid cache in
+    Logs.info (fun m -> m "_write_node logical:%Ld" logical);
     Bitv.set cache.space_map (Int64.to_int logical) true; (* XXX are ints enough *)
+    cache.free_count <- Int64.pred cache.free_count;
     B.write open_fs.filesystem.disk
         Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
       |Result.Ok () -> Lwt.return ()
@@ -367,9 +384,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         (fun _ -> failwith "missing lru_key") in
       let Some di = entry.dirty_info in
       let completion_list = List.fold_left flush_rec completion_list di.dirty_children in
-      let logical = failwith "Implement bitmap tracking" in
       let LRUKey.ByAllocId alloc_id = lru_key in
-      (_write_node_at open_fs alloc_id logical) :: completion_list
+      (_write_node open_fs alloc_id) :: completion_list
     end in
     Hashtbl.fold (fun tid lru_key completion_list ->
         flush_rec completion_list lru_key)
@@ -517,10 +533,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let rec _scan_all_nodes open_fs logical =
     (* TODO add more fsck style checks *)
+    let cache = open_fs.node_cache in
     let log_int = Int64.to_int logical in (* XXX check truncation *)
-    let sm = Bitv.get open_fs.node_cache.space_map log_int in
+    let sm = Bitv.get cache.space_map log_int in
     if sm then failwith "logical address referenced twice";
-    Bitv.set open_fs.node_cache.space_map log_int true;
+    Bitv.set cache.space_map log_int true;
+    cache.free_count <- Int64.pred cache.free_count;
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     match get_anynode_hdr_nodetype cstr with
     |1 (* root *)
@@ -553,10 +571,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   (* Requires the caller to discard the entire device first.
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
-  let _format open_fs logical_size =
+  let _format open_fs logical_size first_block_written =
     let alloc_id, _root = _new_root open_fs in
-    let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
-    let%lwt () = _write_node_at open_fs alloc_id first_block_written in
+    let%lwt () = _write_node open_fs alloc_id in
     let sb = _sb_io open_fs.filesystem.block_io in
     let () = set_superblock_magic superblock_magic 0 sb in
     let () = set_superblock_version sb superblock_version in
@@ -635,6 +652,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let root_tree_id = get_rootnode_hdr_tree_id cstr in
             let space_map = Bitv.create (Int64.to_int logical_size) false in (* XXX unchecked truncation *)
             Bitv.set space_map 0 true;
+            let free_count = Int64.pred logical_size in
             let node_cache = {
               parent_links=ParentCache.create 100;
               lru=LRU.init ~size:cache_size;
@@ -644,6 +662,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               next_generation=Int64.add 1L root_generation;
               logical_size;
               space_map;
+              free_count;
+              next_logical_alloc=lroot; (* in use, but that's okay *)
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             let%lwt () = _scan_all_nodes open_fs lroot in
@@ -654,6 +674,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let root_tree_id = 1l in
             let space_map = Bitv.create (Int64.to_int logical_size) false in (* XXX unchecked truncation *)
             Bitv.set space_map 0 true;
+            let free_count = Int64.pred logical_size in
+            let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
             let node_cache = {
               parent_links=ParentCache.create 100; (* use the flush size? *)
               lru=LRU.init ~size:cache_size;
@@ -663,9 +685,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               next_generation=1L;
               logical_size;
               space_map;
+              free_count;
+              next_logical_alloc=first_block_written;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
-            let%lwt () = _format open_fs logical_size in
+            let%lwt () = _format open_fs logical_size first_block_written in
             let root_key = LRUKey.ByAllocId 1L in
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
 
