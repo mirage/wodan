@@ -387,9 +387,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       let LRUKey.ByAllocId alloc_id = lru_key in
       (_write_node open_fs alloc_id) :: completion_list
     end in
-    Hashtbl.fold (fun tid lru_key completion_list ->
+    Lwt.join (Hashtbl.fold (fun tid lru_key completion_list ->
         flush_rec completion_list lru_key)
-      open_fs.node_cache.dirty_roots []
+      open_fs.node_cache.dirty_roots [])
 
   let _new_root open_fs =
     let cache = open_fs.node_cache in
