@@ -12,6 +12,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     let () = Stor.insert root key cval in
+    let%lwt () = Stor.flush root.open_fs in
     let%lwt cval1 = Stor.lookup root key in
     (*let () = Cstruct.hexdump cval1 in*)
     let () = assert (Cstruct.equal cval cval1) in
