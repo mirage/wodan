@@ -226,6 +226,7 @@ let next_generation cache =
   r
 
 let rec mark_dirty cache lru_key : dirty_info =
+  Logs.info (fun m -> m "mark_dirty");
   let entry = LRU.get cache.lru lru_key
   (fun _ -> failwith "Missing LRU key") in
   match entry.dirty_info with
@@ -379,6 +380,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |Result.Error _ -> Lwt.fail WriteError
 
   let flush open_fs =
+    Logs.info (fun m -> m "flushing %d dirty roots" (Hashtbl.length open_fs.node_cache.dirty_roots));
     let rec flush_rec (completion_list : unit Lwt.t list) lru_key = begin (* TODO write to disk *)
       let entry = LRU.get open_fs.node_cache.lru lru_key
         (fun _ -> failwith "missing lru_key") in
@@ -435,7 +437,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |`Root _ ->
           if free < len1
           then failwith "Implement log spilling"
-          else blit_keydata ()
+          else begin blit_keydata (); ignore @@ mark_dirty root.open_fs.node_cache root.root_key end
     end;
     ()
 
