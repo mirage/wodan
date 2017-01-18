@@ -309,7 +309,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let _load_data_at filesystem logical =
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list filesystem.sector_size cstr in
-    B.read filesystem.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= Lwt.wrap1 begin function
+    B.read filesystem.disk Int64.(div (mul logical @@ of_int P.block_size) @@ of_int filesystem.other_sector_size) io_data >>= Lwt.wrap1 begin function
       |Result.Error _ -> raise ReadError
       |Result.Ok () ->
           if not @@ Crc32c.cstruct_valid cstr
@@ -598,11 +598,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Some mid
 
   let _scan_for_root fs start0 lsize =
+    Logs.info (fun m -> m "_scan_for_root");
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list fs.sector_size cstr in
 
     let read logical =
-      B.read fs.disk Int64.(mul logical @@ of_int P.block_size) io_data >>= function
+      B.read fs.disk Int64.(div (mul logical @@ of_int P.block_size) @@ of_int fs.other_sector_size) io_data >>= function
       |Result.Error _ -> Lwt.fail ReadError
       |Result.Ok () -> Lwt.return () in
 
