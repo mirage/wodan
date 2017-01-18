@@ -534,6 +534,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     _lookup root.open_fs root.root_key key
 
   let rec _scan_all_nodes open_fs logical =
+    Logs.info (fun m -> m "_scan_all_nodes %Ld" logical);
     (* TODO add more fsck style checks *)
     let cache = open_fs.node_cache in
     let log_int = Int64.to_int logical in (* XXX check truncation *)
@@ -547,7 +548,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     |2 (* inner *) ->
         let rec scan_key off =
         let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-        if log1 != 0L then let%lwt () = _scan_all_nodes open_fs log1 in scan_key (off - P.key_size - sizeof_logical) else Lwt.return ()
+        if log1 <> 0L then let%lwt () = _scan_all_nodes open_fs log1 in scan_key (off - P.key_size - sizeof_logical) else Lwt.return ()
         in scan_key (block_end - P.key_size - sizeof_logical)
     |3 (* leaf *) -> Lwt.return ()
     |ty -> Lwt.fail (BadNodeType ty)
