@@ -212,17 +212,17 @@ let next_logical_alloc_valid cache =
 
 let next_tree_id cache =
   let r = cache.next_tree_id in
-  let () = cache.next_tree_id <- Int32.add cache.next_tree_id 1l in
+  let () = cache.next_tree_id <- Int32.succ cache.next_tree_id in
   r
 
 let next_alloc_id cache =
   let r = cache.next_alloc_id in
-  let () = cache.next_alloc_id <- Int64.add cache.next_alloc_id 1L in
+  let () = cache.next_alloc_id <- Int64.succ cache.next_alloc_id in
   r
 
 let next_generation cache =
   let r = cache.next_generation in
-  let () = cache.next_generation <- Int64.add cache.next_generation 1L in
+  let () = cache.next_generation <- Int64.succ cache.next_generation in
   r
 
 let rec mark_dirty cache lru_key : dirty_info =
@@ -369,6 +369,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let cache = open_fs.node_cache in
     let entry = LRU.get cache.lru key (
       fun _ -> failwith "missing lru entry in _write_node") in
+    set_anynode_hdr_generation entry.raw_node (next_generation open_fs.node_cache);
     Crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
     Logs.info (fun m -> m "_write_node logical:%Ld" logical);
@@ -663,7 +664,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               dirty_roots=Hashtbl.create 1;
               next_tree_id=get_rootnode_hdr_next_tree_id cstr;
               next_alloc_id=1L;
-              next_generation=Int64.add 1L root_generation;
+              next_generation=Int64.succ root_generation;
               logical_size;
               space_map;
               free_count;
