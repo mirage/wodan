@@ -697,19 +697,5 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let%lwt () = _format open_fs logical_size first_block_written in
             let root_key = LRUKey.ByAllocId 1L in
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
-
-  let write_block fs logical =
-    ignore fs;
-    ignore logical;
-    failwith "write_block"
-
-  let read_block fs logical =
-    ignore fs;
-    ignore logical;
-    failwith "read_block"
-
-  let find_newest_root fs =
-    ignore fs;
-    failwith "find_newest_root"
 end
 
