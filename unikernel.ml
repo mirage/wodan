@@ -16,5 +16,9 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let%lwt cval1 = Stor.lookup root key in
     (*let () = Cstruct.hexdump cval1 in*)
     let () = assert (Cstruct.equal cval cval1) in
+    let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
+    let root = Storage.RootMap.find 1l roots in
+    let%lwt cval2 = Stor.lookup root key in
+    let () = assert (Cstruct.equal cval cval2) in
     Lwt.return ()
 end
