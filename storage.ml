@@ -166,6 +166,7 @@ type lru_entry = {
   raw_node: Cstruct.t;
   io_data: Cstruct.t list;
   keydata: keydata_index;
+  mutable prev_logical: int64 option;
 }
 
 let generation_of_node entry =
@@ -358,7 +359,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=top_key;} in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=top_key; prev_logical=Some logical} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       Lwt.return entry
@@ -379,7 +380,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=Some logical} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       begin match parent_key with
@@ -412,7 +413,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
     Logs.info (fun m -> m "_write_node logical:%Ld" logical);
+    begin match entry.prev_logical with
+    |Some plog ->
+        Bitv.set cache.space_map (Int64.to_int plog) false (* XXX are ints enough *)
+    |None -> () end;
     Bitv.set cache.space_map (Int64.to_int logical) true; (* XXX are ints enough *)
+    entry.prev_logical <- Some logical;
     cache.free_count <- Int64.pred cache.free_count;
     B.write open_fs.filesystem.disk
         Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
@@ -447,7 +453,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let cached_node = `Root {childlinks_offset=block_end;} in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
     let highest_key = top_key in
-    let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key;} in
+    let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=None} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       alloc_id, entry
