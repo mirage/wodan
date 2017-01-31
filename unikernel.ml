@@ -20,5 +20,10 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let root = Storage.RootMap.find 1l roots in
     let%lwt cval2 = Stor.lookup root key in
     let () = assert (Cstruct.equal cval cval2) in
+    while true do
+      let key = Nocrypto.Rng.generate 20 and
+        cval = Nocrypto.Rng.generate 40 in
+      Stor.insert root key cval
+    done;
     Lwt.return ()
 end

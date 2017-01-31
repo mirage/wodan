@@ -228,7 +228,7 @@ let next_generation cache =
   r
 
 let rec mark_dirty cache lru_key : dirty_info =
-  Logs.info (fun m -> m "mark_dirty");
+  (*Logs.info (fun m -> m "mark_dirty");*)
   let entry = LRU.get cache.lru lru_key
   (fun _ -> failwith "Missing LRU key") in
   match entry.dirty_info with
