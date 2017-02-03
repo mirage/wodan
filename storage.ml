@@ -126,8 +126,8 @@ type node = [
   |`Inner of childlinks
   |`Leaf]
 
-let has_childen = function
-  |`Root _
+let may_have_children = function
+  |`Root _ (* a root may also contain only log data *)
   |`Inner _ -> true
   |_ -> false
 
@@ -541,8 +541,23 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let median = fst @@ List.nth binds (n/2) in
             entry1.highest_key <- median;
             let logi1, logi2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.logindex in
-            let child1, child2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.children in
-            failwith "Blit for node splitting"
+            let cl1, cl2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.children in
+            let blit_kd_child off centry =
+              let cstr0 = entry.raw_node in
+              let cstr1 = centry.raw_node in
+              let ckd = centry.keydata in
+              let off1 = ckd.next_keydata_offset in
+              let len = Cstruct.LE.get_uint16 cstr0 (off + P.key_size) in
+              let len1 = P.key_size + sizeof_datalen + len in
+              Cstruct.blit cstr0 off cstr1 off1 len1;
+              ckd.keydata_offsets <- off1::ckd.keydata_offsets;
+              ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
+            in let blit_cd_child cle centry = ()
+            in
+            CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
+            CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
+            CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry1) cl1;
+            CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
           end
           else begin
             blit_keydata ();
@@ -583,7 +598,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             Lwt.return @@ Cstruct.sub cstr (logoffset + P.key_size + 2) len
         |exception Not_found ->
             let () = Logs.info (fun m -> m "_lookup") in
-            if has_childen cached_node.cached_node then
+            if may_have_children cached_node.cached_node then
             if cached_node.cache_state = LogKeysCached then
               _cache_children open_fs.node_cache cached_node;
             (*let () = Logs.info (fun m -> m "find_first A") in*)
