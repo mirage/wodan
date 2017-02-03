@@ -135,6 +135,15 @@ let is_root = function
   |`Root _ -> true
   |_ -> false
 
+let type_code = function
+  |`Root _ -> 1
+  |`Inner _ -> 2
+  |`Leaf -> 3
+
+let check_node_type = function
+  |1|2|3 -> ()
+  |ty -> raise @@ BadNodeType ty
+
 module CstructKeyedMap = Map_pr869.Make(Cstruct)
 module RootMap = Map.Make(Int32)
 
@@ -439,18 +448,19 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         flush_rec completion_list lru_key)
       open_fs.node_cache.dirty_roots [])
 
-  let _new_root open_fs =
+  let _new_node open_fs tycode =
     let cache = open_fs.node_cache in
     let cstr = _get_block_io () in
     let () = assert (Cstruct.len cstr = P.block_size) in
-    (* going through _load_root_node_at would simplify things, but waste a
-       bit of io and cpu computing and rechecking a crc *)
-    let () = set_rootnode_hdr_nodetype cstr 1 in
-    let () = set_rootnode_hdr_tree_id cstr @@ next_tree_id cache in
+    let () = set_anynode_hdr_nodetype cstr tycode in
     let alloc_id = next_alloc_id cache in
     let key = LRUKey.ByAllocId alloc_id in
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
-    let cached_node = `Root {childlinks_offset=block_end;} in
+    let cached_node = match tycode with
+    |1 -> `Root {childlinks_offset=block_end;}
+    |2 -> `Inner {childlinks_offset=block_end;}
+    |3 -> `Leaf
+    in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
     let highest_key = top_key in
     let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=None} in
@@ -458,34 +468,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       let () = assert (entry == entry1) in
       alloc_id, entry
 
-  let insert root key value =
-    let key = check_key key in
-    let len = check_value_len value in
-    let entry = entry_of_root root in
-    let free = free_space entry in
-    let len1 = P.key_size + sizeof_datalen + len in
-    let blit_keydata () =
-      let cstr = entry.raw_node in
-      let kd = entry.keydata in
-      let off = kd.next_keydata_offset in begin
-        kd.next_keydata_offset <- kd.next_keydata_offset + len1;
-        Cstruct.blit key 0 cstr off P.key_size;
-        Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
-        Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
-        kd.keydata_offsets <- off::kd.keydata_offsets;
-    end in begin
-      match entry.cached_node with
-      |`Leaf ->
-          if free < len1
-          then failwith "Implement leaf splitting"
-          else blit_keydata ()
-      |`Inner _
-      |`Root _ ->
-          if free < len1
-          then failwith "Implement log spilling"
-          else begin blit_keydata (); ignore @@ mark_dirty root.open_fs.node_cache root.root_key end
-    end;
-    ()
+  let _new_root open_fs =
+    let alloc_id, entry = _new_node open_fs 1 in
+    set_rootnode_hdr_tree_id entry.raw_node @@ next_tree_id open_fs.node_cache;
+    alloc_id, entry
 
   let _cache_keydata cache cached_node =
     ignore cache;
@@ -495,7 +481,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         let key = Cstruct.sub (
           cached_node.raw_node) off P.key_size in
         CstructKeyedMap.add key off acc)
-      CstructKeyedMap.empty kd.keydata_offsets
+      CstructKeyedMap.empty kd.keydata_offsets;
+      cached_node.cache_state <- LogKeysCached
 
   let rec _gen_childlink_offsets start =
     if start >= block_end then []
@@ -513,7 +500,56 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let key = Cstruct.sub (
               cached_node.raw_node) off P.key_size in
             CstructKeyedMap.add key (`CleanChild off) acc)
-          CstructKeyedMap.empty (_gen_childlink_offsets cl.childlinks_offset)
+          CstructKeyedMap.empty (_gen_childlink_offsets cl.childlinks_offset);
+    cached_node.cache_state <- AllKeysCached
+
+  let insert root key value =
+    let key = check_key key in
+    let len = check_value_len value in
+    let entry = entry_of_root root in
+    let free = free_space entry in
+    let len1 = P.key_size + sizeof_datalen + len in
+    let blit_keydata () =
+      let cstr = entry.raw_node in
+      let kd = entry.keydata in
+      let off = kd.next_keydata_offset in begin
+        kd.next_keydata_offset <- kd.next_keydata_offset + len1;
+        Cstruct.blit key 0 cstr off P.key_size;
+        Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
+        Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
+        kd.keydata_offsets <- off::kd.keydata_offsets;
+        if entry.cache_state <> NoKeysCached then
+          entry.logindex <- CstructKeyedMap.add key off entry.logindex
+    end in begin
+      match entry.cached_node with
+      |`Leaf ->
+          if free < len1
+          then failwith "Implement leaf splitting"
+          else blit_keydata ()
+      |`Inner _
+      |`Root _ ->
+          if free < len1
+          then begin
+            let alloc1, entry1 = _new_node root.open_fs 3 in
+            let alloc2, entry2 = _new_node root.open_fs 3 in
+            if entry.cache_state = NoKeysCached then
+              _cache_keydata root.open_fs.node_cache entry;
+            if entry.cache_state = LogKeysCached then
+              _cache_children root.open_fs.node_cache entry;
+            let n = CstructKeyedMap.cardinal entry.logindex in
+            let binds = CstructKeyedMap.bindings entry.logindex in
+            let median = fst @@ List.nth binds (n/2) in
+            entry1.highest_key <- median;
+            let logi1, logi2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.logindex in
+            let child1, child2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.children in
+            failwith "Blit for node splitting"
+          end
+          else begin
+            blit_keydata ();
+            ignore @@ mark_dirty root.open_fs.node_cache root.root_key
+          end
+    end;
+    ()
 
   let _read_data_from_log cached_node key =
     ignore cached_node;
@@ -539,7 +575,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let cstr = cached_node.raw_node in
     if cached_node.cache_state = NoKeysCached then
       _cache_keydata open_fs.node_cache cached_node;
-      cached_node.cache_state <- LogKeysCached;
       match
         CstructKeyedMap.find key cached_node.logindex
       with
