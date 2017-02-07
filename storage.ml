@@ -122,22 +122,22 @@ let offset_of_cl : childlink_entry -> int = function
       off
 
 type node = [
-  |`Root of childlinks
-  |`Inner of childlinks
+  |`Root
+  |`Inner
   |`Leaf]
 
 let may_have_children = function
-  |`Root _ (* a root may also contain only log data *)
-  |`Inner _ -> true
+  |`Root (* a root may also contain only log data *)
+  |`Inner -> true
   |_ -> false
 
 let is_root = function
-  |`Root _ -> true
+  |`Root -> true
   |_ -> false
 
 let type_code = function
-  |`Root _ -> 1
-  |`Inner _ -> 2
+  |`Root -> 1
+  |`Inner -> 2
   |`Leaf -> 3
 
 let check_node_type = function
@@ -175,6 +175,7 @@ type lru_entry = {
   raw_node: Cstruct.t;
   io_data: Cstruct.t list;
   keydata: keydata_index;
+  childlinks: childlinks;
   mutable prev_logical: int64 option;
 }
 
@@ -243,12 +244,12 @@ let rec mark_dirty cache lru_key : dirty_info =
   match entry.dirty_info with
   |None -> begin
     match entry.cached_node with
-    |`Root _ ->
+    |`Root ->
         let tree_id = get_rootnode_hdr_tree_id entry.raw_node in
         begin match Hashtbl.find_all cache.dirty_roots tree_id with
           |[] -> begin Hashtbl.add cache.dirty_roots tree_id lru_key end
           |_ -> failwith "dirty_roots inconsistent" end
-    |`Inner _
+    |`Inner
     |`Leaf ->
         match ParentCache.find_all cache.parent_links lru_key with
         |[parent_key] ->
@@ -363,12 +364,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let () = assert (Cstruct.len cstr = P.block_size) in
       let cached_node, keydata =
       match get_anynode_hdr_nodetype cstr with
-      |1 -> `Root {childlinks_offset=_find_childlinks_offset cstr;},
-        _index_keydata cstr sizeof_rootnode_hdr
+      |1 -> `Root, _index_keydata cstr sizeof_rootnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=top_key; prev_logical=Some logical} in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=top_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       Lwt.return entry
@@ -382,14 +382,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     else*) (* checked by _load_data_at *)
       let cached_node, keydata =
       match get_anynode_hdr_nodetype cstr with
-      |2 -> `Inner {childlinks_offset=_find_childlinks_offset cstr;},
-        _index_keydata cstr sizeof_innernode_hdr
-      |3 -> `Leaf,
-        _index_keydata cstr sizeof_leafnode_hdr
+      |2 -> `Inner, _index_keydata cstr sizeof_innernode_hdr
+      |3 -> `Leaf, _index_keydata cstr sizeof_leafnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByLogical logical in
-      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=Some logical} in
+      let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       begin match parent_key with
@@ -400,8 +398,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let free_space entry =
     match entry.cached_node with
-    |`Root cl
-    |`Inner cl -> cl.childlinks_offset - entry.keydata.next_keydata_offset - redzone_size
+    |`Root
+    |`Inner -> entry.childlinks.childlinks_offset - entry.keydata.next_keydata_offset - redzone_size
     |`Leaf -> block_end - entry.keydata.next_keydata_offset
 
   type root = {
@@ -457,13 +455,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let key = LRUKey.ByAllocId alloc_id in
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
     let cached_node = match tycode with
-    |1 -> `Root {childlinks_offset=block_end;}
-    |2 -> `Inner {childlinks_offset=block_end;}
+    |1 -> `Root
+    |2 -> `Inner
     |3 -> `Leaf
     in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
     let highest_key = top_key in
-    let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=None} in
+    let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       alloc_id, entry
@@ -493,14 +491,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let () = Logs.info (fun m -> m "_cache_children") in
     match cached_node.cached_node with
     |`Leaf -> failwith "leaves have no children"
-    |`Root cl
-    |`Inner cl ->
+    |`Root
+    |`Inner ->
         cached_node.children <- List.fold_left (
           fun acc off ->
             let key = Cstruct.sub (
               cached_node.raw_node) off P.key_size in
             CstructKeyedMap.add key (`CleanChild off) acc)
-          CstructKeyedMap.empty (_gen_childlink_offsets cl.childlinks_offset);
+          CstructKeyedMap.empty (_gen_childlink_offsets cached_node.childlinks.childlinks_offset);
     cached_node.cache_state <- AllKeysCached
 
   let insert root key value =
@@ -526,8 +524,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           if free < len1
           then failwith "Implement leaf splitting"
           else blit_keydata ()
-      |`Inner _
-      |`Root _ ->
+      |`Inner
+      |`Root ->
           if free < len1
           then begin
             let alloc1, entry1 = _new_node root.open_fs 3 in
