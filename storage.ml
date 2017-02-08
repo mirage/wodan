@@ -550,7 +550,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               Cstruct.blit cstr0 off cstr1 off1 len1;
               ckd.keydata_offsets <- off1::ckd.keydata_offsets;
               ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
-            in let blit_cd_child cle centry = ()
+            in let blit_cd_child cle centry =
+              let off = offset_of_cl cle in
+              let cstr0 = entry.raw_node in
+              let cstr1 = centry.raw_node in
+              Cstruct.blit cstr0 off cstr1 centry.childlinks.childlinks_offset (P.key_size + sizeof_logical);
+              centry.childlinks.childlinks_offset <- centry.childlinks.childlinks_offset - P.key_size - sizeof_logical;
             in
             CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
             CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
