@@ -140,6 +140,11 @@ let type_code = function
   |`Inner -> 2
   |`Leaf -> 3
 
+let header_size = function
+  |`Root -> sizeof_rootnode_hdr
+  |`Inner -> sizeof_innernode_hdr
+  |`Leaf -> sizeof_leafnode_hdr
+
 let check_node_type = function
   |1|2|3 -> ()
   |ty -> raise @@ BadNodeType ty
@@ -488,7 +493,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let _cache_children cache cached_node =
     ignore cache;
-    let () = Logs.info (fun m -> m "_cache_children") in
+    (*let () = Logs.info (fun m -> m "_cache_children") in*)
     match cached_node.cached_node with
     |`Leaf -> failwith "leaves have no children"
     |`Root
@@ -500,6 +505,16 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             CstructKeyedMap.add key (`CleanChild off) acc)
           CstructKeyedMap.empty (_gen_childlink_offsets cached_node.childlinks.childlinks_offset);
     cached_node.cache_state <- AllKeysCached
+
+  let _reset_contents entry =
+    let hdrsize = header_size entry.cached_node in
+    entry.keydata.next_keydata_offset <- hdrsize;
+    entry.keydata.keydata_offsets <- [];
+    entry.childlinks.childlinks_offset <- block_end;
+    entry.cache_state <- NoKeysCached;
+    entry.logindex <- CstructKeyedMap.empty;
+    entry.children <- CstructKeyedMap.empty;
+    Cstruct.blit zero_data 0 entry.raw_node hdrsize (block_end - hdrsize)
 
   let insert root key value =
     let key = check_key key in
@@ -561,6 +576,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
             CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry1) cl1;
             CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
+            _reset_contents entry;
           end
           else begin
             blit_keydata ();
