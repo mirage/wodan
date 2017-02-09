@@ -516,6 +516,16 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     entry.children <- CstructKeyedMap.empty;
     Cstruct.blit zero_data 0 entry.raw_node hdrsize (block_end - hdrsize)
 
+  let _ensure_keydata cache entry =
+    if entry.cache_state = NoKeysCached then
+      _cache_keydata cache entry
+
+  let _ensure_children cache entry =
+    if entry.cache_state <> AllKeysCached then begin
+      _ensure_keydata cache entry;
+      _cache_children cache entry
+    end
+
   let insert root key value =
     let key = check_key key in
     let len = check_value_len value in
@@ -545,10 +555,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           then begin
             let alloc1, entry1 = _new_node root.open_fs 3 in
             let alloc2, entry2 = _new_node root.open_fs 3 in
-            if entry.cache_state = NoKeysCached then
-              _cache_keydata root.open_fs.node_cache entry;
-            if entry.cache_state = LogKeysCached then
-              _cache_children root.open_fs.node_cache entry;
+            _ensure_children root.open_fs.node_cache entry;
             let n = CstructKeyedMap.cardinal entry.logindex in
             let binds = CstructKeyedMap.bindings entry.logindex in
             let median = fst @@ List.nth binds (n/2) in
@@ -618,8 +625,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         |exception Not_found ->
             let () = Logs.info (fun m -> m "_lookup") in
             if may_have_children cached_node.cached_node then
-            if cached_node.cache_state = LogKeysCached then
-              _cache_children open_fs.node_cache cached_node;
+              _ensure_children open_fs.node_cache cached_node;
             (*let () = Logs.info (fun m -> m "find_first A") in*)
             let key1, cl = CstructKeyedMap.find_first (
               fun k -> Cstruct.compare k key >= 0) cached_node.children in
