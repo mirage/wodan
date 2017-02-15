@@ -12,6 +12,7 @@ exception BadCRC
 
 exception ReadError
 exception WriteError
+exception OutOfSpace
 
 exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
@@ -210,6 +211,7 @@ type node_cache = {
   (* The next logical address we'll allocate (if free) *)
   mutable next_logical_alloc: int64;
   mutable free_count: int64;
+  mutable new_count: int64;
   logical_size: int64;
   (* Logical -> bit.  Zero iff free. *)
   space_map: Bitv.t;
@@ -430,10 +432,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     begin match entry.prev_logical with
     |Some plog ->
         Bitv.set cache.space_map (Int64.to_int plog) false (* XXX are ints enough *)
-    |None -> () end;
+    |None ->
+        begin
+          cache.free_count <- Int64.pred cache.free_count;
+          cache.new_count <- Int64.pred cache.new_count;
+        end;
+      end;
     Bitv.set cache.space_map (Int64.to_int logical) true; (* XXX are ints enough *)
     entry.prev_logical <- Some logical;
-    cache.free_count <- Int64.pred cache.free_count;
     B.write open_fs.filesystem.disk
         Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
       |Result.Ok () -> Lwt.return ()
@@ -455,6 +461,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let _new_node open_fs tycode =
     let cache = open_fs.node_cache in
+    let nc1 = Int64.succ cache.new_count in
+    if nc1 >= cache.free_count then
+      raise OutOfSpace;
+    cache.new_count <- nc1;
     let cstr = _get_block_io () in
     let () = assert (Cstruct.len cstr = P.block_size) in
     let () = set_anynode_hdr_nodetype cstr tycode in
@@ -801,6 +811,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               logical_size;
               space_map;
               free_count;
+              new_count=0L;
               next_logical_alloc=lroot; (* in use, but that's okay *)
             } in
             let open_fs = { filesystem=fs; node_cache; } in
@@ -825,6 +836,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               logical_size;
               space_map;
               free_count;
+              new_count=0L;
               next_logical_alloc=first_block_written;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
