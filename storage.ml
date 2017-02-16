@@ -597,8 +597,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               let off = offset_of_cl cle in
               let cstr0 = entry.raw_node in
               let cstr1 = centry.raw_node in
-              Cstruct.blit cstr0 off cstr1 centry.childlinks.childlinks_offset (childlink_size);
               centry.childlinks.childlinks_offset <- centry.childlinks.childlinks_offset - childlink_size;
+              Cstruct.blit cstr0 off cstr1 centry.childlinks.childlinks_offset (childlink_size);
             in
             CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
             CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
