@@ -547,10 +547,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     parent.children <- CstructKeyedMap.add highest_key (`DirtyChild off) parent.children;
     ignore @@ mark_dirty cache parent_key
 
-  let insert root key value =
-    let key = check_key key in
+  let _has_children entry =
+    entry.childlinks.childlinks_offset <> block_end
+
+  let _has_logdata entry =
+    entry.keydata.next_keydata_offset <> header_size entry.cached_node
+
+  let _insert fs lru_key entry key value =
     let len = check_value_len value in
-    let entry = entry_of_root root in
     let free = free_space entry in
     let len1 = P.key_size + sizeof_datalen + len in
     let blit_keydata () =
@@ -572,11 +576,39 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           else blit_keydata ()
       |`Inner
       |`Root ->
-          if free < len1
-          then begin
-            let alloc1, entry1 = _new_node root.open_fs 3 in
-            let alloc2, entry2 = _new_node root.open_fs 3 in
-            _ensure_children root.open_fs.node_cache entry;
+          if free < len1 then
+          if _has_children entry && _has_logdata entry then begin
+            (* log spilling *)
+            _ensure_children fs.node_cache entry;
+            let spill_score = ref 0 in
+            let best_spill_score = ref 0 in
+            (* an iterator on entry.children keys would be helpful here *)
+            let scored_key = ref @@ fst @@ CstructKeyedMap.min_binding entry.children in
+            let best_spill_key = ref !scored_key in
+            CstructKeyedMap.iter (fun k off -> begin
+              if Cstruct.compare k !scored_key > 0 then begin
+                if !spill_score > !best_spill_score then begin
+                  best_spill_score := !spill_score;
+                  best_spill_key := !scored_key;
+                end;
+                spill_score := 0;
+                scored_key := fst @@ CstructKeyedMap.find_first (fun k1 -> Cstruct.compare k k1 <= 0) entry.children;
+              end;
+              let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
+              let len1 = P.key_size + sizeof_datalen + len in
+              spill_score := !spill_score + len1;
+            end) entry.logindex;
+            if !spill_score > !best_spill_score then begin
+              best_spill_score := !spill_score;
+              best_spill_key := !scored_key;
+            end;
+            ignore !best_spill_key;
+            failwith "Finish log spilling"
+          end
+          else begin
+            let alloc1, entry1 = _new_node fs 3 in
+            let alloc2, entry2 = _new_node fs 3 in
+            _ensure_children fs.node_cache entry;
             let n = CstructKeyedMap.cardinal entry.logindex in
             let binds = CstructKeyedMap.bindings entry.logindex in
             let median = fst @@ List.nth binds (n/2) in
@@ -605,15 +637,21 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry1) cl1;
             CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
             _reset_contents entry;
-            _add_child entry entry1 median alloc1 root.open_fs.node_cache root.root_key;
-            _add_child entry entry2 top_key alloc2 root.open_fs.node_cache root.root_key
+            _add_child entry entry1 median alloc1 fs.node_cache lru_key;
+            _add_child entry entry2 top_key alloc2 fs.node_cache lru_key
           end
           else begin
             blit_keydata ();
-            ignore @@ mark_dirty root.open_fs.node_cache root.root_key
+            ignore @@ mark_dirty fs.node_cache lru_key
           end
     end;
     ()
+
+  let insert root key value =
+    let key = check_key key in
+    let len = check_value_len value in
+    let entry = entry_of_root root in
+    _insert root.open_fs root.root_key entry key value
 
   let _read_data_from_log cached_node key =
     ignore cached_node;
