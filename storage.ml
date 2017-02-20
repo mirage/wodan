@@ -553,7 +553,22 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let _has_logdata entry =
     entry.keydata.next_keydata_offset <> header_size entry.cached_node
 
-  let _insert fs lru_key entry key value =
+  let _data_of_cl cstr cl =
+    let off = offset_of_cl cl in
+    Cstruct.LE.get_uint64 cstr (off + P.key_size)
+
+  (* LRU key for a child link *)
+  let _lru_key_of_cl cstr cl =
+    let data = _data_of_cl cstr cl in match cl with
+    |`CleanChild _
+    |`DirtyChild _ ->
+        LRUKey.ByLogical data
+    |`AnonymousChild _ ->
+        LRUKey.ByAllocId data
+
+  let rec _insert fs lru_key key value =
+    let entry = LRU.get fs.node_cache.lru lru_key
+    (fun _ -> failwith "missing LRU entry") in
     let len = check_value_len value in
     let free = free_space entry in
     let len1 = P.key_size + sizeof_datalen + len in
@@ -602,8 +617,33 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               best_spill_score := !spill_score;
               best_spill_key := !scored_key;
             end;
-            ignore !best_spill_key;
-            failwith "Finish log spilling"
+            let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key <= 0) entry.children in
+            let cl = CstructKeyedMap.find !best_spill_key entry.children in
+            let child_lru_key = _lru_key_of_cl entry.raw_node cl in
+            (* loop across log data, shifting/blitting towards the start if preserved,
+             * sending towards victim child if not *)
+            let kdo_out = ref @@ header_size entry.cached_node in
+            entry.keydata.keydata_offsets <- List.fold_right (fun kdo kdos ->
+              let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
+              (* TODO compute condition using bsk and before_bsk *)
+              if dispatch_child then begin
+                let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
+                let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
+                _insert fs child_lru_key key1 value1;
+                kdos
+              end else begin
+                let len1 = len + P.key_size + sizeof_datalen in
+                Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
+                let kdos = !kdo_out::kdos in
+                kdo_out := !kdo_out + len1;
+                kdos
+              end
+            ) entry.keydata.keydata_offsets [];
+            assert (!kdo_out < entry.keydata.next_keydata_offset);
+            (* zero newly free space *)
+            Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
+            entry.keydata.next_keydata_offset <- !kdo_out;
+            _insert fs lru_key key value;
           end
           else begin
             let alloc1, entry1 = _new_node fs 3 in
@@ -650,26 +690,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let insert root key value =
     let key = check_key key in
     let len = check_value_len value in
-    let entry = entry_of_root root in
-    _insert root.open_fs root.root_key entry key value
+    _insert root.open_fs root.root_key key value
 
   let _read_data_from_log cached_node key =
     ignore cached_node;
     ignore key;
     failwith "_read_data_from_log"
-
-  let _data_of_cl cstr cl =
-    let off = offset_of_cl cl in
-    Cstruct.LE.get_uint64 cstr (off + P.key_size)
-
-  (* LRU key for a child link *)
-  let _lru_key_of_cl cstr cl =
-    let data = _data_of_cl cstr cl in match cl with
-    |`CleanChild _
-    |`DirtyChild _ ->
-        LRUKey.ByLogical data
-    |`AnonymousChild _ ->
-        LRUKey.ByAllocId data
 
   let rec _lookup open_fs lru_key key =
     let cached_node = LRU.get open_fs.node_cache.lru lru_key
@@ -691,10 +717,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let key1, cl = CstructKeyedMap.find_first (
               fun k -> Cstruct.compare k key >= 0) cached_node.children in
             (*let () = Logs.info (fun m -> m "find_first B") in*)
+            let child_lru_key = _lru_key_of_cl cstr cl in
             match cl with
             |`CleanChild _ ->
                 let logical = _data_of_cl cstr cl in
-                let child_lru_key = LRUKey.ByLogical logical in
                 let%lwt _child_entry = match
                   LRU.get open_fs.node_cache.lru child_lru_key
                     (fun _ -> raise TryAgain) with
@@ -706,7 +732,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
                 _lookup open_fs child_lru_key key
             |`DirtyChild _
             |`AnonymousChild _ ->
-                let child_lru_key = _lru_key_of_cl cstr cl in
                 let _child_entry = LRU.get open_fs.node_cache.lru child_lru_key
                 (fun _ -> failwith "Missing LRU entry for anonymous/dirty child") in
                 _lookup open_fs child_lru_key key
