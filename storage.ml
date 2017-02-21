@@ -617,17 +617,17 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               best_spill_score := !spill_score;
               best_spill_key := !scored_key;
             end;
-            let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key <= 0) entry.children in
+            let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) entry.children in
             let cl = CstructKeyedMap.find !best_spill_key entry.children in
             let child_lru_key = _lru_key_of_cl entry.raw_node cl in
             (* loop across log data, shifting/blitting towards the start if preserved,
              * sending towards victim child if not *)
             let kdo_out = ref @@ header_size entry.cached_node in
             entry.keydata.keydata_offsets <- List.fold_right (fun kdo kdos ->
+              let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
               let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
-              (* TODO compute condition using bsk and before_bsk *)
-              if dispatch_child then begin
-                let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
+              if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 <= 0 then begin
+                let () = Logs.info (fun m -> m "sending towards victim") in
                 let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
                 _insert fs child_lru_key key1 value1;
                 kdos
