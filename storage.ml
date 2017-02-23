@@ -1,4 +1,5 @@
 open Lwt.Infix
+open Sexplib.Std
 
 let superblock_magic = "kvqnsfmnlsvqfpge"
 let superblock_version = 1l
@@ -115,6 +116,7 @@ type childlink_entry = [
   |`CleanChild of int (* offset, logical is at offset + P.key_size *)
   |`DirtyChild of int (* offset, logical is at offset + P.key_size *)
   |`AnonymousChild of int ] (* offset, alloc_id is at offset + P.key_size *)
+[@@deriving sexp]
 
 let offset_of_cl : childlink_entry -> int = function
   |`CleanChild off
@@ -460,6 +462,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       open_fs.node_cache.dirty_roots [])
 
   let _new_node open_fs tycode =
+    Logs.info (fun m -> m "_new_node type:%d" tycode);
     let cache = open_fs.node_cache in
     let nc1 = Int64.succ cache.new_count in
     if nc1 >= cache.free_count then
@@ -566,7 +569,29 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     |`AnonymousChild _ ->
         LRUKey.ByAllocId data
 
+  let _ensure_childlink open_fs entry_key entry cl_key cl =
+    let cstr = entry.raw_node in
+    let child_lru_key = _lru_key_of_cl cstr cl in
+    match cl with
+    |`CleanChild _ ->
+        let logical = _data_of_cl cstr cl in
+        let%lwt child_entry = match
+          LRU.get open_fs.node_cache.lru child_lru_key
+            (fun _ -> raise TryAgain) with
+          |ce -> Lwt.return ce
+          |exception TryAgain ->
+              _load_child_node_at open_fs logical cl_key (Some entry_key)
+        in
+        ignore @@ LRU.get open_fs.node_cache.lru child_lru_key (fun _ -> child_entry);
+        Lwt.return (child_lru_key, child_entry)
+    |`DirtyChild _
+    |`AnonymousChild _ ->
+        let child_entry = LRU.get open_fs.node_cache.lru child_lru_key
+        (fun _ -> failwith (Printf.sprintf "Missing LRU entry for anonymous/dirty child %s" (sexp_of_childlink_entry cl |> Sexplib.Sexp.to_string))) in
+        Lwt.return (child_lru_key, child_entry)
+
   let rec _insert fs lru_key key value =
+    (*let () = Logs.info (fun m -> m "_insert") in*)
     let entry = LRU.get fs.node_cache.lru lru_key
     (fun _ -> failwith "missing LRU entry") in
     let len = check_value_len value in
@@ -620,6 +645,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) entry.children in
             let cl = CstructKeyedMap.find !best_spill_key entry.children in
             let child_lru_key = _lru_key_of_cl entry.raw_node cl in
+            let () = Logs.info (fun m -> m "ensuring loaded cl") in
+            ignore (let%lwt _ce, _clk = _ensure_childlink fs lru_key entry !best_spill_key cl in Lwt.return ());
+            let () = Logs.info (fun m -> m "done ensuring loaded cl") in
             (* loop across log data, shifting/blitting towards the start if preserved,
              * sending towards victim child if not *)
             let kdo_out = ref @@ header_size entry.cached_node in
@@ -627,7 +655,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
               let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
               if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 <= 0 then begin
-                let () = Logs.info (fun m -> m "sending towards victim") in
                 let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
                 _insert fs child_lru_key key1 value1;
                 kdos
@@ -718,23 +745,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               fun k -> Cstruct.compare k key >= 0) cached_node.children in
             (*let () = Logs.info (fun m -> m "find_first B") in*)
             let child_lru_key = _lru_key_of_cl cstr cl in
-            match cl with
-            |`CleanChild _ ->
-                let logical = _data_of_cl cstr cl in
-                let%lwt _child_entry = match
-                  LRU.get open_fs.node_cache.lru child_lru_key
-                    (fun _ -> raise TryAgain) with
-                  |ce -> Lwt.return ce
-                  |exception TryAgain ->
-                      _load_child_node_at open_fs logical key1 (Some lru_key) >>= function ce ->
-                      Lwt.return @@ LRU.get open_fs.node_cache.lru child_lru_key (fun _ -> ce)
-                in
-                _lookup open_fs child_lru_key key
-            |`DirtyChild _
-            |`AnonymousChild _ ->
-                let _child_entry = LRU.get open_fs.node_cache.lru child_lru_key
-                (fun _ -> failwith "Missing LRU entry for anonymous/dirty child") in
-                _lookup open_fs child_lru_key key
+            _ensure_childlink open_fs lru_key cached_node key1 cl >>=
+            fun _ ->
+            _lookup open_fs child_lru_key key
 
   let lookup root key =
     let key = check_key key in
