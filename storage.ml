@@ -547,7 +547,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Cstruct.LE.set_uint64 parent.raw_node (off + P.key_size) alloc_id;
     parent.childlinks.childlinks_offset <- off;
     child.highest_key <- highest_key;
-    parent.children <- CstructKeyedMap.add highest_key (`DirtyChild off) parent.children;
+    parent.children <- CstructKeyedMap.add highest_key (`AnonymousChild off) parent.children;
     ignore @@ mark_dirty cache parent_key
 
   let _has_children entry =
