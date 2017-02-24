@@ -1,9 +1,20 @@
 open Mirage_types_lwt
+open Lwt.Infix
+
+exception CreateError
+
+let create_ramdisk name =
+  (* 16 MiB *)
+  Ramdisk.create ~name ~size_sectors:Int64.(of_int (16*2048)) ~sector_size:512 >>= function
+    |Result.Ok disk -> Lwt.return disk
+    |Result.Error _ -> Lwt.fail CreateError
 
 module Client (C: CONSOLE) (B: BLOCK) = struct
+  module B = Ramdisk
   module Stor = Storage.Make(B)(Storage.StandardParams)
 
   let start _con disk _crypto =
+    let%lwt disk = create_ramdisk "main" in
     let%lwt info = B.get_info disk in
     let%lwt roots = Stor.prepare_io (Storage.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
