@@ -219,6 +219,15 @@ type node_cache = {
   space_map: Bitv.t;
 }
 
+let bitv_create64 off bit =
+  Bitv.create (Int64.to_int off) bit (* XXX Unchecked truncation, may overflow *)
+
+let bitv_set64 vec off bit =
+  Bitv.set vec (Int64.to_int off) bit (* XXX Unchecked truncation, may overflow *)
+
+let bitv_get64 vec off =
+  Bitv.get vec (Int64.to_int off) (* XXX Unchecked truncation, may overflow *)
+
 let next_logical_novalid cache logical =
   let log1 = Int64.succ logical in
   if log1 = cache.logical_size then 1L else log1
@@ -226,7 +235,7 @@ let next_logical_novalid cache logical =
 let next_logical_alloc_valid cache =
   if cache.free_count = 0L then failwith "No free space";
   let rec after log =
-    if not @@ Bitv.get cache.space_map (Int64.to_int log (*XXX*)) then log else
+    if not @@ bitv_get64 cache.space_map log then log else
       after @@ Int64.succ log
   in let loc = after cache.next_logical_alloc in
   cache.next_logical_alloc <- next_logical_novalid cache loc; loc
@@ -245,6 +254,7 @@ let next_generation cache =
   let r = cache.next_generation in
   let () = cache.next_generation <- Int64.succ cache.next_generation in
   r
+
 
 let rec mark_dirty cache lru_key : dirty_info =
   (*Logs.info (fun m -> m "mark_dirty");*)
@@ -433,14 +443,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Logs.info (fun m -> m "_write_node logical:%Ld" logical);
     begin match entry.prev_logical with
     |Some plog ->
-        Bitv.set cache.space_map (Int64.to_int plog) false (* XXX are ints enough *)
+        bitv_set64 cache.space_map plog false;
     |None ->
         begin
           cache.free_count <- Int64.pred cache.free_count;
           cache.new_count <- Int64.pred cache.new_count;
         end;
       end;
-    Bitv.set cache.space_map (Int64.to_int logical) true; (* XXX are ints enough *)
+    bitv_set64 cache.space_map logical true;
     entry.prev_logical <- Some logical;
     B.write open_fs.filesystem.disk
         Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
@@ -757,10 +767,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Logs.info (fun m -> m "_scan_all_nodes %Ld" logical);
     (* TODO add more fsck style checks *)
     let cache = open_fs.node_cache in
-    let log_int = Int64.to_int logical in (* XXX check truncation *)
-    let sm = Bitv.get cache.space_map log_int in
+    let sm = bitv_get64 cache.space_map logical in
     if sm then failwith "logical address referenced twice";
-    Bitv.set cache.space_map log_int true;
+    bitv_set64 cache.space_map logical true;
     cache.free_count <- Int64.pred cache.free_count;
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     match get_anynode_hdr_nodetype cstr with
@@ -874,7 +883,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let () = if typ <> 1 then raise @@ BadNodeType typ in
             let root_generation = get_rootnode_hdr_generation cstr in
             let root_tree_id = get_rootnode_hdr_tree_id cstr in
-            let space_map = Bitv.create (Int64.to_int logical_size) false in (* XXX unchecked truncation *)
+            let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
             let free_count = Int64.pred logical_size in
             let node_cache = {
@@ -898,7 +907,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
         |FormatEmptyDevice logical_size ->
             let root_tree_id = 1l in
-            let space_map = Bitv.create (Int64.to_int logical_size) false in (* XXX unchecked truncation *)
+            let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
             let free_count = Int64.pred logical_size in
             let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
