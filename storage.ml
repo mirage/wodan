@@ -639,7 +639,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 	entry.keydata.keydata_offsets <- List.fold_right (fun kdo kdos ->
 	  let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
 	  let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
-	  if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 <= 0 then begin
+	  if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
 	    let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
 	    _insert fs child_lru_key key1 value1;
 	    kdos
