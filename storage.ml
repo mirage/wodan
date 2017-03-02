@@ -729,11 +729,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let len = check_value_len value in
     _insert root.open_fs root.root_key key value
 
-  let _read_data_from_log cached_node key =
-    ignore cached_node;
-    ignore key;
-    failwith "_read_data_from_log"
-
   let rec _lookup open_fs lru_key key =
     let cached_node = LRU.get open_fs.node_cache.lru lru_key
     (fun _ -> failwith "Missing LRU entry") in
