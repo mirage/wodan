@@ -259,7 +259,8 @@ let rec mark_dirty cache lru_key : dirty_info =
           match List.filter (fun lk -> lk == lru_key) parent_di.dirty_children with
             |[] -> begin parent_di.dirty_children <- lru_key::parent_di.dirty_children end
             |_ -> failwith "dirty_node inconsistent" end
-        |_ -> failwith "parent_links inconsistent";
+        |[] -> failwith "parent_links inconsistent (no parent)";
+        |_ -> failwith "parent_links inconsistent (multiple parents)";
     end; let di = { dirty_children=[]; } in entry.dirty_info <- Some di; di
   |Some di -> di
 
@@ -391,7 +392,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       let entry1 = LRU.get cache.lru key (fun _ -> entry) in
       let () = assert (entry == entry1) in
       begin match parent_key with
-        |Some pk -> ParentCache.add cache.parent_links pk key
+        |Some pk -> ParentCache.add cache.parent_links key pk
         |_ -> ()
       end;
       Lwt.return entry
@@ -525,13 +526,17 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     end
 
   let _add_child parent child highest_key alloc_id cache parent_key =
+    Logs.info (fun m -> m "_add_child");
+    let child_key = LRUKey.ByAllocId alloc_id in
     let off = parent.childlinks.childlinks_offset - childlink_size in
     Cstruct.blit highest_key 0 parent.raw_node off P.key_size;
     Cstruct.LE.set_uint64 parent.raw_node (off + P.key_size) alloc_id;
     parent.childlinks.childlinks_offset <- off;
     child.highest_key <- highest_key;
     parent.children <- CstructKeyedMap.add highest_key (`AnonymousChild off) parent.children;
-    ignore @@ mark_dirty cache parent_key
+    ignore @@ mark_dirty cache parent_key;
+    ParentCache.add cache.parent_links child_key parent_key;
+    ignore @@ mark_dirty cache child_key
 
   let _has_children entry =
     entry.childlinks.childlinks_offset <> block_end
