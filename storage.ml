@@ -651,7 +651,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 	    kdos
 	  end
 	) entry.keydata.keydata_offsets [];
-	assert (!kdo_out < entry.keydata.next_keydata_offset);
+  (* Invalidate logcache since keydata_offsets changed *)
+  entry.cache_state <- NoKeysCached;
+  if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
+	  (match before_bsk with None -> Logs.info (fun m -> m "No before_bsk") |Some (bbsk, _) -> Cstruct.hexdump bbsk);
+    Cstruct.hexdump !best_spill_key;
+    failwith @@ Printf.sprintf "Key data didn't shrink %d %d" !kdo_out entry.keydata.next_keydata_offset
+  end;
 	(* zero newly free space *)
 	Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
 	entry.keydata.next_keydata_offset <- !kdo_out;
