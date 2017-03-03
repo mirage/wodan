@@ -499,9 +499,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     (*let () = Logs.info (fun m -> m "_cache_children") in*)
     cached_node.children <- List.fold_left (
       fun acc off ->
-	let key = Cstruct.sub (
-	  cached_node.raw_node) off P.key_size in
-	CstructKeyedMap.add key (`CleanChild off) acc)
+        let key = Cstruct.sub (
+          cached_node.raw_node) off P.key_size in
+        CstructKeyedMap.add key (`CleanChild off) acc)
       CstructKeyedMap.empty (_gen_childlink_offsets cached_node.childlinks.childlinks_offset);
     cached_node.cache_state <- AllKeysCached
 
@@ -599,58 +599,58 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     end in begin
       if free >= len1 then
       begin (* Simple insertion *)
-	blit_keydata ();
-	ignore @@ mark_dirty fs.node_cache lru_key
+        blit_keydata ();
+        ignore @@ mark_dirty fs.node_cache lru_key
       end
       else if _has_children entry && _has_logdata entry then begin
-	(* log spilling *)
-	_ensure_children fs.node_cache entry;
-	let spill_score = ref 0 in
-	let best_spill_score = ref 0 in
-	(* an iterator on entry.children keys would be helpful here *)
-	let scored_key = ref @@ fst @@ CstructKeyedMap.min_binding entry.children in
-	let best_spill_key = ref !scored_key in
-	CstructKeyedMap.iter (fun k off -> begin
-	  if Cstruct.compare k !scored_key > 0 then begin
-	    if !spill_score > !best_spill_score then begin
-	      best_spill_score := !spill_score;
-	      best_spill_key := !scored_key;
-	    end;
-	    spill_score := 0;
-	    scored_key := fst @@ CstructKeyedMap.find_first (fun k1 -> Cstruct.compare k k1 <= 0) entry.children;
-	  end;
-	  let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
-	  let len1 = P.key_size + sizeof_datalen + len in
-	  spill_score := !spill_score + len1;
-	end) entry.logindex;
-	if !spill_score > !best_spill_score then begin
-	  best_spill_score := !spill_score;
-	  best_spill_key := !scored_key;
-	end;
-	let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) entry.children in
-	let cl = CstructKeyedMap.find !best_spill_key entry.children in
-	let child_lru_key = _lru_key_of_cl entry.raw_node cl in
-	let () = Logs.info (fun m -> m "ensuring loaded cl") in
-	ignore (let%lwt _ce, _clk = _ensure_childlink fs lru_key entry !best_spill_key cl in Lwt.return ());
-	let () = Logs.info (fun m -> m "done ensuring loaded cl") in
-	(* loop across log data, shifting/blitting towards the start if preserved,
-	 * sending towards victim child if not *)
-	let kdo_out = ref @@ header_size entry.cached_node in
-	entry.keydata.keydata_offsets <- List.fold_right (fun kdo kdos ->
-	  let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
-	  let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
-	  if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
-	    let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-	    _insert fs child_lru_key key1 value1;
-	    kdos
-	  end else begin
-	    let len1 = len + P.key_size + sizeof_datalen in
-	    Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
-	    let kdos = !kdo_out::kdos in
-	    kdo_out := !kdo_out + len1;
-	    kdos
-	  end
-	) entry.keydata.keydata_offsets [];
+        (* log spilling *)
+        _ensure_children fs.node_cache entry;
+        let spill_score = ref 0 in
+        let best_spill_score = ref 0 in
+        (* an iterator on entry.children keys would be helpful here *)
+        let scored_key = ref @@ fst @@ CstructKeyedMap.min_binding entry.children in
+        let best_spill_key = ref !scored_key in
+        CstructKeyedMap.iter (fun k off -> begin
+          if Cstruct.compare k !scored_key > 0 then begin
+            if !spill_score > !best_spill_score then begin
+              best_spill_score := !spill_score;
+              best_spill_key := !scored_key;
+            end;
+            spill_score := 0;
+            scored_key := fst @@ CstructKeyedMap.find_first (fun k1 -> Cstruct.compare k k1 <= 0) entry.children;
+          end;
+          let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
+          let len1 = P.key_size + sizeof_datalen + len in
+          spill_score := !spill_score + len1;
+        end) entry.logindex;
+        if !spill_score > !best_spill_score then begin
+          best_spill_score := !spill_score;
+          best_spill_key := !scored_key;
+        end;
+        let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) entry.children in
+        let cl = CstructKeyedMap.find !best_spill_key entry.children in
+        let child_lru_key = _lru_key_of_cl entry.raw_node cl in
+        let () = Logs.info (fun m -> m "ensuring loaded cl") in
+        ignore (let%lwt _ce, _clk = _ensure_childlink fs lru_key entry !best_spill_key cl in Lwt.return ());
+        let () = Logs.info (fun m -> m "done ensuring loaded cl") in
+        (* loop across log data, shifting/blitting towards the start if preserved,
+         * sending towards victim child if not *)
+        let kdo_out = ref @@ header_size entry.cached_node in
+        entry.keydata.keydata_offsets <- List.fold_right (fun kdo kdos ->
+          let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
+          let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
+          if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
+            let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
+            _insert fs child_lru_key key1 value1;
+            kdos
+          end else begin
+            let len1 = len + P.key_size + sizeof_datalen in
+            Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
+            let kdos = !kdo_out::kdos in
+            kdo_out := !kdo_out + len1;
+            kdos
+          end
+        ) entry.keydata.keydata_offsets [];
   (* Invalidate logcache since keydata_offsets changed *)
   entry.cache_state <- NoKeysCached;
   if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
@@ -658,45 +658,45 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Cstruct.hexdump !best_spill_key;
     failwith @@ Printf.sprintf "Key data didn't shrink %d %d" !kdo_out entry.keydata.next_keydata_offset
   end;
-	(* zero newly free space *)
-	Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
-	entry.keydata.next_keydata_offset <- !kdo_out;
-	_insert fs lru_key key value;
+        (* zero newly free space *)
+        Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
+        entry.keydata.next_keydata_offset <- !kdo_out;
+        _insert fs lru_key key value;
       end
       else begin (* Node splitting (root-friendly) *)
-	let alloc1, entry1 = _new_node fs 2 in
-	let alloc2, entry2 = _new_node fs 2 in
-	_ensure_children fs.node_cache entry;
-	let n = CstructKeyedMap.cardinal entry.logindex in
-	let binds = CstructKeyedMap.bindings entry.logindex in
-	let median = fst @@ List.nth binds (n/2) in
-	entry1.highest_key <- median;
-	let logi1, logi2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.logindex in
-	let cl1, cl2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.children in
-	let blit_kd_child off centry =
-	  let cstr0 = entry.raw_node in
-	  let cstr1 = centry.raw_node in
-	  let ckd = centry.keydata in
-	  let off1 = ckd.next_keydata_offset in
-	  let len = Cstruct.LE.get_uint16 cstr0 (off + P.key_size) in
-	  let len1 = P.key_size + sizeof_datalen + len in
-	  Cstruct.blit cstr0 off cstr1 off1 len1;
-	  ckd.keydata_offsets <- off1::ckd.keydata_offsets;
-	  ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
-	in let blit_cd_child cle centry =
-	  let off = offset_of_cl cle in
-	  let cstr0 = entry.raw_node in
-	  let cstr1 = centry.raw_node in
-	  centry.childlinks.childlinks_offset <- centry.childlinks.childlinks_offset - childlink_size;
-	  Cstruct.blit cstr0 off cstr1 centry.childlinks.childlinks_offset (childlink_size);
-	in
-	CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
-	CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
-	CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry1) cl1;
-	CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
-	_reset_contents entry;
-	_add_child entry entry1 median alloc1 fs.node_cache lru_key;
-	_add_child entry entry2 top_key alloc2 fs.node_cache lru_key
+        let alloc1, entry1 = _new_node fs 2 in
+        let alloc2, entry2 = _new_node fs 2 in
+        _ensure_children fs.node_cache entry;
+        let n = CstructKeyedMap.cardinal entry.logindex in
+        let binds = CstructKeyedMap.bindings entry.logindex in
+        let median = fst @@ List.nth binds (n/2) in
+        entry1.highest_key <- median;
+        let logi1, logi2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.logindex in
+        let cl1, cl2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) entry.children in
+        let blit_kd_child off centry =
+          let cstr0 = entry.raw_node in
+          let cstr1 = centry.raw_node in
+          let ckd = centry.keydata in
+          let off1 = ckd.next_keydata_offset in
+          let len = Cstruct.LE.get_uint16 cstr0 (off + P.key_size) in
+          let len1 = P.key_size + sizeof_datalen + len in
+          Cstruct.blit cstr0 off cstr1 off1 len1;
+          ckd.keydata_offsets <- off1::ckd.keydata_offsets;
+          ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
+        in let blit_cd_child cle centry =
+          let off = offset_of_cl cle in
+          let cstr0 = entry.raw_node in
+          let cstr1 = centry.raw_node in
+          centry.childlinks.childlinks_offset <- centry.childlinks.childlinks_offset - childlink_size;
+          Cstruct.blit cstr0 off cstr1 centry.childlinks.childlinks_offset (childlink_size);
+        in
+        CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
+        CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
+        CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry1) cl1;
+        CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
+        _reset_contents entry;
+        _add_child entry entry1 median alloc1 fs.node_cache lru_key;
+        _add_child entry entry2 top_key alloc2 fs.node_cache lru_key
       end
     end;
     ()
