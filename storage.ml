@@ -663,7 +663,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 	entry.keydata.next_keydata_offset <- !kdo_out;
 	_insert fs lru_key key value;
       end
-      else begin (* Node splitting *)
+      else begin (* Node splitting (root-friendly) *)
 	let alloc1, entry1 = _new_node fs 2 in
 	let alloc2, entry2 = _new_node fs 2 in
 	_ensure_children fs.node_cache entry;
