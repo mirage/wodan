@@ -237,6 +237,11 @@ let next_generation cache =
   r
 
 
+type insertable =
+  |KeyValue of Cstruct.t * Cstruct.t
+  |KeyChild of Cstruct.t * Cstruct.t
+
+
 let rec mark_dirty cache lru_key : dirty_info =
   (*Logs.info (fun m -> m "mark_dirty");*)
   let entry = LRU.get cache.lru lru_key
