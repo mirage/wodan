@@ -154,6 +154,12 @@ module LRUKey = struct
   let equal = (=)
 end
 
+let alloc_id_of_key key =
+  match key with
+  |LRUKey.ByAllocId id -> id
+  |LRUKey.ByLogical _ -> failwith "Expected ByAllocId, got ByLogical"
+  |LRUKey.Sentinel -> failwith "Expected ByAllocId, got Sentinel"
+
 type dirty_info = {
   (* These LRU keys are of the form ByAllocId alloc_id *)
   mutable dirty_children: LRUKey.t list;
@@ -463,7 +469,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         (fun _ -> failwith "missing lru_key") in
       let Some di = entry.dirty_info in
       let completion_list = List.fold_left flush_rec completion_list di.dirty_children in
-      let LRUKey.ByAllocId alloc_id = lru_key in
+      let alloc_id = alloc_id_of_key lru_key in
       (_write_node open_fs alloc_id) :: completion_list
     end in
     Lwt.join (Hashtbl.fold (fun tid lru_key completion_list ->
