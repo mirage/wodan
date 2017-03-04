@@ -16,3 +16,6 @@
 /_build-ukvm/
 /mir-storage.ukvm
 /ukvm-bin
+/mirage-unikernel-storage-unix.opam
+/storage
+/.mirage.config
