@@ -184,14 +184,48 @@ type lru_entry = {
   mutable prev_logical: int64 option;
 }
 
+module LRUValue = struct
+  type t = lru_entry
+  let weight _val = 1
+end
+
 let generation_of_node entry =
   get_anynode_hdr_generation entry.raw_node
 
-module LRU = Lru_cache.Make(LRUKey)
+module LRU = Lru.M.Make(LRUKey)(LRUValue)
+
 (* LRUKey.t -> parent LRUKey.t *)
 (* parent is only alive as long as the lru_key is *)
 (* TODO: use LRUKey.t in more places where alloc_id is used, to ensure liveness *)
 module ParentCache = Ephemeron.K1.Make(LRUKey)
+
+let lru_get lru key =
+  LRU.find key lru
+
+exception AlreadyCached of LRUKey.t
+
+let lru_xset lru key value =
+  if LRU.mem key lru then raise @@ AlreadyCached key;
+  LRU.add key value lru
+
+let lru_get_or_set lru key compute =
+  match lru_get lru key with
+  |Some value -> value
+  |None ->
+    let value = compute () in
+    LRU.add key value lru;
+    value
+
+let lru_get_or_set_lwt lru key compute =
+  match lru_get lru key with
+  |Some value -> Lwt.return value
+  |None ->
+    let%lwt value = compute () in
+    LRU.add key value lru;
+    Lwt.return value
+
+let lru_create capacity =
+  LRU.create capacity
 
 type node_cache = {
   (* LRUKey.t -> LRUKey.t *)
@@ -200,7 +234,7 @@ type node_cache = {
    * keeps the ParentCache alive
    * anonymous nodes are keyed by their alloc_id,
    * everybody else by their generation *)
-  lru: lru_entry LRU.t;
+  lru: LRU.t;
   (* tree_id -> ByAllocId alloc_id *)
   dirty_roots: (int32, LRUKey.t) Hashtbl.t;
   mutable next_tree_id: int32;
@@ -266,30 +300,34 @@ type insertable =
 
 let rec mark_dirty cache lru_key : dirty_info =
   (*Logs.info (fun m -> m "mark_dirty");*)
-  let entry = LRU.get cache.lru lru_key
-  (fun _ -> failwith "Missing LRU key") in
-  match entry.dirty_info with
-  |None -> begin
-    match entry.cached_node with
-    |`Root ->
-        let tree_id = get_rootnode_hdr_tree_id entry.raw_node in
-        begin match Hashtbl.find_all cache.dirty_roots tree_id with
-          |[] -> begin Hashtbl.add cache.dirty_roots tree_id lru_key end
-          |_ -> failwith "dirty_roots inconsistent" end
-    |`Child ->
-        match ParentCache.find_all cache.parent_links lru_key with
-        |[parent_key] ->
-            let _parent_entry = LRU.get cache.lru parent_key
-            (fun _ -> failwith "missing parent_entry") in
-            let parent_di = mark_dirty cache parent_key in
-        begin
-          match List.filter (fun lk -> lk == lru_key) parent_di.dirty_children with
-            |[] -> begin parent_di.dirty_children <- lru_key::parent_di.dirty_children end
-            |_ -> failwith "dirty_node inconsistent" end
-        |[] -> failwith "parent_links inconsistent (no parent)";
-        |_ -> failwith "parent_links inconsistent (multiple parents)";
-    end; let di = { dirty_children=[]; } in entry.dirty_info <- Some di; di
-  |Some di -> di
+  match lru_get cache.lru lru_key with
+  |None -> failwith "Missing LRU key"
+  |Some entry -> begin
+      match entry.dirty_info with
+      |None -> begin
+          match entry.cached_node with
+          |`Root ->
+            let tree_id = get_rootnode_hdr_tree_id entry.raw_node in
+            begin match Hashtbl.find_all cache.dirty_roots tree_id with
+              |[] -> begin Hashtbl.add cache.dirty_roots tree_id lru_key end
+              |_ -> failwith "dirty_roots inconsistent" end
+          |`Child ->
+            match ParentCache.find_all cache.parent_links lru_key with
+            |[parent_key] -> begin
+                match lru_get cache.lru parent_key with
+                |None -> failwith "missing parent_entry"
+                |Some _parent_entry ->
+                    let parent_di = mark_dirty cache parent_key in
+                    begin
+                      match List.filter (fun lk -> lk == lru_key) parent_di.dirty_children with
+                      |[] -> begin parent_di.dirty_children <- lru_key::parent_di.dirty_children end
+                      |_ -> failwith "dirty_node inconsistent" end
+              end
+            |[] -> failwith "parent_links inconsistent (no parent)";
+            |_ -> failwith "parent_links inconsistent (multiple parents)";
+        end; let di = { dirty_children=[]; } in entry.dirty_info <- Some di; di
+      |Some di -> di
+    end
 
 module type PARAMS = sig
   (* in bytes *)
@@ -398,8 +436,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     in
       let key = LRUKey.ByLogical logical in
       let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=top_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
-      let entry1 = LRU.get cache.lru key (fun _ -> entry) in
-      let () = assert (entry == entry1) in
+      lru_xset cache.lru key entry;
       Lwt.return entry
 
   let _load_child_node_at open_fs logical highest_key parent_key =
@@ -416,8 +453,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     in
       let key = LRUKey.ByLogical logical in
       let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
-      let entry1 = LRU.get cache.lru key (fun _ -> entry) in
-      let () = assert (entry == entry1) in
+      lru_xset cache.lru key entry;
       begin match parent_key with
         |Some pk -> ParentCache.add cache.parent_links key pk
         |_ -> ()
@@ -435,14 +471,16 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   }
 
   let entry_of_root root =
-    LRU.get root.open_fs.node_cache.lru root.root_key
-    (fun _ -> failwith "missing root")
+    match lru_get root.open_fs.node_cache.lru root.root_key with
+    |None -> failwith "missing root"
+    |Some v -> v
 
   let _write_node open_fs alloc_id =
     let key = LRUKey.ByAllocId alloc_id in
     let cache = open_fs.node_cache in
-    let entry = LRU.get cache.lru key (
-      fun _ -> failwith "missing lru entry in _write_node") in
+    match lru_get cache.lru key with
+    |None -> failwith "missing lru entry in _write_node"
+    |Some entry ->
     set_anynode_hdr_generation entry.raw_node (next_generation open_fs.node_cache);
     Crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
@@ -466,8 +504,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let flush open_fs =
     Logs.info (fun m -> m "flushing %d dirty roots" (Hashtbl.length open_fs.node_cache.dirty_roots));
     let rec flush_rec (completion_list : unit Lwt.t list) lru_key = begin
-      let entry = LRU.get open_fs.node_cache.lru lru_key
-        (fun _ -> failwith "missing lru_key") in
+      match lru_get open_fs.node_cache.lru lru_key with
+      |None -> failwith "missing lru_key"
+      |Some entry ->
       let Some di = entry.dirty_info in
       let completion_list = List.fold_left flush_rec completion_list di.dirty_children in
       let alloc_id = alloc_id_of_key lru_key in
@@ -496,9 +535,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
     let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=zero_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
-      let entry1 = LRU.get cache.lru key (fun _ -> entry) in
-      let () = assert (entry == entry1) in
-      alloc_id, entry
+    lru_xset cache.lru key entry;
+    alloc_id, entry
 
   let _new_root open_fs =
     let alloc_id, entry = _new_node open_fs 1 in
@@ -590,25 +628,25 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     match cl with
     |`CleanChild _ ->
         let logical = _data_of_cl cstr cl in
-        let%lwt child_entry = match
-          LRU.get open_fs.node_cache.lru child_lru_key
-            (fun _ -> raise TryAgain) with
-          |ce -> Lwt.return ce
-          |exception TryAgain ->
-              _load_child_node_at open_fs logical cl_key (Some entry_key)
+        let%lwt child_entry =
+          lru_get_or_set_lwt open_fs.node_cache.lru child_lru_key (
+            fun () ->
+              _load_child_node_at open_fs logical cl_key (Some entry_key))
         in
-        ignore @@ LRU.get open_fs.node_cache.lru child_lru_key (fun _ -> child_entry);
+        lru_xset open_fs.node_cache.lru child_lru_key child_entry;
         Lwt.return (child_lru_key, child_entry)
     |`DirtyChild _
     |`AnonymousChild _ ->
-        let child_entry = LRU.get open_fs.node_cache.lru child_lru_key
-        (fun _ -> failwith (Printf.sprintf "Missing LRU entry for anonymous/dirty child %s" (sexp_of_childlink_entry cl |> Sexplib.Sexp.to_string))) in
+      match lru_get open_fs.node_cache.lru child_lru_key with
+      |None -> Lwt.fail @@ Failure (Printf.sprintf "Missing LRU entry for anonymous/dirty child %s" (sexp_of_childlink_entry cl |> Sexplib.Sexp.to_string))
+      |Some child_entry ->
         Lwt.return (child_lru_key, child_entry)
 
   let rec _insert fs lru_key key value =
     (*let () = Logs.info (fun m -> m "_insert") in*)
-    let entry = LRU.get fs.node_cache.lru lru_key
-    (fun _ -> failwith "missing LRU entry") in
+    match lru_get fs.node_cache.lru lru_key with
+    |None -> failwith "missing LRU entry"
+    |Some entry ->
     let len = check_value_len value in
     let free = free_space entry in
     let len1 = P.key_size + sizeof_datalen + len in
@@ -738,8 +776,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     _insert root.open_fs root.root_key key value
 
   let rec _lookup open_fs lru_key key =
-    let cached_node = LRU.get open_fs.node_cache.lru lru_key
-    (fun _ -> failwith "Missing LRU entry") in
+    match lru_get open_fs.node_cache.lru lru_key with
+    |None -> failwith "Missing LRU entry"
+    |Some cached_node ->
     let cstr = cached_node.raw_node in
     if cached_node.cache_state = NoKeysCached then
       _cache_keydata open_fs.node_cache cached_node;
@@ -903,7 +942,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let free_count = Int64.pred logical_size in
             let node_cache = {
               parent_links=ParentCache.create 100;
-              lru=LRU.init ~size:cache_size;
+              lru=lru_create cache_size;
               dirty_roots=Hashtbl.create 1;
               next_tree_id=get_rootnode_hdr_next_tree_id cstr;
               next_alloc_id=1L;
@@ -929,7 +968,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
             let node_cache = {
               parent_links=ParentCache.create 100; (* use the flush size? *)
-              lru=LRU.init ~size:cache_size;
+              lru=lru_create cache_size;
               dirty_roots=Hashtbl.create 1;
               next_tree_id=root_tree_id;
               next_alloc_id=1L;
