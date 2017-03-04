@@ -20,6 +20,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
     (*let%lwt roots1 = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in*)
     let root = Storage.RootMap.find 1l roots in
+    (
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     let () = Stor.insert root key cval in
@@ -37,4 +38,6 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
       Stor.insert root key cval
     done;
     Lwt.return ()
+    )
+      [%lwt.finally Lwt.return @@ Stor.log_statistics root]
 end

@@ -86,6 +86,16 @@ let rec make_fanned_io_list size cstr =
   else let head, rest = Cstruct.split cstr size in
   head::make_fanned_io_list size rest
 
+type statistics = {
+  mutable inserts: int;
+  mutable lookups: int;
+}
+
+let default_statistics = {
+  inserts=0;
+  lookups=0;
+}
+
 type childlinks = {
   (* starts at block_size - sizeof_crc, if there are no children *)
   mutable childlinks_offset: int;
@@ -193,11 +203,13 @@ type node_cache = {
   mutable next_generation: int64;
   (* The next logical address we'll allocate (if free) *)
   mutable next_logical_alloc: int64;
+  (* Count of free blocks on disk *)
   mutable free_count: int64;
   mutable new_count: int64;
   logical_size: int64;
   (* Logical -> bit.  Zero iff free. *)
   space_map: Bitv.t;
+  statistics: statistics;
 }
 
 let bitv_create64 off bit =
@@ -208,6 +220,9 @@ let bitv_set64 vec off bit =
 
 let bitv_get64 vec off =
   Bitv.get vec (Int64.to_int off) (* XXX Unchecked truncation, may overflow *)
+
+let bitv_len64 vec =
+  Int64.of_int @@ Bitv.length vec
 
 let next_logical_novalid cache logical =
   let log1 = Int64.succ logical in
@@ -709,6 +724,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let insert root key value =
     let key = check_key key in
     let len = check_value_len value in
+    let stats = root.open_fs.node_cache.statistics in
+    stats.inserts <- succ stats.inserts;
     _insert root.open_fs root.root_key key value
 
   let rec _lookup open_fs lru_key key =
@@ -737,7 +754,21 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let lookup root key =
     let key = check_key key in
+    let stats = root.open_fs.node_cache.statistics in
+    stats.lookups <- succ stats.lookups;
     _lookup root.open_fs root.root_key key
+
+  let log_statistics root =
+    let cache = root.open_fs.node_cache in
+    let stats = cache.statistics in
+    Logs.info (fun m -> m "Ops: %d inserts %d lookups" stats.inserts stats.lookups);
+    let logical_size = bitv_len64 cache.space_map in
+    (* Don't count the superblock as a node *)
+    let nstored = Int64.(pred @@ sub logical_size cache.free_count) in
+    (*let ndirty = cache.dirty_count in*)
+    let nnew = cache.new_count in
+    Logs.info (fun m -> m "Nodes: %Ld on-disk (TODO count dirty), %Ld new" nstored nnew);
+    ()
 
   let rec _scan_all_nodes open_fs logical =
     Logs.info (fun m -> m "_scan_all_nodes %Ld" logical);
@@ -873,6 +904,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               free_count;
               new_count=0L;
               next_logical_alloc=lroot; (* in use, but that's okay *)
+              statistics=default_statistics;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             let%lwt () = _scan_all_nodes open_fs lroot in
@@ -898,6 +930,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               free_count;
               new_count=0L;
               next_logical_alloc=first_block_written;
+              statistics=default_statistics;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             let%lwt () = _format open_fs logical_size first_block_written in
