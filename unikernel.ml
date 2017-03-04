@@ -14,6 +14,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     let () = Stor.insert root key cval in
     let%lwt () = Stor.flush root.open_fs in
+    let%lwt () = Stor.flush root.open_fs in
     let%lwt cval1 = Stor.lookup root key in
     (*let () = Cstruct.hexdump cval1 in*)
     let () = assert (Cstruct.equal cval cval1) in
@@ -21,12 +22,13 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let root = Storage.RootMap.find 1l roots in
     let%lwt cval2 = Stor.lookup root key in
     let () = assert (Cstruct.equal cval cval2) in
-    while true do
+    while%lwt true do
       let key = Nocrypto.Rng.generate 20 and
         cval = Nocrypto.Rng.generate 40 in
-      Stor.insert root key cval
-    done;
-    Lwt.return ()
+      Stor.insert root key cval;
+      if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16 = 0) then (* 1/16 chance of flushing *)
+        Stor.flush root.open_fs
+    done
     )
       [%lwt.finally Lwt.return @@ Stor.log_statistics root]
 end
