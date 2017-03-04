@@ -458,7 +458,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let flush open_fs =
     Logs.info (fun m -> m "flushing %d dirty roots" (Hashtbl.length open_fs.node_cache.dirty_roots));
-    let rec flush_rec (completion_list : unit Lwt.t list) lru_key = begin (* TODO write to disk *)
+    let rec flush_rec (completion_list : unit Lwt.t list) lru_key = begin
       let entry = LRU.get open_fs.node_cache.lru lru_key
         (fun _ -> failwith "missing lru_key") in
       let Some di = entry.dirty_info in
@@ -651,9 +651,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) entry.children in
         let cl = CstructKeyedMap.find !best_spill_key entry.children in
         let child_lru_key = _lru_key_of_cl entry.raw_node cl in
-        let () = Logs.info (fun m -> m "ensuring loaded cl") in
+        (*let () = Logs.info (fun m -> m "ensuring loaded cl") in*)
         ignore (let%lwt _ce, _clk = _ensure_childlink fs lru_key entry !best_spill_key cl in Lwt.return ());
-        let () = Logs.info (fun m -> m "done ensuring loaded cl") in
+        (*let () = Logs.info (fun m -> m "done ensuring loaded cl") in*)
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
         let kdo_out = ref @@ header_size entry.cached_node in
