@@ -624,6 +624,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       end
       else if _has_children entry && _has_logdata entry then begin
         (* log spilling *)
+        let () = Logs.info (fun m -> m "log spilling") in
         _ensure_children fs.node_cache entry;
         let spill_score = ref 0 in
         let best_spill_score = ref 0 in
@@ -684,6 +685,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         _insert fs lru_key key value;
       end
       else begin (* Node splitting (root-friendly) *)
+        let () = Logs.info (fun m -> m "node splitting (root-friendly)") in
         let alloc1, entry1 = _new_node fs 2 in
         let alloc2, entry2 = _new_node fs 2 in
         _ensure_children fs.node_cache entry;
