@@ -208,21 +208,20 @@ let lru_xset lru key value =
   if LRU.mem key lru then raise @@ AlreadyCached key;
   LRU.add key value lru
 
-let lru_get_or_set lru key compute =
-  match lru_get lru key with
-  |Some value -> value
-  |None ->
-    let value = compute () in
-    LRU.add key value lru;
-    value
-
 let lru_get_or_set_lwt lru key compute =
   match lru_get lru key with
   |Some value -> Lwt.return value
   |None ->
-    let%lwt value = compute () in
-    LRU.add key value lru;
-    Lwt.return value
+    if match LRU.lru lru with
+    |None -> true
+    |Some (k, v) when v.dirty_info = None -> true
+    |_ -> false
+    then
+      let%lwt value = compute () in
+      LRU.add key value lru;
+      Lwt.return value
+    else
+      Lwt.fail @@ Failure "Would discard dirty data" (* TODO expose this as a proper API value *)
 
 let lru_create capacity =
   LRU.create capacity
