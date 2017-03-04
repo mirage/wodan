@@ -219,13 +219,14 @@ type node_cache = {
 }
 
 let bitv_create64 off bit =
-  Bitv.create (Int64.to_int off) bit (* XXX Unchecked truncation, may overflow *)
+  if Int64.compare off (Int64.of_int max_int) > 0 then failwith (Printf.sprintf "Size %Ld too large for a Bitv" off);
+  Bitv.create (Int64.to_int off) bit
 
 let bitv_set64 vec off bit =
-  Bitv.set vec (Int64.to_int off) bit (* XXX Unchecked truncation, may overflow *)
+  Bitv.set vec (Int64.to_int off) bit (* Safe as long as bitv_create64 is used *)
 
 let bitv_get64 vec off =
-  Bitv.get vec (Int64.to_int off) (* XXX Unchecked truncation, may overflow *)
+  Bitv.get vec (Int64.to_int off) (* Safe as long as bitv_create64 is used *)
 
 let bitv_len64 vec =
   Int64.of_int @@ Bitv.length vec
