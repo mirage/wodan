@@ -651,7 +651,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let rec _insert fs lru_key key value =
     (*let () = Logs.info (fun m -> m "_insert") in*)
     match lru_get fs.node_cache.lru lru_key with
-    |None -> failwith "missing LRU entry"
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
     |Some entry ->
     let len = check_value_len value in
     let free = free_space entry in
@@ -783,7 +783,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let rec _lookup open_fs lru_key key =
     match lru_get open_fs.node_cache.lru lru_key with
-    |None -> failwith "Missing LRU entry"
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" @@ alloc_id_of_key lru_key
     |Some cached_node ->
     let cstr = cached_node.raw_node in
     if cached_node.cache_state = NoKeysCached then
