@@ -20,6 +20,15 @@ For the dirty set, use a tree.
 Have a mark_parents_dirty function that makes sure
 everybody in the parent chain gets a pointer to their now dirty child.
 
+### Hierarchical consistency
+
+Maybe we don't need the ephemeron stuff.
+Just make sure that a parent stays more recent than its child.
+Order LRU calls properly.
+If the tree is deeper than the LRU has items, that becomes impossible.
+Prevent the tree from growing that much?
+  Check split calls?
+
 ## Allocation and adressing cache items
 
 When a node has been modified in-memory, we don't have an easy way to identify it.
