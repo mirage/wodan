@@ -538,6 +538,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let cached_node = match tycode with
     |1 -> `Root
     |2 -> `Child
+    |ty -> raise @@ BadNodeType ty
     in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
     let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=zero_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
