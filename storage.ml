@@ -425,6 +425,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     in scan hdrsize; r
 
   let _load_root_node_at open_fs logical =
+    let () = Logs.info (fun m -> m "_load_root_node_at") in
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     let () = assert (Cstruct.len cstr = P.block_size) in
@@ -439,6 +440,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       Lwt.return entry
 
   let _load_child_node_at open_fs logical highest_key parent_key =
+    let () = Logs.info (fun m -> m "_load_child_node_at") in
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     let () = assert (Cstruct.len cstr = P.block_size) in
@@ -625,6 +627,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         LRUKey.ByAllocId data
 
   let _ensure_childlink open_fs entry_key entry cl_key cl =
+    let () = Logs.info (fun m -> m "_ensure_childlink") in
     let cstr = entry.raw_node in
     let child_lru_key = _lru_key_of_cl cstr cl in
     match cl with
@@ -635,7 +638,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             fun () ->
               _load_child_node_at open_fs logical cl_key (Some entry_key))
         in
-        lru_xset open_fs.node_cache.lru child_lru_key child_entry;
         Lwt.return (child_lru_key, child_entry)
     |`DirtyChild _
     |`AnonymousChild _ ->
