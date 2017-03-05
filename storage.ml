@@ -508,7 +508,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       match lru_get open_fs.node_cache.lru lru_key with
       |None -> failwith "missing lru_key"
       |Some entry ->
-      let Some di = entry.dirty_info in
+        match entry.dirty_info with
+        |None -> failwith "Inconsistent dirty_info"
+        |Some di ->
       let completion_list = List.fold_left flush_rec completion_list di.dirty_children in
       let alloc_id = alloc_id_of_key lru_key in
       entry.dirty_info <- None;
