@@ -509,11 +509,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       let Some di = entry.dirty_info in
       let completion_list = List.fold_left flush_rec completion_list di.dirty_children in
       let alloc_id = alloc_id_of_key lru_key in
+      entry.dirty_info <- None;
       (_write_node open_fs alloc_id) :: completion_list
     end in
-    Lwt.join (Hashtbl.fold (fun tid lru_key completion_list ->
+    let r = Lwt.join (Hashtbl.fold (fun tid lru_key completion_list ->
         flush_rec completion_list lru_key)
-      open_fs.node_cache.dirty_roots [])
+        open_fs.node_cache.dirty_roots []) in
+    Hashtbl.clear open_fs.node_cache.dirty_roots;
+    r
 
   let _new_node open_fs tycode =
     Logs.info (fun m -> m "_new_node type:%d" tycode);
@@ -815,6 +818,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     (*let ndirty = cache.dirty_count in*)
     let nnew = cache.new_count in
     Logs.info (fun m -> m "Nodes: %Ld on-disk (TODO count dirty), %Ld new" nstored nnew);
+    Logs.info (fun m -> m "LRU: %d" (LRU.items root.open_fs.node_cache.lru));
     ()
 
   let rec _scan_all_nodes open_fs logical =
