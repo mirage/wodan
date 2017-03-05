@@ -147,7 +147,7 @@ module CstructKeyedMap = Map_pr869.Make(Cstruct)
 module RootMap = Map.Make(Int32)
 
 module LRUKey = struct
-  type t = ByLogical of int64 | ByAllocId of int64 | Sentinel
+  type t = ByAllocId of int64 | Sentinel
   let compare = compare
   let witness = Sentinel
   let hash = Hashtbl.hash
@@ -157,7 +157,6 @@ end
 let alloc_id_of_key key =
   match key with
   |LRUKey.ByAllocId id -> id
-  |LRUKey.ByLogical _ -> failwith "Expected ByAllocId, got ByLogical"
   |LRUKey.Sentinel -> failwith "Expected ByAllocId, got Sentinel"
 
 type dirty_info = {
@@ -434,10 +433,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |1 -> `Root, _index_keydata cstr sizeof_rootnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
-      let key = LRUKey.ByLogical logical in
+      let key = LRUKey.ByAllocId (next_alloc_id cache) in
       let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key=top_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
       lru_xset cache.lru key entry;
-      Lwt.return entry
+      Lwt.return (key, entry)
 
   let _load_child_node_at open_fs logical highest_key parent_key =
     let () = Logs.info (fun m -> m "_load_child_node_at") in
@@ -452,7 +451,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |2 -> `Child, _index_keydata cstr sizeof_childnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
-      let key = LRUKey.ByLogical logical in
+      let key = LRUKey.ByAllocId (next_alloc_id cache) in
       let entry = {cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=CstructKeyedMap.empty; logindex=CstructKeyedMap.empty; cache_state=NoKeysCached; highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
       lru_xset cache.lru key entry;
       begin match parent_key with
@@ -622,11 +621,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   (* LRU key for a child link *)
   let _lru_key_of_cl cstr cl =
-    let data = _data_of_cl cstr cl in match cl with
-    |`CleanChild _
-    |`DirtyChild _ ->
-        LRUKey.ByLogical data
-    |`AnonymousChild _ ->
+    let data = _data_of_cl cstr cl in
         LRUKey.ByAllocId data
 
   let _ensure_childlink open_fs entry_key entry cl_key cl =
@@ -964,8 +959,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             let%lwt () = _scan_all_nodes open_fs lroot in
-            let root_key = LRUKey.ByLogical lroot in
-            let%lwt _ce = _load_root_node_at open_fs lroot in
+            let%lwt root_key, _ce = _load_root_node_at open_fs lroot in
             (* TODO parse other roots *)
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
         |FormatEmptyDevice logical_size ->
