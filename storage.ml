@@ -271,7 +271,7 @@ let next_logical_alloc_valid cache =
   if cache.free_count = 0L then failwith "No free space";
   let rec after log =
     if not @@ bitv_get64 cache.space_map log then log else
-      after @@ Int64.succ log
+      after @@ next_logical_novalid cache log
   in let loc = after cache.next_logical_alloc in
   cache.next_logical_alloc <- next_logical_novalid cache loc; loc
 
