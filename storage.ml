@@ -9,7 +9,7 @@ let max_dirty = 128
 exception BadMagic
 exception BadVersion
 exception BadFlags
-exception BadCRC
+exception BadCRC of int64
 
 exception ReadError
 exception WriteError
@@ -385,13 +385,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   }
 
   let _load_data_at filesystem logical =
+    let () = Logs.info (fun m -> m "_load_data_at %Ld" logical) in
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list filesystem.sector_size cstr in
     B.read filesystem.disk Int64.(div (mul logical @@ of_int P.block_size) @@ of_int filesystem.other_sector_size) io_data >>= Lwt.wrap1 begin function
       |Result.Error _ -> raise ReadError
       |Result.Ok () ->
           if not @@ Crc32c.cstruct_valid cstr
-          then raise BadCRC
+          then raise @@ BadCRC logical
           else cstr, io_data end
 
   let _find_childlinks_offset cstr =
@@ -434,9 +435,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     let () = assert (Cstruct.len cstr = P.block_size) in
-    (*if not (Crc32c.cstruct_valid cstr)
-    then raise BadCRC
-    else*) (* checked by _load_data_at *)
       let cached_node, keydata =
       match get_anynode_hdr_nodetype cstr with
       |2 -> `Child, _index_keydata cstr sizeof_childnode_hdr
@@ -839,7 +837,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       else if get_superblock_incompat_flags sb <> 0l
       then raise BadFlags
       else if not @@ Crc32c.cstruct_valid sb
-      then raise BadCRC
+      then raise @@ BadCRC 0L
       else get_superblock_first_block_written sb, get_superblock_logical_size sb
     end
 
