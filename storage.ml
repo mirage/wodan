@@ -111,17 +111,10 @@ type keydata_index = {
 (* Use offsets so that data isn't duplicated
  * Don't reference nodes directly, always go through the
  * LRU to bump recently accessed nodes *)
-type childlink_entry = [
-  |`CleanChild of int (* offset, logical is at offset + P.key_size *)
-  |`DirtyChild of int (* offset, logical is at offset + P.key_size *)
-  |`AnonymousChild of int ] (* offset, alloc_id is at offset + P.key_size *)
-[@@deriving sexp]
-
-let offset_of_cl : childlink_entry -> int = function
-  |`CleanChild off
-  |`DirtyChild off
-  |`AnonymousChild off ->
-      off
+type childlink_entry = {
+  offset: int; (* logical is at offset + P.key_size *)
+  mutable alloc_id: int64 option;
+} [@@deriving sexp]
 
 type node = [
   |`Root
@@ -194,26 +187,37 @@ module LRU = Lru.M.Make(LRUKey)(LRUValue)
 let lru_get lru key =
   LRU.find key lru
 
+let lru_peek lru key =
+  (* XXX TODO send pull request *)
+  LRU.find key lru
+
 exception AlreadyCached of LRUKey.t
+
+let lookup_parent_link lru entry =
+  match entry.parent_key with
+  |None -> None
+  |Some parent_key ->
+    let Some parent_entry = lru_peek lru parent_key in
+    let children = Lazy.force parent_entry.children in
+    let cl = CstructKeyedMap.find entry.highest_key children in
+    Some (parent_entry, cl)
 
 let lru_xset lru key value =
   if LRU.mem key lru then raise @@ AlreadyCached key;
+  let would_discard = ((LRU.size lru) + (LRUValue.weight value) > LRU.capacity lru) in
+  (* assumes uniform weights, looks only at the bottom item *)
+  if would_discard then begin
+    match LRU.lru lru with
+    |Some (lru_key, entry) when entry.dirty_info <> None ->
+      failwith "Would discard dirty data" (* TODO expose this as a proper API value *) 
+    |Some (lru_key, entry) ->
+      match lookup_parent_link lru entry with
+      |None -> failwith "Would discard a root key, LRU too small for tree depth"
+      |Some (_parent_entry, cl) ->
+        cl.alloc_id <- None
+    |_ -> failwith "LRU capacity is too small"
+  end;
   LRU.add key value lru
-
-let lru_get_or_set_lwt lru key compute =
-  match lru_get lru key with
-  |Some value -> Lwt.return value
-  |None ->
-    if match LRU.lru lru with
-    |None -> true
-    |Some (k, v) when v.dirty_info = None -> true
-    |_ -> false
-    then
-      let%lwt value = compute () in
-      LRU.add key value lru;
-      Lwt.return value
-    else
-      Lwt.fail @@ Failure "Would discard dirty data" (* TODO expose this as a proper API value *)
 
 let lru_create capacity =
   LRU.create capacity
@@ -422,7 +426,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       fun acc off ->
         let key = Cstruct.sub (
           entry.raw_node) off P.key_size in
-        CstructKeyedMap.add key (`CleanChild off) acc)
+        CstructKeyedMap.add key {offset=off; alloc_id=None} acc)
       CstructKeyedMap.empty (_gen_childlink_offsets entry.childlinks.childlinks_offset)
 
   let _compute_keydata entry =
@@ -489,6 +493,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
     Logs.info (fun m -> m "_write_node logical:%Ld" logical);
+    begin match lookup_parent_link cache.lru entry with
+    |Some (parent_entry, cl) ->
+      Cstruct.LE.set_uint64 parent_entry.raw_node (cl.offset + P.key_size) logical;
+    |None -> () end;
     begin match entry.prev_logical with
     |Some plog ->
         bitv_set64 cache.space_map plog false;
@@ -567,11 +575,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Logs.info (fun m -> m "_add_child");
     let child_key = LRUKey.ByAllocId alloc_id in
     let off = parent.childlinks.childlinks_offset - childlink_size in
+    let children = Lazy.force parent.children in (* Force *before* blitting *)
     Cstruct.blit highest_key 0 parent.raw_node off P.key_size;
-    Cstruct.LE.set_uint64 parent.raw_node (off + P.key_size) alloc_id;
     parent.childlinks.childlinks_offset <- off;
     child.highest_key <- highest_key;
-    parent.children <- Lazy.from_val @@ CstructKeyedMap.add highest_key (`AnonymousChild off) @@ Lazy.force parent.children;
+    parent.children <- Lazy.from_val @@ CstructKeyedMap.add highest_key {offset=off; alloc_id=Some alloc_id} children;
     ignore @@ mark_dirty cache parent_key;
     ignore @@ mark_dirty cache child_key
 
@@ -581,31 +589,26 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let _has_logdata entry =
     entry.keydata.next_keydata_offset <> header_size entry.cached_node
 
-  let _data_of_cl cstr cl =
-    let off = offset_of_cl cl in
-    Cstruct.LE.get_uint64 cstr (off + P.key_size)
-
-  (* LRU key for a child link *)
-  let _lru_key_of_cl cstr cl =
-    let data = _data_of_cl cstr cl in
-        LRUKey.ByAllocId data
+  let _logical_of_cl cstr cl =
+    Cstruct.LE.get_uint64 cstr (cl.offset + P.key_size)
 
   let _ensure_childlink open_fs entry_key entry cl_key cl =
     (*let () = Logs.info (fun m -> m "_ensure_childlink") in*)
     let cstr = entry.raw_node in
-    let child_lru_key = _lru_key_of_cl cstr cl in
-    match cl with
-    |`CleanChild _ ->
-        let logical = _data_of_cl cstr cl in
-        let%lwt child_entry =
-          lru_get_or_set_lwt open_fs.node_cache.lru child_lru_key (
-            fun () -> _load_child_node_at open_fs logical cl_key entry_key)
-        in
+    let cache = open_fs.node_cache in
+    match cl.alloc_id with
+    |None ->
+        let logical = _logical_of_cl cstr cl in
+        let%lwt child_entry = _load_child_node_at open_fs logical cl_key entry_key in
+        let alloc_id = next_alloc_id cache in
+        cl.alloc_id <- Some alloc_id;
+        let child_lru_key = LRUKey.ByAllocId alloc_id in
+        lru_xset cache.lru child_lru_key child_entry;
         Lwt.return (child_lru_key, child_entry)
-    |`DirtyChild _
-    |`AnonymousChild _ ->
-      match lru_get open_fs.node_cache.lru child_lru_key with
-      |None -> Lwt.fail @@ Failure (Printf.sprintf "Missing LRU entry for anonymous/dirty child %s" (sexp_of_childlink_entry cl |> Sexplib.Sexp.to_string))
+    |Some alloc_id ->
+      let child_lru_key = LRUKey.ByAllocId alloc_id in
+      match lru_get cache.lru child_lru_key with
+      |None -> Lwt.fail @@ Failure (Printf.sprintf "Missing LRU entry for loaded child %s" (sexp_of_childlink_entry cl |> Sexplib.Sexp.to_string))
       |Some child_entry ->
         Lwt.return (child_lru_key, child_entry)
 
@@ -632,7 +635,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       if free >= len1 then
       begin (* Simple insertion *)
         blit_keydata ();
-        ignore @@ mark_dirty fs.node_cache lru_key
+        ignore @@ mark_dirty fs.node_cache lru_key;
+        Lwt.return ()
       end
       else if _has_children entry && _has_logdata entry then begin
         (* log spilling *)
@@ -662,39 +666,42 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         end;
         let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) children in
         let cl = CstructKeyedMap.find !best_spill_key children in
-        let child_lru_key = _lru_key_of_cl entry.raw_node cl in
         (*let () = Logs.info (fun m -> m "ensuring loaded cl") in*)
-        ignore (let%lwt _ce, _clk = _ensure_childlink fs lru_key entry !best_spill_key cl in Lwt.return ());
+        (* XXX Should lwt-ify all this *)
+        let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry !best_spill_key cl in begin
         (*let () = Logs.info (fun m -> m "done ensuring loaded cl") in*)
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
         let kdo_out = ref @@ header_size entry.cached_node in
-        entry.keydata.keydata_offsets <- List.fold_right (fun kdo kdos ->
+        let%lwt kdos = Lwt_list.fold_right_s (fun kdo kdos ->
           let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
           if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-            _insert fs child_lru_key key1 value1;
-            kdos
+            let%lwt () = _insert fs child_lru_key key1 value1 in
+            Lwt.return kdos
           end else begin
             let len1 = len + P.key_size + sizeof_datalen in
             Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
             let kdos = !kdo_out::kdos in
             kdo_out := !kdo_out + len1;
-            kdos
+            Lwt.return kdos
           end
-        ) entry.keydata.keydata_offsets [];
-  (* Invalidate logcache since keydata_offsets changed *)
-  entry.logindex <- lazy (_compute_keydata entry);
-  if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
-	  (match before_bsk with None -> Logs.info (fun m -> m "No before_bsk") |Some (bbsk, _) -> Cstruct.hexdump bbsk);
-    Cstruct.hexdump !best_spill_key;
-    failwith @@ Printf.sprintf "Key data didn't shrink %d %d" !kdo_out entry.keydata.next_keydata_offset
-  end;
+        ) entry.keydata.keydata_offsets [] in begin
+        entry.keydata.keydata_offsets <- kdos;
+        (* Invalidate logcache since keydata_offsets changed *)
+        entry.logindex <- lazy (_compute_keydata entry);
+        if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
+          (match before_bsk with None -> Logs.info (fun m -> m "No before_bsk") |Some (bbsk, _) -> Cstruct.hexdump bbsk);
+          Cstruct.hexdump !best_spill_key;
+          failwith @@ Printf.sprintf "Key data didn't shrink %d %d" !kdo_out entry.keydata.next_keydata_offset
+        end;
         (* zero newly free space *)
         Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
         entry.keydata.next_keydata_offset <- !kdo_out;
         _insert fs lru_key key value;
+        end
+        end
       end
       else begin (* Node splitting (root-friendly) *)
         let () = Logs.info (fun m -> m "node splitting (root-friendly)") in
@@ -719,11 +726,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           ckd.keydata_offsets <- off1::ckd.keydata_offsets;
           ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
         in let blit_cd_child cle centry =
-          let off = offset_of_cl cle in
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
           centry.childlinks.childlinks_offset <- centry.childlinks.childlinks_offset - childlink_size;
-          Cstruct.blit cstr0 off cstr1 centry.childlinks.childlinks_offset (childlink_size);
+          Cstruct.blit cstr0 cle.offset cstr1 centry.childlinks.childlinks_offset (childlink_size);
         in
         CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
         CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
@@ -731,10 +737,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
         _reset_contents entry;
         _add_child entry entry1 median alloc1 fs.node_cache lru_key;
-        _add_child entry entry2 top_key alloc2 fs.node_cache lru_key
+        _add_child entry entry2 top_key alloc2 fs.node_cache lru_key;
+        Lwt.return ()
       end
-    end;
-    ()
+    end
 
   let insert root key value =
     let key = check_key key in
@@ -758,9 +764,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let () = Logs.info (fun m -> m "_lookup") in
             let key1, cl = CstructKeyedMap.find_first (
               fun k -> Cstruct.compare k key >= 0) @@ Lazy.force entry.children in
-            let child_lru_key = _lru_key_of_cl cstr cl in
-            _ensure_childlink open_fs lru_key entry key1 cl >>=
-            fun _ ->
+            let%lwt child_lru_key, _ce = _ensure_childlink open_fs lru_key entry key1 cl in
             _lookup open_fs child_lru_key key
 
   let lookup root key =

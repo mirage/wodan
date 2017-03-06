@@ -13,7 +13,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     (
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-    let () = Stor.insert !root key cval in
+    let%lwt () = Stor.insert !root key cval in
     let%lwt () = Stor.flush !root.open_fs in
     let%lwt cval1 = Stor.lookup !root key in
     (*let () = Cstruct.hexdump cval1 in*)
@@ -25,7 +25,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     while%lwt true do
       let key = Nocrypto.Rng.generate 20 and
         cval = Nocrypto.Rng.generate 40 in
-      Stor.insert !root key cval;
+      let%lwt () = Stor.insert !root key cval in
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
         let%lwt () = Stor.flush !root.open_fs in
         let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
