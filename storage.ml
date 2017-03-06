@@ -611,7 +611,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         LRUKey.ByAllocId data
 
   let _ensure_childlink open_fs entry_key entry cl_key cl =
-    let () = Logs.info (fun m -> m "_ensure_childlink") in
+    (*let () = Logs.info (fun m -> m "_ensure_childlink") in*)
     let cstr = entry.raw_node in
     let child_lru_key = _lru_key_of_cl cstr cl in
     match cl with
