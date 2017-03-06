@@ -537,31 +537,31 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     set_rootnode_hdr_tree_id entry.raw_node @@ next_tree_id open_fs.node_cache;
     alloc_id, entry
 
-  let _cache_keydata cache cached_node =
+  let _cache_keydata cache entry =
     ignore cache;
-    let kd = cached_node.keydata in
-    cached_node.logindex <- List.fold_left (
+    let kd = entry.keydata in
+    entry.logindex <- List.fold_left (
       fun acc off ->
         let key = Cstruct.sub (
-          cached_node.raw_node) off P.key_size in
+          entry.raw_node) off P.key_size in
         CstructKeyedMap.add key off acc)
       CstructKeyedMap.empty kd.keydata_offsets;
-      cached_node.cache_state <- LogKeysCached
+      entry.cache_state <- LogKeysCached
 
   let rec _gen_childlink_offsets start =
     if start >= block_end then []
     else start::(_gen_childlink_offsets @@ start + childlink_size)
 
-  let _cache_children cache cached_node =
+  let _cache_children cache entry =
     ignore cache;
     (*let () = Logs.info (fun m -> m "_cache_children") in*)
-    cached_node.children <- List.fold_left (
+    entry.children <- List.fold_left (
       fun acc off ->
         let key = Cstruct.sub (
-          cached_node.raw_node) off P.key_size in
+          entry.raw_node) off P.key_size in
         CstructKeyedMap.add key (`CleanChild off) acc)
-      CstructKeyedMap.empty (_gen_childlink_offsets cached_node.childlinks.childlinks_offset);
-    cached_node.cache_state <- AllKeysCached
+      CstructKeyedMap.empty (_gen_childlink_offsets entry.childlinks.childlinks_offset);
+    entry.cache_state <- AllKeysCached
 
   let _reset_contents entry =
     let hdrsize = header_size entry.cached_node in
@@ -765,25 +765,25 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let rec _lookup open_fs lru_key key =
     match lru_get open_fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" @@ alloc_id_of_key lru_key
-    |Some cached_node ->
-    let cstr = cached_node.raw_node in
-    if cached_node.cache_state = NoKeysCached then
-      _cache_keydata open_fs.node_cache cached_node;
+    |Some entry ->
+    let cstr = entry.raw_node in
+    if entry.cache_state = NoKeysCached then
+      _cache_keydata open_fs.node_cache entry;
       match
-        CstructKeyedMap.find key cached_node.logindex
+        CstructKeyedMap.find key entry.logindex
       with
         |logoffset ->
             let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
             Lwt.return @@ Cstruct.sub cstr (logoffset + P.key_size + 2) len
         |exception Not_found ->
             let () = Logs.info (fun m -> m "_lookup") in
-            _ensure_children open_fs.node_cache cached_node;
+            _ensure_children open_fs.node_cache entry;
             (*let () = Logs.info (fun m -> m "find_first A") in*)
             let key1, cl = CstructKeyedMap.find_first (
-              fun k -> Cstruct.compare k key >= 0) cached_node.children in
+              fun k -> Cstruct.compare k key >= 0) entry.children in
             (*let () = Logs.info (fun m -> m "find_first B") in*)
             let child_lru_key = _lru_key_of_cl cstr cl in
-            _ensure_childlink open_fs lru_key cached_node key1 cl >>=
+            _ensure_childlink open_fs lru_key entry key1 cl >>=
             fun _ ->
             _lookup open_fs child_lru_key key
 
