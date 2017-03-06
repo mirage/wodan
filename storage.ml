@@ -919,9 +919,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             let%lwt () = _scan_all_nodes open_fs lroot in
-            let%lwt root_key, _ce = _load_root_node_at open_fs lroot in
+            let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
             (* TODO parse other roots *)
-            Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
+            let root = {open_fs; root_key;} in
+            log_statistics root;
+            Lwt.return @@ RootMap.singleton root_tree_id root
         |FormatEmptyDevice logical_size ->
             let root_tree_id = 1l in
             let space_map = bitv_create64 logical_size false in
