@@ -237,6 +237,7 @@ type node_cache = {
   (* Count of free blocks on disk *)
   mutable free_count: int64;
   mutable new_count: int64;
+  mutable dirty_count: int64;
   logical_size: int64;
   (* Logical -> bit.  Zero iff free. *)
   space_map: Bitv.t;
@@ -315,7 +316,10 @@ let rec mark_dirty cache lru_key : dirty_info =
                       |_ -> failwith "dirty_node inconsistent" end
               end
             |None -> failwith "entry.parent_key inconsistent (no parent)";
-        end; let di = { dirty_children=[]; } in entry.dirty_info <- Some di; di
+        end;
+        let di = { dirty_children=[]; } in entry.dirty_info <- Some di;
+        cache.dirty_count <- Int64.succ cache.dirty_count;
+        di
       |Some di -> di
     end
 
@@ -525,6 +529,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       let completion_list = List.fold_left flush_rec completion_list di.dirty_children in
       let alloc_id = alloc_id_of_key lru_key in
       entry.dirty_info <- None;
+      open_fs.node_cache.dirty_count <- Int64.pred open_fs.node_cache.dirty_count;
       (_write_node open_fs alloc_id) :: completion_list
     end in
     let r = Lwt.join (Hashtbl.fold (fun tid lru_key completion_list ->
@@ -780,9 +785,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let logical_size = bitv_len64 cache.space_map in
     (* Don't count the superblock as a node *)
     let nstored = Int64.(pred @@ sub logical_size cache.free_count) in
-    (*let ndirty = cache.dirty_count in*)
+    let ndirty = cache.dirty_count in
     let nnew = cache.new_count in
-    Logs.info (fun m -> m "Nodes: %Ld on-disk (TODO count dirty), %Ld new" nstored nnew);
+    Logs.info (fun m -> m "Nodes: %Ld on-disk (%Ld dirty), %Ld new" nstored ndirty nnew);
     Logs.info (fun m -> m "LRU: %d" (LRU.items root.open_fs.node_cache.lru));
     ()
 
@@ -918,6 +923,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               space_map;
               free_count;
               new_count=0L;
+              dirty_count=0L;
               next_logical_alloc=lroot; (* in use, but that's okay *)
               statistics=default_statistics;
             } in
@@ -944,6 +950,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               space_map;
               free_count;
               new_count=0L;
+              dirty_count=0L;
               next_logical_alloc=first_block_written;
               statistics=default_statistics;
             } in
