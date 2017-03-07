@@ -188,8 +188,8 @@ let lru_get lru key =
   LRU.find key lru
 
 let lru_peek lru key =
-  (* XXX TODO send pull request *)
-  LRU.find key lru
+  (* Requires https://github.com/pqwy/lru/issues/5 *)
+  LRU.peek key lru
 
 exception AlreadyCached of LRUKey.t
 
