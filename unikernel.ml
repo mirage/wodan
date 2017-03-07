@@ -31,10 +31,11 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
         root := Storage.RootMap.find 1l roots;
         Lwt.return ()
-      end >>= function () ->
-      if%lwt Lwt.return (Nocrypto.Rng.Int.gen 8192 = 0) then (* Infrequent flushing *)
+      end
+      else if%lwt Lwt.return (Nocrypto.Rng.Int.gen 8192 = 0) then begin (* Infrequent flushing *)
+        Stor.log_statistics !root;
         Stor.flush !root.open_fs
-    done
+      end done
     )
       [%lwt.finally Lwt.return @@ Stor.log_statistics !root]
 end
