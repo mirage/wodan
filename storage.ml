@@ -410,6 +410,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   (* build a keydata_index *)
   let _index_keydata cstr hdrsize =
+    let () = Logs.info (fun m -> m "_index_keydata") in
     let r = {
       keydata_offsets=[];
       next_keydata_offset=hdrsize;
@@ -427,7 +428,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     else start::(_gen_childlink_offsets @@ start + childlink_size)
 
   let _compute_children entry =
-    (*let () = Logs.info (fun m -> m "_compute_children") in*)
+    let () = Logs.info (fun m -> m "_compute_children") in
     List.fold_left (
       fun acc off ->
         let key = Cstruct.sub (
@@ -435,7 +436,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         CstructKeyedMap.add key {offset=off; alloc_id=None} acc)
       CstructKeyedMap.empty (_gen_childlink_offsets entry.childlinks.childlinks_offset)
 
+  (* Needs an up to date _index_keydata *)
   let _compute_keydata entry =
+    let () = Logs.info (fun m -> m "_compute_keydata") in
     let kd = entry.keydata in
     List.fold_left (
       fun acc off ->
@@ -696,8 +699,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           end
         ) entry.keydata.keydata_offsets [] in begin
         entry.keydata.keydata_offsets <- kdos;
-        (* Invalidate logcache since keydata_offsets changed *)
-        entry.logindex <- lazy (_compute_keydata entry);
         if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
           (match before_bsk with None -> Logs.info (fun m -> m "No before_bsk") |Some (bbsk, _) -> Cstruct.hexdump bbsk);
           Cstruct.hexdump !best_spill_key;
@@ -706,6 +707,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         (* zero newly free space *)
         Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
         entry.keydata.next_keydata_offset <- !kdo_out;
+        (* Invalidate logcache since keydata_offsets changed *)
+        entry.logindex <- lazy (_compute_keydata entry);
         _insert fs lru_key key value;
         end
         end
