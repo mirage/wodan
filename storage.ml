@@ -14,12 +14,11 @@ exception BadCRC of int64
 exception ReadError
 exception WriteError
 exception OutOfSpace
+exception NeedsFlush
 
 exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
-
-exception TryAgain
 
 (* 512 bytes.  The rest of the block isn't crc-controlled. *)
 [%%cstruct type superblock = {
@@ -290,8 +289,8 @@ type insertable =
   |KeyChild of Cstruct.t * Cstruct.t
 
 
-let rec mark_dirty cache lru_key : dirty_info =
-  (*Logs.info (fun m -> m "mark_dirty");*)
+let rec _mark_dirty cache lru_key : dirty_info =
+  (*Logs.info (fun m -> m "_mark_dirty");*)
   match lru_get cache.lru lru_key with
   |None -> failwith "Missing LRU key"
   |Some entry -> begin
@@ -309,7 +308,7 @@ let rec mark_dirty cache lru_key : dirty_info =
                 match lru_get cache.lru parent_key with
                 |None -> failwith "missing parent_entry"
                 |Some _parent_entry ->
-                    let parent_di = mark_dirty cache parent_key in
+                    let parent_di = _mark_dirty cache parent_key in
                     begin
                       match List.filter (fun lk -> lk == lru_key) parent_di.dirty_children with
                       |[] -> begin parent_di.dirty_children <- lru_key::parent_di.dirty_children end
@@ -317,8 +316,11 @@ let rec mark_dirty cache lru_key : dirty_info =
               end
             |None -> failwith "entry.parent_key inconsistent (no parent)";
         end;
-        let di = { dirty_children=[]; } in entry.dirty_info <- Some di;
-        cache.dirty_count <- Int64.succ cache.dirty_count;
+        let di = { dirty_children=[]; } in
+        entry.dirty_info <- Some di;
+        let dc1 = Int64.succ cache.dirty_count in
+        if Int64.(compare (add dc1 cache.new_count) cache.free_count) > 0 then raise NeedsFlush;
+        cache.dirty_count <- dc1;
         di
       |Some di -> di
     end
@@ -585,8 +587,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     parent.childlinks.childlinks_offset <- off;
     child.highest_key <- highest_key;
     parent.children <- Lazy.from_val @@ CstructKeyedMap.add highest_key {offset=off; alloc_id=Some alloc_id} children;
-    ignore @@ mark_dirty cache parent_key;
-    ignore @@ mark_dirty cache child_key
+    ignore @@ _mark_dirty cache parent_key;
+    ignore @@ _mark_dirty cache child_key
 
   let _has_children entry =
     entry.childlinks.childlinks_offset <> block_end
@@ -640,7 +642,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       if free >= len1 then
       begin (* Simple insertion *)
         blit_keydata ();
-        ignore @@ mark_dirty fs.node_cache lru_key;
+        ignore @@ _mark_dirty fs.node_cache lru_key;
         Lwt.return ()
       end
       else if _has_children entry && _has_logdata entry then begin
@@ -712,6 +714,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         let () = Logs.info (fun m -> m "node splitting (root-friendly)") in
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
+        (* Mark parent dirty before marking children new, so that OutOfSpace / NeedsFlush are discriminated *)
+        ignore @@ _mark_dirty fs.node_cache lru_key;
         let alloc1, entry1 = _new_node fs 2 @@ Some lru_key in
         let alloc2, entry2 = _new_node fs 2 @@ Some lru_key in
         let n = CstructKeyedMap.cardinal logindex in
