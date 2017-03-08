@@ -25,7 +25,12 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     while%lwt true do
       let key = Nocrypto.Rng.generate 20 and
         cval = Nocrypto.Rng.generate 40 in
-      let%lwt () = Stor.insert !root key cval in
+      try%lwt
+        Stor.insert !root key cval
+      with Storage.NeedsFlush ->
+        Stor.flush !root.open_fs >>= function () ->
+        Stor.insert !root key cval
+      >>= function () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
         let%lwt () = Stor.flush !root.open_fs in
         let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
