@@ -871,12 +871,25 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |Result.Error _ -> Lwt.fail ReadError
       |Result.Ok () -> Lwt.return () in
 
-    let scan_range start =
+    let next_logical logical =
+      let log1 = Int64.succ logical in
+      if log1 = lsize then 1L else log1
+    in
+
+    let is_valid_root () =
+      get_anynode_hdr_nodetype cstr = 1
+    in
+
+    let rec scan_range start =
       (* Placeholder.
          TODO scan_range start end
          TODO use is_zero_data, type checks, crc checks, and loop *)
       let%lwt () = read start in
-      Lwt.return (start, get_anynode_hdr_generation cstr) in
+      if is_valid_root () then
+        Lwt.return (start, get_anynode_hdr_generation cstr)
+      else
+        scan_range @@ next_logical start
+    in
 
     let rec sfr_rec start0 end0 gen0 =
       (* end/start swapped on purpose *)
