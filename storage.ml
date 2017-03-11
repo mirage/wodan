@@ -135,6 +135,9 @@ let check_node_type = function
   |1|2 -> ()
   |ty -> raise @@ BadNodeType ty
 
+let cstruct_clone cstr =
+  Cstruct.(of_string @@ to_string cstr)
+
 module CstructKeyedMap = Map_pr869.Make(Cstruct)
 module RootMap = Map.Make(Int32)
 
@@ -543,7 +546,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Hashtbl.clear open_fs.node_cache.dirty_roots;
     r
 
-  let _new_node open_fs tycode parent_key =
+  let _new_node open_fs tycode parent_key highest_key =
     Logs.info (fun m -> m "_new_node type:%d" tycode);
     let cache = open_fs.node_cache in
     let nc1 = Int64.succ cache.new_count in
@@ -562,13 +565,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     |ty -> raise @@ BadNodeType ty
     in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
-    let entry = {parent_key; cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=Lazy.from_val CstructKeyedMap.empty; logindex=Lazy.from_val CstructKeyedMap.empty; highest_key=zero_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
+    let entry = {parent_key; cached_node; raw_node=cstr; io_data; keydata; dirty_info=None; children=Lazy.from_val CstructKeyedMap.empty; logindex=Lazy.from_val CstructKeyedMap.empty; highest_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
     lru_xset cache.lru key entry;
     alloc_id, entry
 
   let _new_root open_fs =
-    let alloc_id, entry = _new_node open_fs 1 None in
-    entry.highest_key <- top_key;
+    let alloc_id, entry = _new_node open_fs 1 None top_key in
     set_rootnode_hdr_tree_id entry.raw_node @@ next_tree_id open_fs.node_cache;
     alloc_id, entry
 
@@ -627,6 +629,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     match lru_get fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
     |Some entry ->
+    assert (Cstruct.compare key entry.highest_key <= 0);
     let len = check_value_len value in
     let free = free_space entry in
     let len1 = P.key_size + sizeof_datalen + len in
@@ -640,7 +643,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
         kd.keydata_offsets <- off::kd.keydata_offsets;
         if Lazy.is_val entry.logindex then
-          entry.logindex <- Lazy.from_val @@ CstructKeyedMap.add key off (Lazy.force entry.logindex)
+          entry.logindex <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr off P.key_size) off (Lazy.force entry.logindex)
     end in begin
       if free >= len1 then
       begin (* Simple insertion *)
@@ -664,7 +667,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               best_spill_key := !scored_key;
             end;
             spill_score := 0;
-            scored_key := fst @@ CstructKeyedMap.find_first (fun k1 -> Cstruct.compare k k1 <= 0) children;
+            match CstructKeyedMap.find_first_opt (fun k1 -> Cstruct.compare k k1 <= 0) children with
+            |None -> Cstruct.hexdump k; Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding children; Cstruct.hexdump entry.highest_key; failwith "invariant broken"
+            |Some (sk, _cl) ->
+              scored_key := sk;
           end;
           let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
           let len1 = P.key_size + sizeof_datalen + len in
@@ -677,7 +683,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) children in
         let cl = CstructKeyedMap.find !best_spill_key children in
         (*let () = Logs.info (fun m -> m "ensuring loaded cl") in*)
-        (* XXX Should lwt-ify all this *)
         let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry !best_spill_key cl in begin
         (*let () = Logs.info (fun m -> m "done ensuring loaded cl") in*)
         (* loop across log data, shifting/blitting towards the start if preserved,
@@ -719,12 +724,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that OutOfSpace / NeedsFlush are discriminated *)
         ignore @@ _mark_dirty fs.node_cache lru_key;
-        let alloc1, entry1 = _new_node fs 2 @@ Some lru_key in
-        let alloc2, entry2 = _new_node fs 2 @@ Some lru_key in
         let n = CstructKeyedMap.cardinal logindex in
         let binds = CstructKeyedMap.bindings logindex in
-        let median = fst @@ List.nth binds (n/2) in
-        entry1.highest_key <- median;
+        let median = cstruct_clone @@ fst @@ List.nth binds (n/2) in
+        let alloc1, entry1 = _new_node fs 2 (Some lru_key) median in
+        let alloc2, entry2 = _new_node fs 2 (Some lru_key) entry.highest_key in
         let logi1, logi2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) logindex in
         let cl1, cl2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) children in
         let blit_kd_child off centry =
@@ -737,11 +741,15 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           Cstruct.blit cstr0 off cstr1 off1 len1;
           ckd.keydata_offsets <- off1::ckd.keydata_offsets;
           ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
+          if Lazy.is_val centry.logindex then
+            centry.logindex <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr1 off1 P.key_size) off1 (Lazy.force centry.logindex);
         in let blit_cd_child cle centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
-          centry.childlinks.childlinks_offset <- centry.childlinks.childlinks_offset - childlink_size;
-          Cstruct.blit cstr0 cle.offset cstr1 centry.childlinks.childlinks_offset (childlink_size);
+          let offset = centry.childlinks.childlinks_offset - childlink_size in
+          centry.childlinks.childlinks_offset <- offset;
+          Cstruct.blit cstr0 cle.offset cstr1 offset (childlink_size);
+          centry.children <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr1 offset P.key_size) {offset; alloc_id=cle.alloc_id} (Lazy.force centry.children);
         in
         CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
         CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
@@ -749,7 +757,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
         _reset_contents entry;
         _add_child entry entry1 median alloc1 fs.node_cache lru_key;
-        _add_child entry entry2 top_key alloc2 fs.node_cache lru_key;
+        _add_child entry entry2 entry.highest_key alloc2 fs.node_cache lru_key;
         Lwt.return ()
       end
     end
