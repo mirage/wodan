@@ -27,9 +27,11 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         cval = Nocrypto.Rng.generate 40 in
       try%lwt
         Stor.insert !root key cval
-      with Storage.NeedsFlush ->
+      with Storage.NeedsFlush -> begin
+        Logs.info (fun m -> m "Emergency flushing");
         Stor.flush !root.open_fs >>= function () ->
         Stor.insert !root key cval
+      end
       >>= function () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
         let%lwt () = Stor.flush !root.open_fs in
