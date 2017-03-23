@@ -660,14 +660,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     |InsChild alloc_id ->
         P.key_size + sizeof_logical
 
-  let rec _insert fs lru_key key insertable =
-    (*let () = Logs.info (fun m -> m "_insert") in*)
+  let _fast_insert fs lru_key key insertable =
+    (*let () = Logs.info (fun m -> m "_fast_insert") in*)
     match lru_get fs.node_cache.lru lru_key with
-    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (_fast_insert)" @@ alloc_id_of_key lru_key
     |Some entry ->
     assert (Cstruct.compare key entry.highest_key <= 0);
     let free = free_space entry in begin
-      if free >= _ins_req_space insertable then
+      assert (free >= _ins_req_space insertable);
       begin (* Simple insertion *)
         match insertable with
         |InsValue value ->
@@ -698,6 +698,16 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           entry.children <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr offset P.key_size) cl children;
           Lwt.return ()
       end
+    end
+
+  let rec _reserve_insert fs lru_key size =
+    (*let () = Logs.info (fun m -> m "_reserve_insert") in*)
+    match lru_get fs.node_cache.lru lru_key with
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
+    |Some entry ->
+    let free = free_space entry in begin
+      if free >= size then
+        Lwt.return ()
       else if _has_children entry && _has_logdata entry then begin
         (* log spilling *)
         let () = Logs.info (fun m -> m "log spilling") in
@@ -732,6 +742,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         (*let () = Logs.info (fun m -> m "ensuring loaded cl") in*)
         let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry !best_spill_key cl in begin
         (*let () = Logs.info (fun m -> m "done ensuring loaded cl") in*)
+        _reserve_insert fs child_lru_key !best_spill_score >>
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
         let kdo_out = ref @@ header_size entry.cached_node in
@@ -740,7 +751,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
           if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-            let%lwt () = _insert fs child_lru_key key1 (InsValue value1) in
+            let%lwt () = _fast_insert fs child_lru_key key1 (InsValue value1) in
             Lwt.return kdos
           end else begin
             let len1 = len + P.key_size + sizeof_datalen in
@@ -761,7 +772,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         entry.keydata.next_keydata_offset <- !kdo_out;
         (* Invalidate logcache since keydata_offsets changed *)
         entry.logindex <- lazy (_compute_keydata entry);
-        _insert fs lru_key key insertable;
+        _reserve_insert fs lru_key size;
         end
         end
       end
@@ -815,7 +826,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let len = check_value_len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
-    _insert root.open_fs root.root_key key (InsValue value)
+    _reserve_insert root.open_fs root.root_key @@ _ins_req_space @@ InsValue value >>
+    _fast_insert root.open_fs root.root_key key @@ InsValue value
 
   let rec _lookup open_fs lru_key key =
     match lru_get open_fs.node_cache.lru lru_key with
