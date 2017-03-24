@@ -13,8 +13,8 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     (
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-    let%lwt () = Stor.insert !root key cval in
-    let%lwt () = Stor.flush !root.open_fs in
+    Stor.insert !root key cval >>
+    Stor.flush !root.open_fs >>
     let%lwt cval1 = Stor.lookup !root key in
     (*let () = Cstruct.hexdump cval1 in*)
     let () = assert (Cstruct.equal cval cval1) in
@@ -34,7 +34,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
       end
       >>= function () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
-        let%lwt () = Stor.flush !root.open_fs in
+        Stor.flush !root.open_fs >>
         let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
         root := Storage.RootMap.find 1l roots;
         Lwt.return ()

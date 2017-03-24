@@ -293,7 +293,7 @@ let int64_pred_nowrap va =
 
 type insertable =
   |InsValue of Cstruct.t
-  |InsChild of int64
+  |InsChild of int64 * int64 option (* loc, alloc_id *)
   (*|InsTombstone*) (* use empty values for now *)
 
 
@@ -657,7 +657,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         let len = check_value_len value in
         let len1 = P.key_size + sizeof_datalen + len in
         len1
-    |InsChild alloc_id ->
+    |InsChild (loc, alloc_id) ->
         P.key_size + sizeof_logical
 
   let _fast_insert fs lru_key key insertable =
@@ -685,27 +685,26 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               entry.logindex <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr off P.key_size) off (Lazy.force entry.logindex)
           end;
           ignore @@ _mark_dirty fs.node_cache lru_key;
-          Lwt.return ()
-        |InsChild alloc_id ->
+        |InsChild (loc, alloc_id) ->
           let cstr = entry.raw_node in
           let cls = entry.childlinks in
           let offset = cls.childlinks_offset - childlink_size in
           let children = Lazy.force entry.children in
           cls.childlinks_offset <- offset;
           Cstruct.blit key 0 cstr offset P.key_size;
-          Cstruct.LE.set_uint64 cstr (offset + P.key_size) 0L;
-          let cl = { offset; alloc_id=Some alloc_id; } in
+          Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
+          let cl = { offset; alloc_id; } in
           entry.children <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr offset P.key_size) cl children;
-          Lwt.return ()
       end
     end
 
+  (* lwt because it might load from disk *)
   let rec _reserve_insert fs lru_key size =
     (*let () = Logs.info (fun m -> m "_reserve_insert") in*)
     match lru_get fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
     |Some entry ->
-    let free = free_space entry in begin
+    let free = free_space entry in
       if free >= size then
         Lwt.return ()
       else if _has_children entry && _has_logdata entry then begin
@@ -739,26 +738,24 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         end;
         let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) children in
         let cl = CstructKeyedMap.find !best_spill_key children in
-        (*let () = Logs.info (fun m -> m "ensuring loaded cl") in*)
         let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry !best_spill_key cl in begin
-        (*let () = Logs.info (fun m -> m "done ensuring loaded cl") in*)
         _reserve_insert fs child_lru_key !best_spill_score >>
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
         let kdo_out = ref @@ header_size entry.cached_node in
-        let%lwt kdos = Lwt_list.fold_right_s (fun kdo kdos ->
+        let kdos = List.fold_right (fun kdo kdos ->
           let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
           if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-            let%lwt () = _fast_insert fs child_lru_key key1 (InsValue value1) in
-            Lwt.return kdos
+            _fast_insert fs child_lru_key key1 (InsValue value1);
+            kdos
           end else begin
             let len1 = len + P.key_size + sizeof_datalen in
             Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
             let kdos = !kdo_out::kdos in
             kdo_out := !kdo_out + len1;
-            Lwt.return kdos
+            kdos
           end
         ) entry.keydata.keydata_offsets [] in begin
         entry.keydata.keydata_offsets <- kdos;
@@ -776,11 +773,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         end
         end
       end
-      else begin (* Node splitting (root-friendly) *)
-        let () = Logs.info (fun m -> m "node splitting (root-friendly)") in
+      else match entry.parent_key with
+      |None -> begin (* Node splitting (root) *)
+        let () = Logs.info (fun m -> m "node splitting (root)") in
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
-        (* Mark parent dirty before marking children new, so that OutOfSpace / NeedsFlush are discriminated *)
+        (* Mark parent dirty before marking children new, so that
+         * OutOfSpace / NeedsFlush are discriminated *)
         ignore @@ _mark_dirty fs.node_cache lru_key;
         let n = CstructKeyedMap.cardinal logindex in
         let binds = CstructKeyedMap.bindings logindex in
@@ -818,6 +817,49 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         _add_child entry entry2 entry.highest_key alloc2 fs.node_cache lru_key;
         Lwt.return ()
       end
+      |Some parent_key -> begin (* Node splitting (non root) *)
+        let () = Logs.info (fun m -> m "node splitting (non root)") in
+        (* XXX might recurse *)
+        _reserve_insert fs parent_key childlink_size >>
+        let logindex = Lazy.force entry.logindex in
+        let children = Lazy.force entry.children in
+        (* Mark parent dirty before marking children new, so that
+         * OutOfSpace / NeedsFlush are discriminated *)
+        ignore @@ _mark_dirty fs.node_cache lru_key;
+        let n = CstructKeyedMap.cardinal logindex in
+        let binds = CstructKeyedMap.bindings logindex in
+        let median = cstruct_clone @@ fst @@ List.nth binds (n/2) in
+        let alloc1, entry1 = _new_node fs 2 (Some lru_key) median in
+        let lru_key1 = LRUKey.ByAllocId alloc1 in
+        let kdo_out = ref @@ header_size entry.cached_node in
+        let kdos = List.fold_right (fun kdo kdos ->
+          let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
+          let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
+          if Cstruct.compare key1 median <= 0 then begin
+            let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
+            _fast_insert fs lru_key1 key1 (InsValue value1);
+            kdos
+          end else begin
+            let len1 = len + P.key_size + sizeof_datalen in
+            Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
+            let kdos = !kdo_out::kdos in
+            kdo_out := !kdo_out + len1;
+            kdos
+          end
+        ) entry.keydata.keydata_offsets [] in begin
+        entry.keydata.keydata_offsets <- kdos;
+        if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
+          failwith @@ Printf.sprintf "Key data didn't shrink %d %d" !kdo_out entry.keydata.next_keydata_offset
+        end;
+        (* zero newly free space *)
+        Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
+        entry.keydata.next_keydata_offset <- !kdo_out;
+        (* Invalidate logcache since keydata_offsets changed *)
+        entry.logindex <- lazy (_compute_keydata entry);
+        let clo_out = ref block_end in
+        (* TODO move children data *)
+        _reserve_insert fs lru_key size;
+      end
     end
 
   let insert root key value =
@@ -827,7 +869,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
     _reserve_insert root.open_fs root.root_key @@ _ins_req_space @@ InsValue value >>
-    _fast_insert root.open_fs root.root_key key @@ InsValue value
+    begin _fast_insert root.open_fs root.root_key key @@ InsValue value; Lwt.return () end
 
   let rec _lookup open_fs lru_key key =
     match lru_get open_fs.node_cache.lru lru_key with
@@ -867,8 +909,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     |2 (* inner *) ->
         let rec scan_key off =
         let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-        if log1 <> 0L then let%lwt () = _scan_all_nodes open_fs log1 in scan_key (off - childlink_size) else Lwt.return ()
-        in scan_key (block_end - childlink_size)
+        begin if log1 <> 0L then _scan_all_nodes open_fs log1 >> scan_key (off - childlink_size) else Lwt.return () end in
+        scan_key (block_end - childlink_size)
     |ty -> Lwt.fail (BadNodeType ty)
 
   let _sb_io block_io =
@@ -895,7 +937,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let _format open_fs logical_size first_block_written =
     let alloc_id, _root = _new_root open_fs in
     open_fs.node_cache.new_count <- 1L;
-    let%lwt () = _write_node open_fs alloc_id in
+    _write_node open_fs alloc_id >> begin
     _log_statistics open_fs.node_cache;
     let sb = _sb_io open_fs.filesystem.block_io in
     let () = set_superblock_magic superblock_magic 0 sb in
@@ -907,6 +949,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     B.write open_fs.filesystem.disk 0L open_fs.filesystem.block_io_fanned >>= function
       |Result.Ok () -> Lwt.return ()
       |Result.Error _ -> Lwt.fail WriteError
+    end
 
   let _mid_range start end_ lsize = (* might overflow, limit lsize *)
     (* if start = end_, we pick the farthest logical address *)
@@ -941,7 +984,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       (* Placeholder.
          TODO scan_range start end
          TODO use is_zero_data, type checks, crc checks, and loop *)
-      let%lwt () = read start in
+      read start >>
       if is_valid_root () then
         Lwt.return (start, get_anynode_hdr_generation cstr)
       else
@@ -1005,7 +1048,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               statistics=default_statistics;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
-            let%lwt () = _scan_all_nodes open_fs lroot in
+            _scan_all_nodes open_fs lroot >>
             let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
             (* TODO parse other roots *)
             let root = {open_fs; root_key;} in
@@ -1032,7 +1075,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               statistics=default_statistics;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
-            let%lwt () = _format open_fs logical_size first_block_written in
+            _format open_fs logical_size first_block_written >>
             let root_key = LRUKey.ByAllocId 1L in
             Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
 end
