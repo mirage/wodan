@@ -191,8 +191,7 @@ let lru_get lru key =
   LRU.find key lru
 
 let lru_peek lru key =
-  (* Requires https://github.com/pqwy/lru/issues/5 *)
-  LRU.peek key lru
+  LRU.find ~promote:false key lru
 
 exception AlreadyCached of LRUKey.t
 
