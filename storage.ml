@@ -698,7 +698,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     end
 
   (* lwt because it might load from disk *)
-  let rec _reserve_insert fs lru_key size =
+  let rec _reserve_insert fs lru_key size split_path =
     (*let () = Logs.info (fun m -> m "_reserve_insert") in*)
     match lru_get fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
@@ -706,46 +706,53 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let free = free_space entry in
       if free >= size then
         Lwt.return ()
-      else if _has_children entry && _has_logdata entry then begin
+      else if not split_path && _has_children entry && _has_logdata entry then begin
         (* log spilling *)
         let () = Logs.info (fun m -> m "log spilling") in
         let children = Lazy.force entry.children in
-        let spill_score = ref 0 in
-        let best_spill_score = ref 0 in
-        (* an iterator on entry.children keys would be helpful here *)
-        let scored_key = ref @@ fst @@ CstructKeyedMap.min_binding children in
-        let best_spill_key = ref !scored_key in
-        CstructKeyedMap.iter (fun k off -> begin
-          if Cstruct.compare k !scored_key > 0 then begin
-            if !spill_score > !best_spill_score then begin
-              best_spill_score := !spill_score;
-              best_spill_key := !scored_key;
+        let find_victim () =
+          let spill_score = ref 0 in
+          let best_spill_score = ref 0 in
+          (* an iterator on entry.children keys would be helpful here *)
+          let scored_key = ref @@ fst @@ CstructKeyedMap.min_binding children in
+          let best_spill_key = ref !scored_key in
+          CstructKeyedMap.iter (fun k off -> begin
+            if Cstruct.compare k !scored_key > 0 then begin
+              if !spill_score > !best_spill_score then begin
+                best_spill_score := !spill_score;
+                best_spill_key := !scored_key;
+              end;
+              spill_score := 0;
+              match CstructKeyedMap.find_first_opt (fun k1 -> Cstruct.compare k k1 <= 0) children with
+              |None -> Cstruct.hexdump k; Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding children; Cstruct.hexdump entry.highest_key; failwith "invariant broken"
+              |Some (sk, _cl) ->
+                scored_key := sk;
             end;
-            spill_score := 0;
-            match CstructKeyedMap.find_first_opt (fun k1 -> Cstruct.compare k k1 <= 0) children with
-            |None -> Cstruct.hexdump k; Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding children; Cstruct.hexdump entry.highest_key; failwith "invariant broken"
-            |Some (sk, _cl) ->
-              scored_key := sk;
+            let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
+            let len1 = P.key_size + sizeof_datalen + len in
+            spill_score := !spill_score + len1;
+          end) @@ Lazy.force entry.logindex;
+          if !spill_score > !best_spill_score then begin
+            best_spill_score := !spill_score;
+            best_spill_key := !scored_key;
           end;
-          let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
-          let len1 = P.key_size + sizeof_datalen + len in
-          spill_score := !spill_score + len1;
-        end) @@ Lazy.force entry.logindex;
-        if !spill_score > !best_spill_score then begin
-          best_spill_score := !spill_score;
-          best_spill_key := !scored_key;
-        end;
-        let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 !best_spill_key < 0) children in
-        let cl = CstructKeyedMap.find !best_spill_key children in
-        let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry !best_spill_key cl in begin
-        _reserve_insert fs child_lru_key !best_spill_score >>
+          !best_spill_score, !best_spill_key
+        in
+        let best_spill_score, best_spill_key = find_victim () in
+        let cl = CstructKeyedMap.find best_spill_key children in
+        let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry best_spill_key cl in begin
+        let clo = entry.childlinks.childlinks_offset in
+        _reserve_insert fs child_lru_key best_spill_score false >> begin
+        if clo == entry.childlinks.childlinks_offset then begin
+        (* _reserve_insert didn't split the child *)
+        let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 best_spill_key < 0) children in
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
         let kdo_out = ref @@ header_size entry.cached_node in
         let kdos = List.fold_right (fun kdo kdos ->
           let key1 = Cstruct.sub entry.raw_node kdo P.key_size in
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
-          if Cstruct.compare key1 !best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
+          if Cstruct.compare key1 best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
             _fast_insert fs child_lru_key key1 (InsValue value1);
             kdos
@@ -760,7 +767,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         entry.keydata.keydata_offsets <- kdos;
         if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
           (match before_bsk with None -> Logs.info (fun m -> m "No before_bsk") |Some (bbsk, _) -> Cstruct.hexdump bbsk);
-          Cstruct.hexdump !best_spill_key;
+          Cstruct.hexdump best_spill_key;
           failwith @@ Printf.sprintf "Key data didn't shrink %d %d" !kdo_out entry.keydata.next_keydata_offset
         end;
         (* zero newly free space *)
@@ -768,7 +775,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         entry.keydata.next_keydata_offset <- !kdo_out;
         (* Invalidate logcache since keydata_offsets changed *)
         entry.logindex <- lazy (_compute_keydata entry);
-        _reserve_insert fs lru_key size;
+        end
+        end;
+        _reserve_insert fs lru_key size split_path
         end
         end
       end
@@ -818,8 +827,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
         let () = Logs.info (fun m -> m "node splitting (non root)") in
-        (* XXX might recurse *)
-        _reserve_insert fs parent_key childlink_size >>
+        (* Set split_path to prevent spill/split recursion; will split towards the root *)
+        _reserve_insert fs parent_key childlink_size true >>
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
@@ -856,8 +865,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         (* Invalidate logcache since keydata_offsets changed *)
         entry.logindex <- lazy (_compute_keydata entry);
         let clo_out = ref block_end in
+        let clo_out1 = ref block_end in
         (* TODO move children data *)
-        _reserve_insert fs lru_key size;
+        (* Hook new node into parent *)
+        match lru_peek fs.node_cache.lru parent_key with
+        |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (parent)" @@ alloc_id_of_key lru_key
+        |Some parent ->
+            _add_child parent entry1 median alloc1 fs.node_cache parent_key;
+        _reserve_insert fs lru_key size split_path;
       end
     end
 
@@ -867,7 +882,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let len = check_value_len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
-    _reserve_insert root.open_fs root.root_key @@ _ins_req_space @@ InsValue value >>
+    _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false >>
     begin _fast_insert root.open_fs root.root_key key @@ InsValue value; Lwt.return () end
 
   let rec _lookup open_fs lru_key key =
