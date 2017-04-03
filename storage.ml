@@ -866,7 +866,29 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         entry.logindex <- lazy (_compute_keydata entry);
         let clo_out = ref block_end in
         let clo_out1 = ref block_end in
-        (* TODO move children data *)
+        let clo = ref @@ block_end - childlink_size in
+        let children = ref @@ Lazy.force entry.children in
+        let children1 = ref @@ CstructKeyedMap.empty in
+        while !clo >= entry.childlinks.childlinks_offset do
+        (* Move children data *)
+          let key1 = Cstruct.sub entry.raw_node !clo P.key_size in
+          if Cstruct.compare key1 median <= 0 then begin
+            clo_out1 := !clo_out1 - childlink_size;
+            Cstruct.blit entry.raw_node !clo entry1.raw_node !clo_out1 childlink_size;
+            let cl = CstructKeyedMap.find key1 !children in
+            children := CstructKeyedMap.remove key1 !children;
+            children1 := CstructKeyedMap.add key1 {cl with offset = !clo_out1} !children1
+          end else begin
+            clo_out := !clo_out - childlink_size;
+            Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out childlink_size;
+            let cl = CstructKeyedMap.find key1 !children in
+            children := CstructKeyedMap.add key1 {cl with offset = !clo_out} !children
+          end
+        done;
+        entry.childlinks.childlinks_offset <- !clo_out;
+        entry1.childlinks.childlinks_offset <- !clo_out1;
+        entry.children <- Lazy.from_val !children;
+        entry1.children <- Lazy.from_val !children1;
         (* Hook new node into parent *)
         match lru_peek fs.node_cache.lru parent_key with
         |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (parent)" @@ alloc_id_of_key lru_key
