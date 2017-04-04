@@ -612,12 +612,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let _add_child parent child highest_key alloc_id cache parent_key =
     Logs.info (fun m -> m "_add_child");
+    assert (child.highest_key = highest_key);
     let child_key = LRUKey.ByAllocId alloc_id in
     let off = parent.childlinks.childlinks_offset - childlink_size in
     let children = Lazy.force parent.children in (* Force *before* blitting *)
     Cstruct.blit highest_key 0 parent.raw_node off P.key_size;
     parent.childlinks.childlinks_offset <- off;
-    child.highest_key <- highest_key;
     parent.children <- Lazy.from_val @@ CstructKeyedMap.add highest_key {offset=off; alloc_id=Some alloc_id} children;
     ignore @@ _mark_dirty cache parent_key;
     ignore @@ _mark_dirty cache child_key
@@ -697,6 +697,21 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       end
     end
 
+  let _split_point entry =
+    if _has_children entry then
+      let children = Lazy.force entry.children in
+      let n = CstructKeyedMap.cardinal children in
+      let binds = CstructKeyedMap.bindings children in
+      let median = cstruct_clone @@ fst @@ List.nth binds @@ n/2 in
+      median
+    else
+      let logindex = Lazy.force entry.logindex in
+      let n = CstructKeyedMap.cardinal logindex in
+      let binds = CstructKeyedMap.bindings logindex in
+      let median = cstruct_clone @@ fst @@ List.nth binds @@ n/2 in
+      median
+
+
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs lru_key size split_path =
     (*let () = Logs.info (fun m -> m "_reserve_insert") in*)
@@ -724,7 +739,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               end;
               spill_score := 0;
               match CstructKeyedMap.find_first_opt (fun k1 -> Cstruct.compare k k1 <= 0) children with
-              |None -> Cstruct.hexdump k; Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding children; Cstruct.hexdump entry.highest_key; failwith "invariant broken"
+              |None -> Cstruct.hexdump k; Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding children; Cstruct.hexdump entry.highest_key; failwith "children invariant broken"
               |Some (sk, _cl) ->
                 scored_key := sk;
             end;
@@ -789,9 +804,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         (* Mark parent dirty before marking children new, so that
          * OutOfSpace / NeedsFlush are discriminated *)
         ignore @@ _mark_dirty fs.node_cache lru_key;
-        let n = CstructKeyedMap.cardinal logindex in
-        let binds = CstructKeyedMap.bindings logindex in
-        let median = cstruct_clone @@ fst @@ List.nth binds (n/2) in
+        let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some lru_key) median in
         let alloc2, entry2 = _new_node fs 2 (Some lru_key) entry.highest_key in
         let logi1, logi2 = CstructKeyedMap.partition (fun k v -> Cstruct.compare k median <= 0) logindex in
@@ -834,9 +847,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         (* Mark parent dirty before marking children new, so that
          * OutOfSpace / NeedsFlush are discriminated *)
         ignore @@ _mark_dirty fs.node_cache lru_key;
-        let n = CstructKeyedMap.cardinal logindex in
-        let binds = CstructKeyedMap.bindings logindex in
-        let median = cstruct_clone @@ fst @@ List.nth binds (n/2) in
+        let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some lru_key) median in
         let lru_key1 = LRUKey.ByAllocId alloc1 in
         let kdo_out = ref @@ header_size entry.cached_node in
