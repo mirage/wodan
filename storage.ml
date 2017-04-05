@@ -610,15 +610,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     entry.children <- Lazy.from_val (CstructKeyedMap.empty);
     Cstruct.blit zero_data 0 entry.raw_node hdrsize (block_end - hdrsize)
 
-  let _add_child parent child highest_key alloc_id cache parent_key =
+  let _add_child parent child alloc_id cache parent_key =
     Logs.info (fun m -> m "_add_child");
-    assert (child.highest_key = highest_key);
     let child_key = LRUKey.ByAllocId alloc_id in
     let off = parent.childlinks.childlinks_offset - childlink_size in
     let children = Lazy.force parent.children in (* Force *before* blitting *)
-    Cstruct.blit highest_key 0 parent.raw_node off P.key_size;
+    Cstruct.blit child.highest_key 0 parent.raw_node off P.key_size;
     parent.childlinks.childlinks_offset <- off;
-    parent.children <- Lazy.from_val @@ CstructKeyedMap.add highest_key {offset=off; alloc_id=Some alloc_id} children;
+    parent.children <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub parent.raw_node off P.key_size) {offset=off; alloc_id=Some alloc_id} children;
     ignore @@ _mark_dirty cache parent_key;
     ignore @@ _mark_dirty cache child_key
 
@@ -713,7 +712,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
 
   (* lwt because it might load from disk *)
-  let rec _reserve_insert fs lru_key size split_path =
+  let rec _reserve_insert fs lru_key size split_path depth =
     (*let () = Logs.info (fun m -> m "_reserve_insert") in*)
     match lru_get fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
@@ -723,7 +722,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         Lwt.return ()
       else if not split_path && _has_children entry && _has_logdata entry then begin
         (* log spilling *)
-        let () = Logs.info (fun m -> m "log spilling") in
+        let () = Logs.info (fun m -> m "log spilling %d" depth) in
         let children = Lazy.force entry.children in
         let find_victim () =
           let spill_score = ref 0 in
@@ -757,7 +756,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         let cl = CstructKeyedMap.find best_spill_key children in
         let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry best_spill_key cl in begin
         let clo = entry.childlinks.childlinks_offset in
-        _reserve_insert fs child_lru_key best_spill_score false >> begin
+        _reserve_insert fs child_lru_key best_spill_score false @@ depth + 1 >> begin
         if clo == entry.childlinks.childlinks_offset then begin
         (* _reserve_insert didn't split the child *)
         let before_bsk = CstructKeyedMap.find_last_opt (fun k1 -> Cstruct.compare k1 best_spill_key < 0) children in
@@ -792,13 +791,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         entry.logindex <- lazy (_compute_keydata entry);
         end
         end;
-        _reserve_insert fs lru_key size split_path
+        _reserve_insert fs lru_key size split_path depth
         end
         end
       end
       else match entry.parent_key with
       |None -> begin (* Node splitting (root) *)
-        let () = Logs.info (fun m -> m "node splitting (root)") in
+        assert (depth = 0);
+        let () = Logs.info (fun m -> m "node splitting %d" depth) in
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
@@ -834,14 +834,15 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry1) cl1;
         CstructKeyedMap.iter (fun k ce -> blit_cd_child ce entry2) cl2;
         _reset_contents entry;
-        _add_child entry entry1 median alloc1 fs.node_cache lru_key;
-        _add_child entry entry2 entry.highest_key alloc2 fs.node_cache lru_key;
+        _add_child entry entry1 alloc1 fs.node_cache lru_key;
+        _add_child entry entry2 alloc2 fs.node_cache lru_key;
         Lwt.return ()
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
-        let () = Logs.info (fun m -> m "node splitting (non root)") in
+        assert (depth > 0);
+        let () = Logs.info (fun m -> m "node splitting %d" depth) in
         (* Set split_path to prevent spill/split recursion; will split towards the root *)
-        _reserve_insert fs parent_key childlink_size true >>
+        _reserve_insert fs parent_key childlink_size true @@ depth - 1 >>
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
@@ -886,14 +887,17 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           if Cstruct.compare key1 median <= 0 then begin
             clo_out1 := !clo_out1 - childlink_size;
             Cstruct.blit entry.raw_node !clo entry1.raw_node !clo_out1 childlink_size;
+            let key2 = Cstruct.sub entry1.raw_node !clo_out1 P.key_size in
             let cl = CstructKeyedMap.find key1 !children in
             children := CstructKeyedMap.remove key1 !children;
-            children1 := CstructKeyedMap.add key1 {cl with offset = !clo_out1} !children1
+            children1 := CstructKeyedMap.add key2 {cl with offset = !clo_out1} !children1
           end else begin
             clo_out := !clo_out - childlink_size;
             Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out childlink_size;
+            let key2 = Cstruct.sub entry.raw_node !clo_out P.key_size in
             let cl = CstructKeyedMap.find key1 !children in
-            children := CstructKeyedMap.add key1 {cl with offset = !clo_out} !children
+            (*children := CstructKeyedMap.remove key1 !children;*)
+            children := CstructKeyedMap.add key2 {cl with offset = !clo_out} !children
           end
         done;
         entry.childlinks.childlinks_offset <- !clo_out;
@@ -904,8 +908,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         match lru_peek fs.node_cache.lru parent_key with
         |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (parent)" @@ alloc_id_of_key lru_key
         |Some parent ->
-            _add_child parent entry1 median alloc1 fs.node_cache parent_key;
-        _reserve_insert fs lru_key size split_path;
+            _add_child parent entry1 alloc1 fs.node_cache parent_key;
+        _reserve_insert fs lru_key size split_path depth;
       end
     end
 
@@ -915,7 +919,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let len = check_value_len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
-    _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false >>
+    _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false 0 >>
     begin _fast_insert root.open_fs root.root_key key @@ InsValue value; Lwt.return () end
 
   let rec _lookup open_fs lru_key key =
