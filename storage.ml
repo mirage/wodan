@@ -453,7 +453,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   (* Needs an up to date _index_keydata *)
   let _compute_keydata entry =
-    let () = Logs.info (fun m -> m "_compute_keydata") in
+    (*Logs.info (fun m -> m "_compute_keydata");*)
     let kd = entry.keydata in
     List.fold_left (
       fun acc off ->
@@ -658,8 +658,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     |InsChild (loc, alloc_id) ->
         P.key_size + sizeof_logical
 
-  let _fast_insert fs lru_key key insertable =
-    (*let () = Logs.info (fun m -> m "_fast_insert") in*)
+  let _fast_insert fs lru_key key insertable depth =
+    Logs.info (fun m -> m "_fast_insert %d" depth);
     match lru_get fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (_fast_insert)" @@ alloc_id_of_key lru_key
     |Some entry ->
@@ -710,10 +710,26 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       let median = cstruct_clone @@ fst @@ List.nth binds @@ n/2 in
       median
 
+  let rec _check_live_integrity fs lru_key depth =
+    match lru_peek fs.node_cache.lru lru_key with
+    |None -> failwith "Missing LRU entry"
+    |Some entry ->
+    if _has_children entry && not (Cstruct.equal entry.highest_key @@ fst @@ CstructKeyedMap.max_binding @@ Lazy.force entry.children) then begin
+      Cstruct.hexdump entry.highest_key;
+      Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding @@ Lazy.force entry.children;
+      Logs.info (fun m -> m "_check_live_integrity %d" depth);
+      failwith "highest_key invariant broken"
+    end;
+    CstructKeyedMap.iter (fun k v -> match v.alloc_id with
+          |None -> ()
+          |Some alloc_id -> _check_live_integrity fs
+            (LRUKey.ByAllocId alloc_id) @@ depth + 1
+        ) @@ Lazy.force entry.children
 
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs lru_key size split_path depth =
-    (*let () = Logs.info (fun m -> m "_reserve_insert") in*)
+    Logs.info (fun m -> m "_reserve_insert %d" depth);
+    _check_live_integrity fs lru_key depth;
     match lru_get fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" @@ alloc_id_of_key lru_key
     |Some entry ->
@@ -768,7 +784,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
           if Cstruct.compare key1 best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, cl1) -> Cstruct.compare bbsk key1 < 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-            _fast_insert fs child_lru_key key1 (InsValue value1);
+            _fast_insert fs child_lru_key key1 (InsValue value1) @@ depth + 1;
             kdos
           end else begin
             let len1 = len + P.key_size + sizeof_datalen in
@@ -857,7 +873,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
           if Cstruct.compare key1 median <= 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-            _fast_insert fs lru_key1 key1 (InsValue value1);
+            _fast_insert fs lru_key1 key1 (InsValue value1) depth;
             kdos
           end else begin
             let len1 = len + P.key_size + sizeof_datalen in
@@ -919,8 +935,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let len = check_value_len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
+    _check_live_integrity root.open_fs root.root_key 0;
     _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false 0 >>
-    begin _fast_insert root.open_fs root.root_key key @@ InsValue value; Lwt.return () end
+    begin
+      _check_live_integrity root.open_fs root.root_key 0;
+      _fast_insert root.open_fs root.root_key key (InsValue value) 0;
+      _check_live_integrity root.open_fs root.root_key 0;
+      Lwt.return ()
+    end
 
   let rec _lookup open_fs lru_key key =
     match lru_get open_fs.node_cache.lru lru_key with
