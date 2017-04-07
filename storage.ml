@@ -446,7 +446,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let () = Logs.info (fun m -> m "_compute_children") in
     List.fold_left (
       fun acc off ->
-        let key = Cstruct.sub (
+        let key = cstruct_clone @@ Cstruct.sub (
           entry.raw_node) off P.key_size in
         CstructKeyedMap.add key {offset=off; alloc_id=None} acc)
       CstructKeyedMap.empty (_gen_childlink_offsets entry.childlinks.childlinks_offset)
@@ -617,7 +617,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let children = Lazy.force parent.children in (* Force *before* blitting *)
     Cstruct.blit child.highest_key 0 parent.raw_node off P.key_size;
     parent.childlinks.childlinks_offset <- off;
-    parent.children <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub parent.raw_node off P.key_size) {offset=off; alloc_id=Some alloc_id} children;
+    parent.children <- Lazy.from_val @@ CstructKeyedMap.add (cstruct_clone @@ Cstruct.sub parent.raw_node off P.key_size) {offset=off; alloc_id=Some alloc_id} children;
     ignore @@ _mark_dirty cache parent_key;
     ignore @@ _mark_dirty cache child_key
 
@@ -692,7 +692,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           Cstruct.blit key 0 cstr offset P.key_size;
           Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
           let cl = { offset; alloc_id; } in
-          entry.children <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr offset P.key_size) cl children;
+          entry.children <- Lazy.from_val @@ CstructKeyedMap.add (cstruct_clone @@ Cstruct.sub cstr offset P.key_size) cl children;
       end
     end
 
@@ -843,7 +843,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
           let offset = centry.childlinks.childlinks_offset - childlink_size in
           centry.childlinks.childlinks_offset <- offset;
           Cstruct.blit cstr0 cle.offset cstr1 offset (childlink_size);
-          centry.children <- Lazy.from_val @@ CstructKeyedMap.add (Cstruct.sub cstr1 offset P.key_size) {offset; alloc_id=cle.alloc_id} (Lazy.force centry.children);
+          centry.children <- Lazy.from_val @@ CstructKeyedMap.add (cstruct_clone @@ Cstruct.sub cstr1 offset P.key_size) {offset; alloc_id=cle.alloc_id} (Lazy.force centry.children);
         in
         CstructKeyedMap.iter (fun k off -> blit_kd_child off entry1) logi1;
         CstructKeyedMap.iter (fun k off -> blit_kd_child off entry2) logi2;
@@ -906,14 +906,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let key2 = Cstruct.sub entry1.raw_node !clo_out1 P.key_size in
             let cl = CstructKeyedMap.find key1 !children in
             children := CstructKeyedMap.remove key1 !children;
-            children1 := CstructKeyedMap.add key2 {cl with offset = !clo_out1} !children1
+            children1 := CstructKeyedMap.add (cstruct_clone key2) {cl with offset = !clo_out1} !children1
           end else begin
             clo_out := !clo_out - childlink_size;
             Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out childlink_size;
             let key2 = Cstruct.sub entry.raw_node !clo_out P.key_size in
             let cl = CstructKeyedMap.find key1 !children in
             (*children := CstructKeyedMap.remove key1 !children;*)
-            children := CstructKeyedMap.add key2 {cl with offset = !clo_out} !children
+            children := CstructKeyedMap.add (cstruct_clone key2) {cl with offset = !clo_out} !children
           end
         done;
         entry.childlinks.childlinks_offset <- !clo_out;
