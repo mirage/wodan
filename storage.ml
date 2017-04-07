@@ -488,7 +488,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       |ty -> raise @@ BadNodeType ty
     in
       let key = LRUKey.ByAllocId (next_alloc_id cache) in
-    let rec entry = {parent_key=Some parent_key; cached_node; raw_node=cstr; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); logindex=lazy (_compute_keydata entry); highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
+    let rec entry = {parent_key=Some parent_key; cached_node; raw_node=cstr; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); logindex=lazy (_compute_keydata entry); highest_key=cstruct_clone highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
       lru_xset cache.lru key entry;
       Lwt.return entry
 
@@ -592,7 +592,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     |ty -> raise @@ BadNodeType ty
     in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
-    let entry = {parent_key; cached_node; raw_node=cstr; io_data; keydata; flush_info=None; children=Lazy.from_val CstructKeyedMap.empty; logindex=Lazy.from_val CstructKeyedMap.empty; highest_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
+    let entry = {parent_key; cached_node; raw_node=cstr; io_data; keydata; flush_info=None; children=Lazy.from_val CstructKeyedMap.empty; logindex=Lazy.from_val CstructKeyedMap.empty; highest_key=cstruct_clone highest_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
     lru_xset cache.lru key entry;
     alloc_id, entry
 
