@@ -273,17 +273,17 @@ let next_logical_alloc_valid cache =
 
 let next_tree_id cache =
   let r = cache.next_tree_id in
-  let () = cache.next_tree_id <- Int32.succ cache.next_tree_id in
+  cache.next_tree_id <- Int32.succ cache.next_tree_id;
   r
 
 let next_alloc_id cache =
   let r = cache.next_alloc_id in
-  let () = cache.next_alloc_id <- Int64.succ cache.next_alloc_id in
+  cache.next_alloc_id <- Int64.succ cache.next_alloc_id;
   r
 
 let next_generation cache =
   let r = cache.next_generation in
-  let () = cache.next_generation <- Int64.succ cache.next_generation in
+  cache.next_generation <- Int64.succ cache.next_generation;
   r
 
 let int64_pred_nowrap va =
@@ -407,7 +407,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   }
 
   let _load_data_at filesystem logical =
-    let () = Logs.info (fun m -> m "_load_data_at %Ld" logical) in
+    Logs.info (fun m -> m "_load_data_at %Ld" logical);
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list filesystem.sector_size cstr in
     B.read filesystem.disk Int64.(div (mul logical @@ of_int P.block_size) @@ of_int filesystem.other_sector_size) io_data >>= Lwt.wrap1 begin function
@@ -425,7 +425,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   (* build a keydata_index *)
   let _index_keydata cstr hdrsize =
-    let () = Logs.info (fun m -> m "_index_keydata") in
+    Logs.info (fun m -> m "_index_keydata");
     let r = {
       keydata_offsets=[];
       next_keydata_offset=hdrsize;
@@ -443,7 +443,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     else start::(_gen_childlink_offsets @@ start + childlink_size)
 
   let _compute_children entry =
-    let () = Logs.info (fun m -> m "_compute_children") in
+    Logs.info (fun m -> m "_compute_children");
     List.fold_left (
       fun acc off ->
         let key = cstruct_clone @@ Cstruct.sub (
@@ -463,10 +463,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       CstructKeyedMap.empty kd.keydata_offsets
 
   let _load_root_node_at open_fs logical =
-    let () = Logs.info (fun m -> m "_load_root_node_at") in
+    Logs.info (fun m -> m "_load_root_node_at");
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
-    let () = assert (Cstruct.len cstr = P.block_size) in
+    assert (Cstruct.len cstr = P.block_size);
       let cached_node, keydata =
       match get_anynode_hdr_nodetype cstr with
       |1 -> `Root, _index_keydata cstr sizeof_rootnode_hdr
@@ -478,10 +478,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       Lwt.return (key, entry)
 
   let _load_child_node_at open_fs logical highest_key parent_key =
-    let () = Logs.info (fun m -> m "_load_child_node_at") in
+    Logs.info (fun m -> m "_load_child_node_at");
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
-    let () = assert (Cstruct.len cstr = P.block_size) in
+    assert (Cstruct.len cstr = P.block_size);
       let cached_node, keydata =
       match get_anynode_hdr_nodetype cstr with
       |2 -> `Child, _index_keydata cstr sizeof_childnode_hdr
@@ -581,8 +581,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Logs.info (fun m -> m "_new_node type:%d" tycode);
     let cache = open_fs.node_cache in
     let cstr = _get_block_io () in
-    let () = assert (Cstruct.len cstr = P.block_size) in
-    let () = set_anynode_hdr_nodetype cstr tycode in
+    assert (Cstruct.len cstr = P.block_size);
+    set_anynode_hdr_nodetype cstr tycode;
     let alloc_id = next_alloc_id cache in
     let key = LRUKey.ByAllocId alloc_id in
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
@@ -631,7 +631,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     Cstruct.LE.get_uint64 cstr (cl.offset + P.key_size)
 
   let _ensure_childlink open_fs entry_key entry cl_key cl =
-    (*let () = Logs.info (fun m -> m "_ensure_childlink") in*)
+    (*Logs.info (fun m -> m "_ensure_childlink");*)
     let cstr = entry.raw_node in
     let cache = open_fs.node_cache in
     match cl.alloc_id with
@@ -738,7 +738,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
         Lwt.return ()
       else if not split_path && _has_children entry && _has_logdata entry then begin
         (* log spilling *)
-        let () = Logs.info (fun m -> m "log spilling %d" depth) in
+        Logs.info (fun m -> m "log spilling %d" depth);
         let children = Lazy.force entry.children in
         let find_victim () =
           let spill_score = ref 0 in
@@ -814,7 +814,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       else match entry.parent_key with
       |None -> begin (* Node splitting (root) *)
         assert (depth = 0);
-        let () = Logs.info (fun m -> m "node splitting %d" depth) in
+        Logs.info (fun m -> m "node splitting %d" depth);
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
@@ -856,7 +856,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
         assert (depth > 0);
-        let () = Logs.info (fun m -> m "node splitting %d" depth) in
+        Logs.info (fun m -> m "node splitting %d" depth);
         (* Set split_path to prevent spill/split recursion; will split towards the root *)
         _reserve_insert fs parent_key childlink_size true @@ depth - 1 >>
         let logindex = Lazy.force entry.logindex in
@@ -956,7 +956,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
             Lwt.return @@ Cstruct.sub cstr (logoffset + P.key_size + 2) len
         |exception Not_found ->
-            let () = Logs.info (fun m -> m "_lookup") in
+            Logs.info (fun m -> m "_lookup");
             let key1, cl = CstructKeyedMap.find_first (
               fun k -> Cstruct.compare k key >= 0) @@ Lazy.force entry.children in
             let%lwt child_lru_key, _ce = _ensure_childlink open_fs lru_key entry key1 cl in
@@ -1013,12 +1013,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     _write_node open_fs alloc_id >> begin
     _log_statistics open_fs.node_cache;
     let sb = _sb_io open_fs.filesystem.block_io in
-    let () = set_superblock_magic superblock_magic 0 sb in
-    let () = set_superblock_version sb superblock_version in
-    let () = set_superblock_block_size sb (Int32.of_int P.block_size) in
-    let () = set_superblock_first_block_written sb first_block_written in
-    let () = set_superblock_logical_size sb logical_size in
-    let () = Crc32c.cstruct_reset sb in
+    set_superblock_magic superblock_magic 0 sb;
+    set_superblock_version sb superblock_version;
+    set_superblock_block_size sb (Int32.of_int P.block_size);
+    set_superblock_first_block_written sb first_block_written;
+    set_superblock_logical_size sb logical_size;
+    Crc32c.cstruct_reset sb;
     B.write open_fs.filesystem.disk 0L open_fs.filesystem.block_io_fanned >>= function
       |Result.Ok () -> Lwt.return ()
       |Result.Error _ -> Lwt.fail WriteError
@@ -1082,10 +1082,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       let sector_size = if false then info.sector_size else 4096 in
       let block_size = P.block_size in
       let page_size = Io_page.page_size in
-      let () = assert (block_size >= page_size) in
-      let () = assert (page_size >= sector_size) in
-      let () = assert (block_size mod page_size = 0) in
-      let () = assert (page_size mod sector_size = 0) in
+      assert (block_size >= page_size);
+      assert (page_size >= sector_size);
+      assert (block_size mod page_size = 0);
+      assert (page_size mod sector_size = 0);
       let block_io = _get_block_io () in
       let fs = {
         disk;
@@ -1100,7 +1100,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             let%lwt lroot = _scan_for_root fs fbw logical_size in
             let%lwt cstr, _io_data = _load_data_at fs lroot in
             let typ = get_anynode_hdr_nodetype cstr in
-            let () = if typ <> 1 then raise @@ BadNodeType typ in
+            if typ <> 1 then raise @@ BadNodeType typ;
             let root_generation = get_rootnode_hdr_generation cstr in
             let root_tree_id = get_rootnode_hdr_tree_id cstr in
             let space_map = bitv_create64 logical_size false in
@@ -1121,6 +1121,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
               statistics=default_statistics;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
+            (* TODO add more integrity checking *)
             _scan_all_nodes open_fs lroot >>
             let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
             (* TODO parse other roots *)

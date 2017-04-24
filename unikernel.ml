@@ -16,12 +16,12 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     Stor.insert !root key cval >>
     Stor.flush !root.open_fs >>
     let%lwt cval1 = Stor.lookup !root key in
-    (*let () = Cstruct.hexdump cval1 in*)
-    let () = assert (Cstruct.equal cval cval1) in
+    (*Cstruct.hexdump cval1;*)
+    assert (Cstruct.equal cval cval1);
     let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
     root := Storage.RootMap.find 1l roots;
     let%lwt cval2 = Stor.lookup !root key in
-    let () = assert (Cstruct.equal cval cval2) in
+    assert (Cstruct.equal cval cval2);
     while%lwt true do
       let key = Nocrypto.Rng.generate 20 and
         cval = Nocrypto.Rng.generate 40 in
