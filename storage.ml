@@ -1,7 +1,7 @@
 open Lwt.Infix
 open Sexplib.Std
 
-let superblock_magic = "kvqnsfmnlsvqfpge"
+let superblock_magic = "MIRAGE KVFS \xf0\x9f\x90\xaa"
 let superblock_version = 1l
 let max_dirty = 128
 
