@@ -5,16 +5,29 @@ filesystem library for Mirage OS.
 
 Currently the basic disk format is implemented.
 
+## Installing and running
+
 mirage-storage requires Opam, Mirage 3, and OCaml 4.04.
 
 ```
-# Optional once Mirage 3 is released
-#opam repo add mirage-dev https://github.com/mirage/mirage-dev.git
-
 opam install mirage
-opam pin add mirage-unikernel-storage-unix .
 mirage configure --target unix
-opam install mirage-unikernel-storage-unix
+opam pin add mirage-unikernel-storage-unix .
 mirage build
+./storage
 ```
+
+By default, tests will run using a ramdisk.
+To use a file:
+
+```
+mirage configure --target unix --block=file
+make
+fallocate -l$[16*2**20] -z disk.img
+./storage
+```
+
+The file must be cleared (using fallocate) before each run.
+This is because tests create a new filesystem instance which,
+until we get discard support, requires a clear disk.
 
