@@ -968,8 +968,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     stats.lookups <- succ stats.lookups;
     _lookup root.open_fs root.root_key key
 
-  let rec _scan_all_nodes open_fs logical =
-    Logs.info (fun m -> m "_scan_all_nodes %Ld" logical);
+  let rec _scan_all_nodes open_fs logical depth =
+    Logs.info (fun m -> m "_scan_all_nodes %Ld %d" logical depth);
     (* TODO add more fsck style checks *)
     let cache = open_fs.node_cache in
     let sm = bitv_get64 cache.space_map logical in
@@ -977,14 +977,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     bitv_set64 cache.space_map logical true;
     cache.free_count <- int64_pred_nowrap cache.free_count;
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
-    match get_anynode_hdr_nodetype cstr with
-    |1 (* root *)
-    |2 (* inner *) ->
+    match get_anynode_hdr_nodetype cstr, depth = 0 with
+    |1 (* root *), true
+    |2 (* inner *), false ->
         let rec scan_key off =
         let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-        begin if log1 <> 0L then _scan_all_nodes open_fs log1 >> scan_key (off - childlink_size) else Lwt.return () end in
+        begin if log1 <> 0L then _scan_all_nodes open_fs log1 (depth + 1) >> scan_key (off - childlink_size) else Lwt.return () end in
         scan_key (block_end - childlink_size)
-    |ty -> Lwt.fail (BadNodeType ty)
+    |ty, _ -> Lwt.fail (BadNodeType ty)
 
   let _sb_io block_io =
     Cstruct.sub block_io 0 sizeof_superblock
@@ -1122,7 +1122,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             (* TODO add more integrity checking *)
-            _scan_all_nodes open_fs lroot >>
+            _scan_all_nodes open_fs lroot 0 >>
             let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
             (* TODO parse other roots *)
             let root = {open_fs; root_key;} in
