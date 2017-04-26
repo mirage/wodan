@@ -9,6 +9,12 @@ Currently the basic disk format is implemented.
 
 mirage-storage requires Opam, Mirage 3, and OCaml 4.04.
 
+Currently Mirage needs to be patched, see
+<https://github.com/mirage/mirage/pull/800>.
+
+The patched branch is available at
+https://github.com/g2p/mirage.git master.
+
 ```
 opam install mirage
 mirage configure --target unix
