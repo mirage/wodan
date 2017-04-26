@@ -988,7 +988,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let rec scan_key off =
       if off < hdrsize + redzone_size - sizeof_logical then failwith "keydata bleeding into start of node";
       let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-      begin if log1 <> 0L then _scan_all_nodes open_fs log1 (depth + 1) gen >> scan_key (off - childlink_size) else Lwt.return () end in
+      begin if log1 <> 0L then
+        _scan_all_nodes open_fs log1 (depth + 1) gen >> scan_key (off - childlink_size)
+      else if redzone_size > sizeof_logical && not @@ Cstruct.equal zero_key @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
+        Lwt.fail @@ Failure "partial redzone"
+      else Lwt.return () end in
       scan_key (block_end - childlink_size)
 
   let _sb_io block_io =
