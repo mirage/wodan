@@ -977,17 +977,19 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     bitv_set64 cache.space_map logical true;
     cache.free_count <- int64_pred_nowrap cache.free_count;
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
-    match get_anynode_hdr_nodetype cstr, depth = 0 with
-    |1 (* root *), true
-    |2 (* inner *), false ->
-        let gen = get_anynode_hdr_generation cstr in
-        (* prevents cycles *)
-        if gen >= parent_gen then failwith "generation is not lower than for parent";
-        let rec scan_key off =
-        let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-        begin if log1 <> 0L then _scan_all_nodes open_fs log1 (depth + 1) gen >> scan_key (off - childlink_size) else Lwt.return () end in
-        scan_key (block_end - childlink_size)
-    |ty, _ -> Lwt.fail (BadNodeType ty)
+    let hdrsize = match get_anynode_hdr_nodetype cstr with
+      |1 (* root *) when depth = 0 -> sizeof_rootnode_hdr
+      |2 (* inner *) when depth > 0 -> sizeof_childnode_hdr
+      |ty -> raise @@ BadNodeType ty
+    in
+    let gen = get_anynode_hdr_generation cstr in
+    (* prevents cycles *)
+    if gen >= parent_gen then failwith "generation is not lower than for parent";
+    let rec scan_key off =
+      if off < hdrsize + redzone_size - sizeof_logical then failwith "keydata bleeding into start of node";
+      let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
+      begin if log1 <> 0L then _scan_all_nodes open_fs log1 (depth + 1) gen >> scan_key (off - childlink_size) else Lwt.return () end in
+      scan_key (block_end - childlink_size)
 
   let _sb_io block_io =
     Cstruct.sub block_io 0 sizeof_superblock
