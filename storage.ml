@@ -968,7 +968,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     stats.lookups <- succ stats.lookups;
     _lookup root.open_fs root.root_key key
 
-  let rec _scan_all_nodes open_fs logical depth =
+  let rec _scan_all_nodes open_fs logical depth parent_gen =
     Logs.info (fun m -> m "_scan_all_nodes %Ld %d" logical depth);
     (* TODO add more fsck style checks *)
     let cache = open_fs.node_cache in
@@ -980,9 +980,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     match get_anynode_hdr_nodetype cstr, depth = 0 with
     |1 (* root *), true
     |2 (* inner *), false ->
+        let gen = get_anynode_hdr_generation cstr in
+        (* prevents cycles *)
+        if gen >= parent_gen then failwith "generation is not lower than for parent";
         let rec scan_key off =
         let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-        begin if log1 <> 0L then _scan_all_nodes open_fs log1 (depth + 1) >> scan_key (off - childlink_size) else Lwt.return () end in
+        begin if log1 <> 0L then _scan_all_nodes open_fs log1 (depth + 1) gen >> scan_key (off - childlink_size) else Lwt.return () end in
         scan_key (block_end - childlink_size)
     |ty, _ -> Lwt.fail (BadNodeType ty)
 
@@ -1122,7 +1125,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             (* TODO add more integrity checking *)
-            _scan_all_nodes open_fs lroot 0 >>
+            _scan_all_nodes open_fs lroot 0 Int64.max_int >>
             let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
             (* TODO parse other roots *)
             let root = {open_fs; root_key;} in
