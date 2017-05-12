@@ -16,7 +16,7 @@ which contains <https://github.com/mirage/mirage/pull/800>.
 ```
 opam install mirage
 mirage configure --target unix
-opam pin add mirage-unikernel-storage-unix .
+make depend
 mirage build
 ./storage
 ```
@@ -34,4 +34,3 @@ fallocate -l$[16*2**20] -z disk.img
 The file must be cleared (using fallocate) before each run.
 This is because tests create a new filesystem instance which,
 until we get discard support, requires a clear disk.
-
