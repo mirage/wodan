@@ -113,7 +113,10 @@ type keydata_index = {
 type childlink_entry = {
   offset: int; (* logical is at offset + P.key_size *)
   mutable alloc_id: int64 option;
-} [@@deriving sexp]
+} (*[@@deriving sexp]*)
+
+let sexp_of_childlink_entry { offset; alloc_id; } =
+Sexplib.Sexp.List [Sexplib.Sexp.Atom "offset"; sexp_of_int offset]
 
 type node = [
   |`Root

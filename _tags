@@ -1,5 +1,5 @@
-<main.*>: package(cstruct.ppx,ppx_sexp_conv,sexplib,mirage-types,mirage-logs,lwt.ppx,io-page,lru,logs,nocrypto)
-<storage.*>: package(cstruct.ppx,ppx_sexp_conv,sexplib,mirage-types,mirage-logs,lwt.ppx,io-page,lru,logs,nocrypto)
+<main.*>: package(cstruct.ppx,sexplib,mirage-types,mirage-logs,lwt.ppx,io-page,lru,logs,nocrypto)
+<storage.*>: package(cstruct.ppx,sexplib,mirage-types,mirage-logs,lwt.ppx,io-page,lru,logs,nocrypto)
 <key_gen.*>: package(functoria-runtime,mirage-runtime)
 <unikernel.*>: package(mirage-types,lwt.ppx,cstruct)
 <crc32c*>: package(cstruct)
