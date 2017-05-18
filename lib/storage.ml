@@ -1141,6 +1141,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
             log_statistics root;
             Lwt.return @@ RootMap.singleton root_tree_id root
         |FormatEmptyDevice logical_size ->
+            assert (logical_size >= 2L);
             let root_tree_id = 1l in
             let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
