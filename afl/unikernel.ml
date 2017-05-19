@@ -21,10 +21,10 @@ end)
     let%lwt info = B.get_info disk in
     let logical_size = Int64.(to_int @@ div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size) in
     let cstr = Stor._get_block_io () in
-    let%lwt res = B.read disk (Int64.of_int Stor.P.block_size) [cstr] in
+    let%lwt res = B.read disk 0L [cstr] in
     cstr_cond_reset @@ Cstruct.sub cstr 0 Storage.sizeof_superblock;
     for%lwt i = 1 to logical_size - 1 do
-      let%lwt res = B.read disk (Int64.of_int Stor.P.block_size) [cstr] in
+      let%lwt res = B.read disk Int64.(mul (of_int i) @@ of_int Stor.P.block_size) [cstr] in
       cstr_cond_reset cstr;
       Lwt.return ()
     done >>
@@ -45,6 +45,9 @@ end)
   let f2 () =
     Lwt_main.run (f ())
   in
-    AflPersistent.run f2;
-    Lwt.return ()
+    if false then begin
+      AflPersistent.run f2;
+      Lwt.return ()
+    end else
+      f ()
 end
