@@ -12,15 +12,22 @@ let cstr_cond_reset str =
 module Client (C: CONSOLE) (B: BLOCK) = struct
 module Stor = Storage.Make(B)(struct
   include Storage.StandardParams
+(* Can't go smaller than Io_page.page_size, at least using this direct io friendly setup *)
   let block_size = 4096
 end)
 
   let start _con disk _crypto =
   let f () =
+    let%lwt info = B.get_info disk in
+    let logical_size = Int64.(to_int @@ div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size) in
     let cstr = Stor._get_block_io () in
     let%lwt res = B.read disk (Int64.of_int Stor.P.block_size) [cstr] in
     cstr_cond_reset @@ Cstruct.sub cstr 0 Storage.sizeof_superblock;
-    let%lwt info = B.get_info disk in
+    for%lwt i = 1 to logical_size - 1 do
+      let%lwt res = B.read disk (Int64.of_int Stor.P.block_size) [cstr] in
+      cstr_cond_reset cstr;
+      Lwt.return ()
+    done >>
     let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
     let root = ref @@ Storage.RootMap.find 1l roots in
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in
