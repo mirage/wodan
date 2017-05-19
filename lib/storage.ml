@@ -363,6 +363,8 @@ type deviceOpenMode =
 module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   type key = string
 
+  module P = P
+
   let check_key key =
     if Cstruct.len key <> P.key_size
     then raise @@ BadKey key
