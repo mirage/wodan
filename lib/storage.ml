@@ -396,7 +396,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     disk: B.t;
     (* The exact size of IO the BLOCK accepts.
      * Even larger powers of two won't work *)
-    (* 4096 with target=unix, 512 with virtualisation *)
+    (* 4096 with unbuffered target=unix, 512 with virtualisation *)
     sector_size: int;
     (* the sector size that's used for the write offset *)
     other_sector_size: int;
@@ -1093,7 +1093,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
 
   let prepare_io mode disk cache_size =
     B.get_info disk >>= fun info ->
-      let sector_size = if false then info.sector_size else 4096 in
+      Logs.info (fun m -> m "prepare_io sector_size %d" info.sector_size);
+      let sector_size = if false then info.sector_size else 512 in
       let block_size = P.block_size in
       let page_size = Io_page.page_size in
       assert (block_size >= page_size);
