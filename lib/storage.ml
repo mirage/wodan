@@ -10,6 +10,7 @@ exception BadMagic
 exception BadVersion
 exception BadFlags
 exception BadCRC of int64
+exception BadParams
 
 exception ReadError
 exception WriteError
@@ -1020,6 +1021,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       then raise BadFlags
       else if not @@ Crc32c.cstruct_valid sb
       then raise @@ BadCRC 0L
+      else if get_superblock_block_size sb <> Int32.of_int P.block_size
+      then raise BadParams
       else get_superblock_first_block_written sb, get_superblock_logical_size sb
     end
 
