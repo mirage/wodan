@@ -377,7 +377,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let block_end = P.block_size - sizeof_crc
 
   let _get_block_io () =
-    Io_page.get_buf ~n:(P.block_size/Io_page.page_size) ()
+    if P.block_size >= Io_page.page_size then
+      Io_page.get_buf ~n:(P.block_size/Io_page.page_size) ()
+    else (* This will only work on Unix, which has buffered IO instead of direct IO.
+            Allows more efficient fuzzing. *)
+      Cstruct.create P.block_size
 
   let zero_key = Cstruct.create P.key_size
   let top_key = Cstruct.of_string (String.make P.key_size '\255')
@@ -1096,11 +1100,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       Logs.info (fun m -> m "prepare_io sector_size %d" info.sector_size);
       let sector_size = if false then info.sector_size else 512 in
       let block_size = P.block_size in
-      let page_size = Io_page.page_size in
-      assert (block_size >= page_size);
-      assert (page_size >= sector_size);
-      assert (block_size mod page_size = 0);
-      assert (page_size mod sector_size = 0);
+      let io_size = if block_size >= Io_page.page_size then Io_page.page_size else block_size in
+      assert (block_size >= io_size);
+      assert (io_size >= sector_size);
+      assert (block_size mod io_size = 0);
+      assert (io_size mod sector_size = 0);
       let block_io = _get_block_io () in
       let fs = {
         disk;
