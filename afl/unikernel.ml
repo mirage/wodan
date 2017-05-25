@@ -12,8 +12,7 @@ let cstr_cond_reset str =
 module Client (C: CONSOLE) (B: BLOCK) = struct
 module Stor = Storage.Make(B)(struct
   include Storage.StandardParams
-(* Can't go smaller than Io_page.page_size, at least using this direct io friendly setup *)
-  let block_size = 4096
+  let block_size = 512
 end)
 
   let start _con disk _crypto =
