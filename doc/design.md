@@ -1,3 +1,6 @@
+# Design notes
+
+Notes about important choices in the filesystem and implementation design
 
 ## Caching
 
