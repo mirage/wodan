@@ -60,4 +60,76 @@ multiple of 512.
 
 There are two types of nodes: root and child.
 A leaf is a child that doesn't have children;
-there is no longer a special type marker for leafs.
+there is no longer a special type marker or a specific layout for leaves.
+
+The focus is on compacity and the ability to grow logged data and child data
+independently.
+
+```
+[%%cstruct type anynode_hdr = {
+  nodetype: uint8_t;
+  generation: uint64_t;
+}[@@little_endian]]
+
+[%%cstruct type rootnode_hdr = {
+  (* nodetype = 1 *)
+  nodetype: uint8_t;
+  (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
+  generation: uint64_t;
+  tree_id: uint32_t;
+  next_tree_id: uint32_t;
+  prev_tree: uint64_t;
+}[@@little_endian]]
+(* Contents: child node links, and logged data *)
+(* All node types end with a CRC *)
+(* rootnode_hdr
+ * logged data: (key, datalen, data)*, grow from the left end towards the right
+ *
+ * separation: at least at redzone_size (the largest of a key or a uint64_t) of all zeroes
+ * disambiguates from a valid logical offset on the right,
+ * disambiguates from a valid key on the left.
+ *
+ * child links: (key, logical offset)*, grow from the right end towards the left
+ * crc *)
+
+[%%cstruct type childnode_hdr = {
+  (* nodetype = 2 *)
+  nodetype: uint8_t;
+  generation: uint64_t;
+}[@@little_endian]]
+(* Contents: child node links, and logged data *)
+(* Layout: see above *)
+```
+
+All nodes start with a node type and a generation number.
+
+The generation number uniquely identifies a block and its contents
+on disk.  When the content changes, a new block is written at
+another location with a new, greater generation number.
+Children are written before the parents that reference them.
+When a node has children, their generation number is strictly
+lower.  This prevents loops.
+
+All nodes end with a CRC (CRC32C) controlling the whole block.
+
+Root nodes (nodetype: 1) are tree roots.
+The tree id identifies different trees; this will be used to
+implement a metadata tree.  next_tree_id is the next available
+tree id that will be used when the next tree is created.
+prev_tree points to the root of the location of the previous tree,
+building a circular list.
+
+Child nodes have just the basic, generic header (nodetype, generation).
+
+Node content is made of two packed lists, one that grows towards higher
+addresses and contains logged data, one that grows towards lower addresses
+from just before the CRC and contains child data.  The latter is empty in
+leaf nodes.  The two lists are separated by a red zone, which is also present
+in leaf nodes.  The redzone size is the minimum size of a child link and a logged
+data item.
+
+Logged data is made of contiguous logged items.  An item is a key followed
+by a data size and the data itself (forming a length-prefixed, Pascal-style string).
+
+Child data is made of contiguous child links.  A child link is a key followed
+by the on-disk location of the child.
