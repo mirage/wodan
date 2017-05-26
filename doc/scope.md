@@ -60,7 +60,7 @@ References
 
 ## Functional
 
-The filesystem provides a functional key value map.
+On disk, the filesystem provides a functional key value map.
 
 The main advantage of being functional is that this is flash-friendly: there
 are no in-place rewrites.
@@ -68,28 +68,18 @@ are no in-place rewrites.
 We use hitchhiker trees, which minimise the write amplification functional
 updates would cause by batching changes close to the root.
 
-The fact that this is a functional data structure makes snapshots easy
-to implement, but there are still two ways to reference the snapshots.
+While there may be multiple roots referring to a subtree, only one of them is
+valid at any point.  This is single ownership.  It simplifies tracking
+whether a block on the disk is in use: once a block is written on disk, its
+previous instance can be re-used.
 
-Snapshots can be internal or external.
+With single ownership, the data structures in memory don't need to be
+functionally updated.  We lose snapshot support, but this can be provided
+by Irmin.
 
-Internal snapshots are referenced from a root block.  When internal snapshots
-exist, any root node written references the active snapshot with the next
-lowest id, and the active snapshot with the lowest id references the one with
-the highest id, forming a loop.
-
-External snapshots are referenced externally, using a constantly updated vector
-of generation_ids.  When external snapshots are given at mount time, instead of
-searching for the root with the highest generation, the mount routine finds the
-given generation_ids.
-
-Since the cost of internal snapshots is fairly low, and the usability is higher,
-only those will be implemented.
-
-Mounting the filesystem provides a snapshot_id -> root_t map.
+Mounting the filesystem provides a tree_id -> root map.
 
 Most operations: read key, write key, search key interval, flush are done on a root.
-Snapshots are created either from an existing root or from a new empty root.
 
 ## Consistent
 
@@ -128,7 +118,7 @@ detected, the search for a valid root block could continue immediately before
 the newest block with an inconsistency.  Assuming the window for in-flight data
 isn't too large, the newest valid root block should still be fairly recent.
 
-Corruption of a rarely-updated leaf node cannot be corrected in such a way.
+Corruption of a rarely-updated leaf node (bitrot) cannot be corrected in such a way.
 Having filesystem checks at mount time gives early warning that backups or a
 higher-level redundancy mechanism should be used, increasing the chances that
 the data may be recovered.
