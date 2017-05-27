@@ -15,6 +15,17 @@ depends: [
   "ocamlfind" {build}
   "jbuilder"  {build}
   "cstruct"
+  "ppx_cstruct"
+  "sexplib"
+  "mirage-types"
+  "mirage-logs"
+  "lwt"
+  "io-page"
+  "lru"
+  "logs"
+  "nocrypto"
+  "bitv"
+  "mirage-types-lwt"
 ]
 
 available: [ocaml-version >= "4.03.0"]
