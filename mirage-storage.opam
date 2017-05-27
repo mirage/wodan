@@ -1,0 +1,21 @@
+opam-version: "1.2"
+maintainer: "g2p.code@gmail.com"
+authors: [ "Gabriel de Perthuis"]
+homepage: "https://github.com/g2p/mirage-storage"
+dev-repo: "https://github.com/g2p/mirage-storage.git"
+bug-reports: "https://github.com/g2p/mirage-storage/issues"
+
+
+build: [
+  [ "jbuilder" "subst"] {pinned}
+  [ "jbuilder" "build" "-p" name "-j" jobs ]
+]
+
+depends: [
+  "ocamlfind" {build}
+  "jbuilder"  {build}
+  "cstruct"
+]
+
+available: [ocaml-version >= "4.03.0"]
+tags: "org:mirage"

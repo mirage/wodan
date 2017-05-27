@@ -1,4 +1,0 @@
-S .
-B _build
-EXT lwt cstruct
-PKG lwt mirage mirage-types mirage-logs nocrypto io-page lru lwt.ppx

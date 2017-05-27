@@ -1,7 +1,7 @@
 open Mirage
 
 let client =
-  let packages = [ package "mirage-logs"; package "nocrypto"; package "io-page"; package "lru"; package "bitv"; ] in
+  let packages = [ package "mirage-storage"; package "mirage-logs"; package "nocrypto"; package "io-page"; package "lru"; package "bitv"; ] in
   foreign
     ~packages
     ~deps:[abstract nocrypto]

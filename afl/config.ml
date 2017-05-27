@@ -1,7 +1,7 @@
 open Mirage
 
 let client =
-  let packages = [ package "mirage-logs"; package "nocrypto"; package "io-page"; package "lru"; package "bitv"; package "afl-persistent" ] in
+  let packages = [ package "mirage-storage"; package "mirage-logs"; package "nocrypto"; package "io-page"; package "lru"; package "bitv"; package "afl-persistent" ] in
   foreign
     ~packages
     ~deps:[abstract nocrypto]
@@ -10,4 +10,4 @@ let client =
 let () =
   let img = generic_block "disk.img" in
   let job = [ client $ default_console $ img ] in
-  register "storage" job
+  register "storage-afl" job
