@@ -1,4 +1,4 @@
-# Mirage storage internals
+# Wodan internals
 
 config.ml is the standard MirageOS configuration file. It configures a test
 client which runs over a generic storage implementation, either file-backed or

@@ -1,13 +1,13 @@
-# mirage-storage
+# Wodan
 
-mirage-storage is a flash friendly, safe and flexible
+Wodan is a flash friendly, safe and flexible
 filesystem library for Mirage OS.
 
 Currently the basic disk format is implemented.
 
 ## Building, installing and running
 
-mirage-storage requires Opam, Mirage 3, and OCaml 4.04.
+Wodan requires Opam, Mirage 3, and OCaml 4.04.
 
 Currently Mirage needs to be pinned to the
 [master version](https://github.com/mirage/mirage),
