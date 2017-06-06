@@ -1077,15 +1077,15 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       get_anynode_hdr_nodetype cstr = 1
     in
 
-    let rec scan_range start =
+    let rec _scan_range start =
       (* Placeholder.
-         TODO scan_range start end
+         TODO _scan_range start end
          TODO use is_zero_data, type checks, crc checks, and loop *)
       read start >>
       if is_valid_root () then
         Lwt.return (start, get_anynode_hdr_generation cstr)
       else
-        scan_range @@ next_logical start
+        _scan_range @@ next_logical start
     in
 
     let rec sfr_rec start0 end0 gen0 =
@@ -1093,12 +1093,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
       match _mid_range end0 start0 lsize with
       | None -> Lwt.return end0
       | Some start1 ->
-      let%lwt end1, gen1 = scan_range start1 in
+      let%lwt end1, gen1 = _scan_range start1 in
       if gen0 < gen1
       then sfr_rec start0 end1 gen1
       else sfr_rec start1 end0 gen0 in
 
-    let%lwt end0, gen0 = scan_range start0
+    let%lwt end0, gen0 = _scan_range start0
     in sfr_rec start0 end0 gen0
 
   let prepare_io mode disk cache_size =
