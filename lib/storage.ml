@@ -89,11 +89,13 @@ let rec make_fanned_io_list size cstr =
 type statistics = {
   mutable inserts: int;
   mutable lookups: int;
+  mutable range_searches: int;
 }
 
 let default_statistics = {
   inserts=0;
   lookups=0;
+  range_searches=0;
 }
 
 type childlinks = {
@@ -143,6 +145,7 @@ let cstruct_clone cstr =
   Cstruct.(of_string @@ to_string cstr)
 
 module CstructKeyedMap = Map_pr869.Make(Cstruct)
+module CstructKeyedSet = Set.Make(Cstruct)
 module RootMap = Map.Make(Int32)
 
 module LRUKey = struct
@@ -980,6 +983,27 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let stats = root.open_fs.node_cache.statistics in
     stats.lookups <- succ stats.lookups;
     _lookup root.open_fs root.root_key key
+
+  let _search_range open_fs lru_key start end_ _seen =
+    match lru_get open_fs.node_cache.lru lru_key with
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (search_range)" @@ alloc_id_of_key lru_key
+    |Some entry ->
+      (* XXX Stdlib map doesn't have range iterators, emulate *)
+      let predicate key _value =
+        Cstruct.compare start key <= 0
+        && Cstruct.compare key end_ <= 0 in
+      let _logidx = CstructKeyedMap.filter predicate @@ Lazy.force entry.logindex in
+    ()
+
+  (* Range is inclusive at both ends.
+     Results are in no particular order. *)
+  let search_range root start end_ =
+    let start = check_key start in
+    let end_ = check_key end_ in
+    let seen = CstructKeyedSet.empty in
+    let stats = root.open_fs.node_cache.statistics in
+    stats.range_searches <- succ stats.range_searches;
+    _search_range root.open_fs root.root_key start end_ seen
 
   let rec _scan_all_nodes open_fs logical depth parent_gen =
     Logs.info (fun m -> m "_scan_all_nodes %Ld %d" logical depth);
