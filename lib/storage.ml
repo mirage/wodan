@@ -392,9 +392,26 @@ type deviceOpenMode =
   |OpenExistingDevice
   |FormatEmptyDevice of int64
 
+module type S = sig
+  type key
+  type disk
+  type root
 
-module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
+  val insert : root -> Cstruct.t -> Cstruct.t -> unit Lwt.t
+  val lookup : root -> Cstruct.t -> Cstruct.t Lwt.t
+  val flush : root -> unit Lwt.t
+  val log_statistics : root -> unit
+  val search_range : root
+    -> (Cstruct.t -> bool)
+    -> (Cstruct.t -> bool)
+    -> (Cstruct.t -> unit)
+    -> unit Lwt.t
+  val prepare_io : deviceOpenMode -> disk -> int -> root RootMap.t Lwt.t
+end
+
+module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
   type key = string
+  type disk = B.t
 
   module P = P
 
@@ -421,7 +438,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
   let zero_data = Cstruct.create P.block_size
   let is_zero_key cstr =
     Cstruct.equal cstr zero_key
-  let is_zero_data cstr =
+  let _is_zero_data cstr =
     Cstruct.equal cstr zero_data
 
   let redzone_size = max P.key_size sizeof_logical
@@ -544,11 +561,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     root_key: LRUKey.t;
   }
 
-  let entry_of_root root =
-    match lru_get root.open_fs.node_cache.lru root.root_key with
-    |None -> failwith "missing root"
-    |Some v -> v
-
   let _write_node open_fs alloc_id =
     let key = LRUKey.ByAllocId alloc_id in
     let cache = open_fs.node_cache in
@@ -598,7 +610,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let cache = root.open_fs.node_cache in
     _log_statistics cache
 
-  let flush open_fs =
+  let flush root =
+    let open_fs = root.open_fs in
     Logs.info (fun m -> m "flushing %d dirty roots" (Hashtbl.length open_fs.node_cache.flush_roots));
     _log_statistics open_fs.node_cache;
     let rec flush_rec (completion_list : unit Lwt.t list) lru_key = begin
@@ -1134,7 +1147,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     let rec _scan_range start =
       (* Placeholder.
          TODO _scan_range start end
-         TODO use is_zero_data, type checks, crc checks, and loop *)
+         TODO use _is_zero_data, type checks, crc checks, and loop *)
       read start >>
       if is_valid_root () then
         Lwt.return (start, get_anynode_hdr_generation cstr)
