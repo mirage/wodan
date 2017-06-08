@@ -220,7 +220,7 @@ let lru_xset lru key value =
   if would_discard then begin
     match LRU.lru lru with
     |Some (_lru_key, entry) when entry.flush_info <> None ->
-      failwith "Would discard dirty data" (* TODO expose this as a proper API value *) 
+      failwith "Would discard dirty data" (* TODO expose this as a proper API value *)
     |Some (_lru_key, entry) ->
       begin match lookup_parent_link lru entry with
       |None -> failwith "Would discard a root key, LRU too small for tree depth"
@@ -349,6 +349,32 @@ let rec _mark_dirty cache lru_key : flush_info =
         di
       |Some di -> di
     end
+
+exception RangeEnd
+
+(* The range where start_cond and not end_cond *)
+let csm_iter_range start_cond end_cond it csm =
+  try
+    CstructKeyedMap.iter_from_first
+      start_cond
+      (fun k v -> if end_cond k then raise RangeEnd;
+        it k v)
+      csm
+  with
+  |RangeEnd -> ()
+
+(* As above, but include one element past the end *)
+let csm_iter_range_plus start_cond end_cond it csm =
+  let after_end = ref false in
+  try
+    CstructKeyedMap.iter_from_first
+      start_cond
+      (fun k v -> if end_cond k then begin
+           if !after_end then raise RangeEnd else after_end := true end;
+         it k v)
+      csm
+  with
+  |RangeEnd -> ()
 
 module type PARAMS = sig
   (* in bytes *)
@@ -984,26 +1010,30 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) = struct
     stats.lookups <- succ stats.lookups;
     _lookup root.open_fs root.root_key key
 
-  let _search_range open_fs lru_key start end_ _seen =
+  let rec _search_range open_fs lru_key start_cond end_cond seen callback =
     match lru_get open_fs.node_cache.lru lru_key with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (search_range)" @@ alloc_id_of_key lru_key
     |Some entry ->
-      (* XXX Stdlib map doesn't have range iterators, emulate *)
-      let predicate key _value =
-        Cstruct.compare start key <= 0
-        && Cstruct.compare key end_ <= 0 in
-      let _logidx = CstructKeyedMap.filter predicate @@ Lazy.force entry.logindex in
-    ()
+      (* TODO get iter_from_first into the stdlib *)
+      let seen1 = ref seen in
+      let lwt_queue = ref [] in
+      csm_iter_range start_cond end_cond (fun k _v -> callback k; seen1 := CstructKeyedSet.add k !seen1)
+      @@ Lazy.force entry.logindex;
+      csm_iter_range_plus start_cond end_cond (fun key1 cl ->
+        lwt_queue := (key1, cl)::!lwt_queue)
+      @@ Lazy.force entry.children;
+      Lwt_list.iter_s (fun (key1, cl) ->
+          let%lwt child_lru_key, _ce =
+            _ensure_childlink open_fs lru_key entry key1 cl in
+          _search_range open_fs child_lru_key start_cond end_cond !seen1 callback) !lwt_queue
 
-  (* Range is inclusive at both ends.
+  (* The range where start_cond and not end_cond
      Results are in no particular order. *)
-  let search_range root start end_ =
-    let start = check_key start in
-    let end_ = check_key end_ in
+  let search_range root start_cond end_cond callback =
     let seen = CstructKeyedSet.empty in
     let stats = root.open_fs.node_cache.statistics in
     stats.range_searches <- succ stats.range_searches;
-    _search_range root.open_fs root.root_key start end_ seen
+    _search_range root.open_fs root.root_key start_cond end_cond seen callback
 
   let rec _scan_all_nodes open_fs logical depth parent_gen =
     Logs.info (fun m -> m "_scan_all_nodes %Ld %d" logical depth);
