@@ -272,6 +272,17 @@ module type S =
         @since 4.05
        *)
 
+    val iter_from_first: (key -> bool) -> (key -> 'a -> unit) -> 'a t -> unit
+    (** [iter_from_first f g m], where [f] is a monotonically increasing
+        function, calls back [g k v] with every item [(k, v)] of [m]
+        satisfying predicate [f k] in ascending order of [k].
+
+        For example, [iter_from_first (fun k -> Ord.compare k x >= 0) g m]
+        will call [g] with every item such that, informally, [k >= x].
+
+        @since 4.05
+        *)
+
     val map: ('a -> 'b) -> 'a t -> 'b t
     (** [map f m] returns a map with same domain as [m], where the
        associated value [a] of all bindings of [m] has been

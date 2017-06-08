@@ -55,6 +55,7 @@ module type S =
     val find_first_opt: (key -> bool) -> 'a t -> (key * 'a) option
     val find_last: (key -> bool) -> 'a t -> key * 'a
     val find_last_opt: (key -> bool) -> 'a t -> (key * 'a) option
+    val iter_from_first: (key -> bool) -> (key -> 'a -> unit) -> 'a t -> unit
     val map: ('a -> 'b) -> 'a t -> 'b t
     val mapi: (key -> 'a -> 'b) -> 'a t -> 'b t
   end
@@ -268,6 +269,17 @@ module Make(Ord: OrderedType) = struct
         Empty -> ()
       | Node(l, v, d, r, _) ->
           iter f l; f v d; iter f r
+
+    let rec iter_from_first f g = function
+        Empty ->
+          ()
+      | Node(l, v, d, r, _) ->
+          if f v then begin
+            iter_from_first f g l;
+            g v d;
+            iter g r
+          end else
+            iter_from_first f g r
 
     let rec map f = function
         Empty ->
