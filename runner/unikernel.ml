@@ -9,7 +9,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let%lwt root = Stor.prepare_io (Storage.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
     (
-    let key = Cstruct.of_string "abcdefghijklmnopqrst" in
+    let key = Stor.key_of_cstruct @@ Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert root key cval >>
     Stor.flush root >>
@@ -20,7 +20,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let%lwt cval2 = Stor.lookup root key in
     assert (Cstruct.equal cval cval2);
     while%lwt true do
-      let key = Nocrypto.Rng.generate 20 and
+      let key = Stor.key_of_cstruct @@ Nocrypto.Rng.generate 20 and
         cval = Nocrypto.Rng.generate 40 in
       try%lwt
         Stor.insert root key cval

@@ -389,28 +389,34 @@ module type S = sig
   type disk
   type root
 
-  val insert : root -> Cstruct.t -> Cstruct.t -> unit Lwt.t
-  val lookup : root -> Cstruct.t -> Cstruct.t Lwt.t
+  val key_of_cstruct : Cstruct.t -> key
+  val cstruct_of_key : key -> Cstruct.t
+
+  val insert : root -> key -> Cstruct.t -> unit Lwt.t
+  val lookup : root -> key -> Cstruct.t Lwt.t
   val flush : root -> unit Lwt.t
   val log_statistics : root -> unit
   val search_range : root
-    -> (Cstruct.t -> bool)
-    -> (Cstruct.t -> bool)
-    -> (Cstruct.t -> unit)
+    -> (key -> bool)
+    -> (key -> bool)
+    -> (key -> unit)
     -> unit Lwt.t
   val prepare_io : deviceOpenMode -> disk -> int -> root Lwt.t
 end
 
 module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
-  type key = string
+  type key = Cstruct.t
   type disk = B.t
 
   module P = P
 
-  let check_key key =
+  let key_of_cstruct key =
     if Cstruct.len key <> P.key_size
     then raise @@ BadKey key
     else key
+
+  let cstruct_of_key key =
+    key
 
   let check_value_len value =
     let len = Cstruct.len value in
@@ -974,7 +980,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let insert root key value =
     Logs.info (fun m -> m "insert");
-    let key = check_key key in
     let _len = check_value_len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
@@ -1006,7 +1011,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             _lookup open_fs child_lru_key key
 
   let lookup root key =
-    let key = check_key key in
     let stats = root.open_fs.node_cache.statistics in
     stats.lookups <- succ stats.lookups;
     _lookup root.open_fs root.root_key key
