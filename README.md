@@ -56,8 +56,11 @@ until we get discard support, requires a clear disk.
 
 ### Running American Fuzzy Lop (AFL)
 
-This requires OCaml 4.05 and pinned versions of several dependencies
-(the no-sexp branch of nocrypto by vbmithr, the master branch of
-ppx_deriving).
+This requires OCaml 4.05 and pinned versions of several dependencies.
 
+```
+opam switch 4.05.0+trunk+afl
+opam pin add ppx_deriving https://github.com/whitequark/ppx_deriving.git
+opam pin add nocrypto https://github.com/vbmithr/ocaml-nocrypto.git#no-sexp
+```
 
