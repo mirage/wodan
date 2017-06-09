@@ -1080,6 +1080,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       then raise @@ BadCRC 0L
       else if get_superblock_block_size sb <> Int32.of_int P.block_size
       then raise BadParams
+      else if get_superblock_key_size sb <> P.key_size
+      then raise BadParams
       else get_superblock_first_block_written sb, get_superblock_logical_size sb
     end
 
@@ -1094,6 +1096,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     set_superblock_magic superblock_magic 0 sb;
     set_superblock_version sb superblock_version;
     set_superblock_block_size sb (Int32.of_int P.block_size);
+    set_superblock_key_size sb P.key_size;
     set_superblock_first_block_written sb first_block_written;
     set_superblock_logical_size sb logical_size;
     Crc32c.cstruct_reset sb;
