@@ -386,14 +386,17 @@ type deviceOpenMode =
 
 module type S = sig
   type key
+  type value
   type disk
   type root
 
   val key_of_cstruct : Cstruct.t -> key
   val cstruct_of_key : key -> Cstruct.t
+  val value_of_cstruct : Cstruct.t -> value
+  val cstruct_of_value : value -> Cstruct.t
 
-  val insert : root -> key -> Cstruct.t -> unit Lwt.t
-  val lookup : root -> key -> Cstruct.t Lwt.t
+  val insert : root -> key -> value -> unit Lwt.t
+  val lookup : root -> key -> value Lwt.t
   val flush : root -> unit Lwt.t
   val log_statistics : root -> unit
   val search_range : root
@@ -406,6 +409,7 @@ end
 
 module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
   type key = Cstruct.t
+  type value = Cstruct.t
   type disk = B.t
 
   module P = P
@@ -415,12 +419,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     then raise @@ BadKey key
     else key
 
-  let cstruct_of_key key =
-    key
+  let cstruct_of_key key = key
 
-  let check_value_len value =
+  let value_of_cstruct value =
     let len = Cstruct.len value in
-    if len >= 65536 then raise @@ ValueTooLarge value else len
+    if len >= 65536 then raise @@ ValueTooLarge value else value
+
+  let cstruct_of_value value = value
 
   let block_end = P.block_size - sizeof_crc
 
@@ -701,7 +706,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let _ins_req_space = function
     |InsValue value ->
-        let len = check_value_len value in
+        let len = Cstruct.len value in
         let len1 = P.key_size + sizeof_datalen + len in
         len1
     |InsChild (_loc, _alloc_id) ->
@@ -718,7 +723,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       begin (* Simple insertion *)
         match insertable with
         |InsValue value ->
-          let len = check_value_len value in
+          let len = Cstruct.len value in
           let len1 = P.key_size + sizeof_datalen + len in
           let cstr = entry.raw_node in
           let kd = entry.keydata in
@@ -980,7 +985,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let insert root key value =
     Logs.info (fun m -> m "insert");
-    let _len = check_value_len value in
+    let _len = Cstruct.len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
     _check_live_integrity root.open_fs root.root_key 0;
