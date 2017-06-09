@@ -30,7 +30,6 @@ exception BadNodeType of int
   (* refuse to mount if unknown incompat_flags are set *)
   incompat_flags: uint32_t;
   block_size: uint32_t;
-  (* TODO make this a per-tree setting *)
   key_size: uint8_t;
   first_block_written: uint64_t;
   logical_size: uint64_t;
@@ -53,9 +52,6 @@ let sizeof_crc = 4
   nodetype: uint8_t;
   (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
   generation: uint64_t;
-  tree_id: uint32_t;
-  next_tree_id: uint32_t;
-  prev_tree: uint64_t;
 }[@@little_endian]]
 (* Contents: child node links, and logged data *)
 (* All node types end with a CRC *)
@@ -146,7 +142,6 @@ let cstruct_clone cstr =
 
 module CstructKeyedMap = Map_pr869.Make(Cstruct)
 module CstructKeyedSet = Set.Make(Cstruct)
-module RootMap = Map.Make(Int32)
 
 module LRUKey = struct
   type t = ByAllocId of int64 | Sentinel
@@ -169,7 +164,7 @@ type flush_info = {
 type lru_entry = {
   cached_node: node;
   parent_key: LRUKey.t option;
-  (* A node is flushable iff it's referenced from flush_roots
+  (* A node is flushable iff it's referenced from flush_root
      through a flush_children list.
      We use an option here to make checking for flushability faster.
      A flushable node is either new or dirty, but not both. *)
@@ -238,9 +233,7 @@ type node_cache = {
   (* LRUKey.t -> lru_entry
    * all nodes are keyed by their alloc_id *)
   lru: LRU.t;
-  (* tree_id -> ByAllocId alloc_id *)
-  flush_roots: (int32, LRUKey.t) Hashtbl.t;
-  mutable next_tree_id: int32;
+  mutable flush_root: LRUKey.t option;
   mutable next_alloc_id: int64;
   (* The next generation number we'll allocate *)
   mutable next_generation: int64;
@@ -281,11 +274,6 @@ let next_logical_alloc_valid cache =
   in let loc = after cache.next_logical_alloc in
   cache.next_logical_alloc <- next_logical_novalid cache loc; loc
 
-let next_tree_id cache =
-  let r = cache.next_tree_id in
-  cache.next_tree_id <- Int32.succ cache.next_tree_id;
-  r
-
 let next_alloc_id cache =
   let r = cache.next_alloc_id in
   cache.next_alloc_id <- Int64.succ cache.next_alloc_id;
@@ -315,10 +303,9 @@ let rec _mark_dirty cache lru_key : flush_info =
       |None -> begin
           match entry.cached_node with
           |`Root ->
-            let tree_id = get_rootnode_hdr_tree_id entry.raw_node in
-            begin match Hashtbl.find_all cache.flush_roots tree_id with
-              |[] -> begin Hashtbl.add cache.flush_roots tree_id lru_key end
-              |_ -> failwith "flush_roots inconsistent" end
+            begin match cache.flush_root with
+              |None -> cache.flush_root <- Some lru_key
+              |_ -> failwith "flush_root inconsistent" end
           |`Child ->
             match entry.parent_key with
             |Some parent_key -> begin
@@ -406,7 +393,7 @@ module type S = sig
     -> (Cstruct.t -> bool)
     -> (Cstruct.t -> unit)
     -> unit Lwt.t
-  val prepare_io : deviceOpenMode -> disk -> int -> root RootMap.t Lwt.t
+  val prepare_io : deviceOpenMode -> disk -> int -> root Lwt.t
 end
 
 module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
@@ -612,7 +599,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let flush root =
     let open_fs = root.open_fs in
-    Logs.info (fun m -> m "flushing %d dirty roots" (Hashtbl.length open_fs.node_cache.flush_roots));
+    Logs.info (fun m -> m "flushing %d dirty roots" (match open_fs.node_cache.flush_root with None -> 0 |Some _ -> 1));
     _log_statistics open_fs.node_cache;
     let rec flush_rec (completion_list : unit Lwt.t list) lru_key = begin
       match lru_get open_fs.node_cache.lru lru_key with
@@ -626,10 +613,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       entry.flush_info <- None;
       (_write_node open_fs alloc_id) :: completion_list
     end in
-    let r = Lwt.join (Hashtbl.fold (fun _tid lru_key completion_list ->
-        flush_rec completion_list lru_key)
-        open_fs.node_cache.flush_roots []) in
-    Hashtbl.clear open_fs.node_cache.flush_roots;
+    let r = Lwt.join (match open_fs.node_cache.flush_root with
+        |None -> []
+        |Some lru_key ->
+          flush_rec [] lru_key
+      ) in
+    open_fs.node_cache.flush_root <- None;
     r
 
   let _new_node open_fs tycode parent_key highest_key =
@@ -652,9 +641,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     alloc_id, entry
 
   let _new_root open_fs =
-    let alloc_id, entry = _new_node open_fs 1 None top_key in
-    set_rootnode_hdr_tree_id entry.raw_node @@ next_tree_id open_fs.node_cache;
-    alloc_id, entry
+    _new_node open_fs 1 None top_key
 
   let _reset_contents entry =
     let hdrsize = header_size entry.cached_node in
@@ -1194,14 +1181,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             let typ = get_anynode_hdr_nodetype cstr in
             if typ <> 1 then raise @@ BadNodeType typ;
             let root_generation = get_rootnode_hdr_generation cstr in
-            let root_tree_id = get_rootnode_hdr_tree_id cstr in
             let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
             let free_count = Int64.pred logical_size in
             let node_cache = {
               lru=lru_create cache_size;
-              flush_roots=Hashtbl.create 1;
-              next_tree_id=get_rootnode_hdr_next_tree_id cstr;
+              flush_root=None;
               next_alloc_id=1L;
               next_generation=Int64.succ root_generation;
               logical_size;
@@ -1219,18 +1204,16 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             (* TODO parse other roots *)
             let root = {open_fs; root_key;} in
             log_statistics root;
-            Lwt.return @@ RootMap.singleton root_tree_id root
+            Lwt.return root
         |FormatEmptyDevice logical_size ->
             assert (logical_size >= 2L);
-            let root_tree_id = 1l in
             let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
             let free_count = Int64.pred logical_size in
             let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
             let node_cache = {
               lru=lru_create cache_size;
-              flush_roots=Hashtbl.create 1;
-              next_tree_id=root_tree_id;
+              flush_root=None;
               next_alloc_id=1L;
               next_generation=1L;
               logical_size;
@@ -1244,6 +1227,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             let open_fs = { filesystem=fs; node_cache; } in
             _format open_fs logical_size first_block_written >>
             let root_key = LRUKey.ByAllocId 1L in
-            Lwt.return @@ RootMap.singleton root_tree_id {open_fs; root_key;}
+            Lwt.return {open_fs; root_key;}
 end
 

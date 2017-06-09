@@ -6,42 +6,39 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
 
   let start _con disk _crypto =
     let%lwt info = B.get_info disk in
-    let%lwt roots = Stor.prepare_io (Storage.FormatEmptyDevice
+    let%lwt root = Stor.prepare_io (Storage.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
-    let root = ref @@ Storage.RootMap.find 1l roots in
     (
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-    Stor.insert !root key cval >>
-    Stor.flush !root >>
-    let%lwt cval1 = Stor.lookup !root key in
+    Stor.insert root key cval >>
+    Stor.flush root >>
+    let%lwt cval1 = Stor.lookup root key in
     (*Cstruct.hexdump cval1;*)
     assert (Cstruct.equal cval cval1);
-    let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
-    root := Storage.RootMap.find 1l roots;
-    let%lwt cval2 = Stor.lookup !root key in
+    let%lwt root = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
+    let%lwt cval2 = Stor.lookup root key in
     assert (Cstruct.equal cval cval2);
     while%lwt true do
       let key = Nocrypto.Rng.generate 20 and
         cval = Nocrypto.Rng.generate 40 in
       try%lwt
-        Stor.insert !root key cval
+        Stor.insert root key cval
       with Storage.NeedsFlush -> begin
         Logs.info (fun m -> m "Emergency flushing");
-        Stor.flush !root >>= function () ->
-        Stor.insert !root key cval
+        Stor.flush root >>= function () ->
+        Stor.insert root key cval
       end
       >>= function () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
-        Stor.flush !root >>
-        let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
-        root := Storage.RootMap.find 1l roots;
+        Stor.flush root >>
+        let%lwt root = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
         Lwt.return ()
       end
       else if%lwt Lwt.return (Nocrypto.Rng.Int.gen 8192 = 0) then begin (* Infrequent flushing *)
-        Stor.log_statistics !root;
-        Stor.flush !root
+        Stor.log_statistics root;
+        Stor.flush root
       end done
     )
-      [%lwt.finally Lwt.return @@ Stor.log_statistics !root]
+      [%lwt.finally Lwt.return @@ Stor.log_statistics root]
 end
