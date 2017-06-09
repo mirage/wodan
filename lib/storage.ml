@@ -363,6 +363,11 @@ let csm_iter_range_plus start_cond end_cond it csm =
   with
   |RangeEnd -> ()
 
+let _get_superblock_io () =
+  (* This will only work on Unix, which has buffered IO instead of direct IO.
+  TODO figure out portability *)
+    Cstruct.create 512
+
 module type PARAMS = sig
   (* in bytes *)
   val block_size: int
@@ -441,10 +446,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     sector_size: int;
     (* the sector size that's used for the write offset *)
     other_sector_size: int;
-    (* IO on an erase block *)
-    block_io: Cstruct.t;
-    (* A view on block_io split as sector_size sized views *)
-    block_io_fanned: Cstruct.t list;
   }
 
   type open_fs = {
@@ -1066,10 +1067,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     Cstruct.sub block_io 0 sizeof_superblock
 
   let _read_superblock fs =
-    B.read fs.disk 0L fs.block_io_fanned >>= Lwt.wrap1 begin function
+    let block_io = _get_superblock_io () in
+    let block_io_fanned = make_fanned_io_list fs.sector_size block_io in
+    B.read fs.disk 0L block_io_fanned >>= Lwt.wrap1 begin function
       |Result.Error _ -> raise ReadError
       |Result.Ok () ->
-          let sb = _sb_io fs.block_io in
+          let sb = _sb_io block_io in
       if Cstruct.to_string @@ get_superblock_magic sb <> superblock_magic
       then raise BadMagic
       else if get_superblock_version sb <> superblock_version
@@ -1088,11 +1091,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   (* Requires the caller to discard the entire device first.
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
   let _format open_fs logical_size first_block_written =
+    let block_io = _get_superblock_io () in
+    let block_io_fanned = make_fanned_io_list open_fs.filesystem.sector_size block_io in
     let alloc_id, _root = _new_root open_fs in
     open_fs.node_cache.new_count <- 1L;
     _write_node open_fs alloc_id >> begin
     _log_statistics open_fs.node_cache;
-    let sb = _sb_io open_fs.filesystem.block_io in
+    let sb = _sb_io block_io in
     set_superblock_magic superblock_magic 0 sb;
     set_superblock_version sb superblock_version;
     set_superblock_block_size sb (Int32.of_int P.block_size);
@@ -1100,7 +1105,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     set_superblock_first_block_written sb first_block_written;
     set_superblock_logical_size sb logical_size;
     Crc32c.cstruct_reset sb;
-    B.write open_fs.filesystem.disk 0L open_fs.filesystem.block_io_fanned >>= function
+    B.write open_fs.filesystem.disk 0L block_io_fanned >>= function
       |Result.Ok () -> Lwt.return ()
       |Result.Error _ -> Lwt.fail WriteError
     end
@@ -1168,13 +1173,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       assert (io_size >= sector_size);
       assert (block_size mod io_size = 0);
       assert (io_size mod sector_size = 0);
-      let block_io = _get_block_io () in
       let fs = {
         disk;
         sector_size;
         other_sector_size = info.sector_size;
-        block_io;
-        block_io_fanned = make_fanned_io_list sector_size block_io;
       } in
       match mode with
         |OpenExistingDevice ->
