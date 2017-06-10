@@ -12,7 +12,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let key = Stor.key_of_cstruct @@ Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Stor.value_of_cstruct @@ Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert root key cval >>
-    Stor.flush root >>
+    Stor.flush root >>= function _generation ->
     let%lwt cval1 = Stor.lookup root key in
     (*Cstruct.hexdump cval1;*)
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval1));
@@ -26,18 +26,18 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         Stor.insert root key cval
       with Storage.NeedsFlush -> begin
         Logs.info (fun m -> m "Emergency flushing");
-        Stor.flush root >>= function () ->
+        Stor.flush root >>= function _generation ->
         Stor.insert root key cval
       end
       >>= function () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
-        Stor.flush root >>
+        Stor.flush root >>= function _generation ->
         let%lwt root = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
         Lwt.return ()
       end
       else if%lwt Lwt.return (Nocrypto.Rng.Int.gen 8192 = 0) then begin (* Infrequent flushing *)
         Stor.log_statistics root;
-        Stor.flush root
+        Stor.flush root >|= ignore
       end done
     )
       [%lwt.finally Lwt.return @@ Stor.log_statistics root]

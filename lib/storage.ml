@@ -397,7 +397,7 @@ module type S = sig
 
   val insert : root -> key -> value -> unit Lwt.t
   val lookup : root -> key -> value Lwt.t
-  val flush : root -> unit Lwt.t
+  val flush : root -> int64 Lwt.t
   val log_statistics : root -> unit
   val search_range : root
     -> (key -> bool)
@@ -631,7 +631,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           flush_rec [] lru_key
       ) in
     open_fs.node_cache.flush_root <- None;
-    r
+    r >> Lwt.return @@ Int64.pred open_fs.node_cache.next_generation
 
   let _new_node open_fs tycode parent_key highest_key =
     Logs.info (fun m -> m "_new_node type:%d" tycode);
