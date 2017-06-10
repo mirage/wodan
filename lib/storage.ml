@@ -1146,6 +1146,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
     let is_valid_root () =
       get_anynode_hdr_nodetype cstr = 1
+      && Crc32c.cstruct_valid cstr
     in
 
     let rec _scan_range start =
