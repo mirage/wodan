@@ -404,7 +404,7 @@ module type S = sig
     -> (key -> bool)
     -> (key -> unit)
     -> unit Lwt.t
-  val prepare_io : deviceOpenMode -> disk -> int -> root Lwt.t
+  val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
 end
 
 module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
@@ -1216,10 +1216,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             (* TODO add more integrity checking *)
             _scan_all_nodes open_fs lroot 0 Int64.max_int >>
             let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
-            (* TODO parse other roots *)
             let root = {open_fs; root_key;} in
             log_statistics root;
-            Lwt.return root
+            Lwt.return (root, root_generation)
         |FormatEmptyDevice logical_size ->
             assert (logical_size >= 2L);
             let space_map = bitv_create64 logical_size false in
@@ -1242,6 +1241,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             let open_fs = { filesystem=fs; node_cache; } in
             _format open_fs logical_size first_block_written >>
             let root_key = LRUKey.ByAllocId 1L in
-            Lwt.return {open_fs; root_key;}
+            Lwt.return ({open_fs; root_key;}, 1L)
 end
 

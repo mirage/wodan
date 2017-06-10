@@ -6,19 +6,20 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
 
   let start _con disk _crypto =
     let%lwt info = B.get_info disk in
-    let%lwt root = Stor.prepare_io (Storage.FormatEmptyDevice
+    let%lwt root, _gen0 = Stor.prepare_io (Storage.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
     (
     let key = Stor.key_of_cstruct @@ Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Stor.value_of_cstruct @@ Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert root key cval >>
-    Stor.flush root >>= function _generation ->
+    Stor.flush root >>= function gen1 ->
     let%lwt cval1 = Stor.lookup root key in
     (*Cstruct.hexdump cval1;*)
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval1));
-    let%lwt root = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
+    let%lwt root, gen2 = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
     let%lwt cval2 = Stor.lookup root key in
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval2));
+    assert (gen1 = gen2);
     while%lwt true do
       let key = Stor.key_of_cstruct @@ Nocrypto.Rng.generate 20 and
         cval = Stor.value_of_cstruct @@ Nocrypto.Rng.generate 40 in
@@ -26,13 +27,14 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         Stor.insert root key cval
       with Storage.NeedsFlush -> begin
         Logs.info (fun m -> m "Emergency flushing");
-        Stor.flush root >>= function _generation ->
+        Stor.flush root >>= function _gen ->
         Stor.insert root key cval
       end
       >>= function () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
-        Stor.flush root >>= function _generation ->
-        let%lwt root = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
+        Stor.flush root >>= function gen3 ->
+        let%lwt root, gen4 = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
+        assert (gen3 = gen4);
         Lwt.return ()
       end
       else if%lwt Lwt.return (Nocrypto.Rng.Int.gen 8192 = 0) then begin (* Infrequent flushing *)
