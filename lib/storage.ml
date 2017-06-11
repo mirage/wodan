@@ -337,12 +337,6 @@ let rec _mark_dirty cache lru_key : flush_info =
 
 exception RangeEnd
 
-let csm_clone_keys csm =
-  let r = ref KeyedMap.empty in
-  KeyedMap.iter (fun k v ->
-      r := KeyedMap.add k v !r) csm;
-  !r
-
 (* The range where start_cond and not end_cond *)
 let csm_iter_range start_cond end_cond it csm =
   try
@@ -900,8 +894,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let alloc2, entry2 = _new_node fs 2 (Some lru_key) entry.highest_key in
         let logi1, logi2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) logindex in
         let cl1, cl2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) children in
-        let cl1 = csm_clone_keys cl1 in
-        let cl2 = csm_clone_keys cl2 in
         let blit_kd_child off centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
