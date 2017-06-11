@@ -339,6 +339,12 @@ let rec _mark_dirty cache lru_key : flush_info =
 
 exception RangeEnd
 
+let csm_clone_keys csm =
+  let r = ref CstructKeyedMap.empty in
+  CstructKeyedMap.iter (fun k v ->
+      r := CstructKeyedMap.add (cstruct_clone k) v !r) csm;
+  !r
+
 (* The range where start_cond and not end_cond *)
 let csm_iter_range start_cond end_cond it csm =
   try
@@ -767,14 +773,30 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let rec _check_live_integrity fs lru_key depth =
     match lru_peek fs.node_cache.lru lru_key with
     |None -> failwith "Missing LRU entry"
-    |Some entry ->
-    if _has_children entry && not (Cstruct.equal entry.highest_key @@ fst @@ CstructKeyedMap.max_binding @@ Lazy.force entry.children) then begin
-      Cstruct.hexdump entry.highest_key;
-      Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding @@ Lazy.force entry.children;
-      Logs.info (fun m -> m "_check_live_integrity %d" depth);
-      failwith "highest_key invariant broken"
-    end;
-    CstructKeyedMap.iter (fun _k v -> match v.alloc_id with
+    |Some entry -> begin
+        if _has_children entry && not (Cstruct.equal entry.highest_key @@ fst @@ CstructKeyedMap.max_binding @@ Lazy.force entry.children) then begin
+          Cstruct.hexdump entry.highest_key;
+          Cstruct.hexdump @@ fst @@ CstructKeyedMap.max_binding @@ Lazy.force entry.children;
+          Logs.info (fun m -> m "_check_live_integrity %d" depth);
+          failwith "highest_key invariant broken"
+        end;
+        match entry.parent_key with
+        |None -> ()
+        |Some parent_key -> begin
+            match lru_peek fs.node_cache.lru parent_key with
+            |None -> failwith "Missing parent"
+            |Some parent_entry ->
+              let children = Lazy.force parent_entry.children in
+              match CstructKeyedMap.find_opt entry.highest_key children with
+              |None ->
+                Logs.info (fun m -> m "_check_live_integrity %d" depth);
+                failwith "lookup_parent_link invariant broken"
+              |Some cl ->
+                let alloc_id = alloc_id_of_key lru_key in
+                assert (cl.alloc_id = Some alloc_id);
+          end
+      end;
+      CstructKeyedMap.iter (fun _k v -> match v.alloc_id with
           |None -> ()
           |Some alloc_id -> _check_live_integrity fs
             (LRUKey.ByAllocId alloc_id) @@ depth + 1
@@ -879,6 +901,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let alloc2, entry2 = _new_node fs 2 (Some lru_key) entry.highest_key in
         let logi1, logi2 = CstructKeyedMap.partition (fun k _v -> Cstruct.compare k median <= 0) logindex in
         let cl1, cl2 = CstructKeyedMap.partition (fun k _v -> Cstruct.compare k median <= 0) children in
+        let cl1 = csm_clone_keys cl1 in
+        let cl2 = csm_clone_keys cl2 in
         let blit_kd_child off centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
