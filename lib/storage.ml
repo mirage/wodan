@@ -161,7 +161,7 @@ type flush_info = {
 
 type lru_entry = {
   cached_node: node;
-  parent_key: LRUKey.t option;
+  mutable parent_key: LRUKey.t option;
   (* A node is flushable iff it's referenced from flush_root
      through a flush_children list.
      We use an option here to make checking for flushability faster.
@@ -668,6 +668,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     let child_key = LRUKey.ByAllocId alloc_id in
     let off = parent.childlinks.childlinks_offset - childlink_size in
     let children = Lazy.force parent.children in (* Force *before* blitting *)
+    child.parent_key <- Some parent_key;
     Cstruct.blit (Cstruct.of_string child.highest_key) 0 parent.raw_node off P.key_size;
     parent.childlinks.childlinks_offset <- off;
     parent.children <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size) {offset=off; alloc_id=Some alloc_id} children;
@@ -797,6 +798,15 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         ) @@ Lazy.force entry.children;
       if !fail then assert(false)
 
+  let _fixup_parent_links cache lru_key entry =
+    KeyedMap.iter (fun _k v -> match v.alloc_id with
+          None -> ()
+        |Some alloc_id ->
+          match lru_peek cache.lru (LRUKey.ByAllocId alloc_id) with
+          |None -> failwith "Missing LRU entry"
+          |Some centry -> centry.parent_key <- Some lru_key
+      ) @@ Lazy.force entry.children
+
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs lru_key size split_path depth =
     Logs.info (fun m -> m "_reserve_insert %d" depth);
@@ -923,6 +933,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         _reset_contents entry;
         _add_child entry entry1 alloc1 fs.node_cache lru_key;
         _add_child entry entry2 alloc2 fs.node_cache lru_key;
+        _fixup_parent_links fs.node_cache (LRUKey.ByAllocId alloc1) entry1;
+        _fixup_parent_links fs.node_cache (LRUKey.ByAllocId alloc2) entry2;
         Lwt.return ()
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
@@ -991,6 +1003,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         entry1.childlinks.childlinks_offset <- !clo_out1;
         entry.children <- Lazy.from_val !children;
         entry1.children <- Lazy.from_val !children1;
+        _fixup_parent_links fs.node_cache (LRUKey.ByAllocId alloc1) entry1;
         (* Hook new node into parent *)
         match lru_peek fs.node_cache.lru parent_key with
         |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (parent)" @@ alloc_id_of_key lru_key
