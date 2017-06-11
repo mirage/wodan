@@ -144,9 +144,8 @@ module KeyedMap = Map_pr869.Make(String)
 module KeyedSet = Set.Make(String)
 
 module LRUKey = struct
-  type t = ByAllocId of int64 | Sentinel
+  type t = ByAllocId of int64
   let compare = compare
-  let witness = Sentinel
   let hash = Hashtbl.hash
   let equal = (=)
 end
@@ -154,7 +153,6 @@ end
 let alloc_id_of_key key =
   match key with
   |LRUKey.ByAllocId id -> id
-  |LRUKey.Sentinel -> failwith "Expected ByAllocId, got Sentinel"
 
 type flush_info = {
   (* These LRU keys are of the form ByAllocId alloc_id *)
