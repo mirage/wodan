@@ -764,14 +764,15 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       median
 
   let rec _check_live_integrity fs lru_key depth =
+    let fail = ref false in
     match lru_peek fs.node_cache.lru lru_key with
     |None -> failwith "Missing LRU entry"
     |Some entry -> begin
         if _has_children entry && not (String.equal entry.highest_key @@ fst @@ KeyedMap.max_binding @@ Lazy.force entry.children) then begin
           string_dump @@ entry.highest_key;
           string_dump @@ fst @@ KeyedMap.max_binding @@ Lazy.force entry.children;
-          Logs.info (fun m -> m "_check_live_integrity %d" depth);
-          failwith "highest_key invariant broken"
+          Logs.info (fun m -> m "_check_live_integrity %d invariant broken: highest_key" depth);
+          fail := true;
         end;
         match entry.parent_key with
         |None -> ()
@@ -782,18 +783,19 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
               let children = Lazy.force parent_entry.children in
               match KeyedMap.find_opt entry.highest_key children with
               |None ->
-                Logs.info (fun m -> m "_check_live_integrity %d" depth);
-                failwith "lookup_parent_link invariant broken"
+                Logs.info (fun m -> m "_check_live_integrity %d invariant broken: lookup_parent_link" depth);
+                fail := true;
               |Some cl ->
                 let alloc_id = alloc_id_of_key lru_key in
                 assert (cl.alloc_id = Some alloc_id);
-          end
+          end;
       end;
       KeyedMap.iter (fun _k v -> match v.alloc_id with
           |None -> ()
           |Some alloc_id -> _check_live_integrity fs
             (LRUKey.ByAllocId alloc_id) @@ depth + 1
-        ) @@ Lazy.force entry.children
+        ) @@ Lazy.force entry.children;
+      if !fail then assert(false)
 
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs lru_key size split_path depth =
