@@ -53,7 +53,7 @@ let sizeof_crc = 4
   (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
   generation: uint64_t;
 }[@@little_endian]]
-(* Contents: child node links, and logged data *)
+(* Contents: logged data, and child node links *)
 (* All node types end with a CRC *)
 (* rootnode_hdr
  * logged data: (key, datalen, data)*, grow from the left end towards the right
@@ -70,7 +70,7 @@ let sizeof_crc = 4
   nodetype: uint8_t;
   generation: uint64_t;
 }[@@little_endian]]
-(* Contents: child node links, and logged data *)
+(* Contents: logged data, and child node links *)
 (* Layout: see above *)
 
 let sizeof_datalen = 2
