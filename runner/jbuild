@@ -1,0 +1,7 @@
+(jbuild_version 1)
+
+(executable
+  ((name main)
+  (libraries (wodan mirage-types mirage-logs functoria-runtime mirage-runtime mirage-unix mirage-block-unix mirage-console-unix nocrypto.lwt))
+  (preprocess (pps (lwt.ppx ppx_cstruct)))
+  ))
