@@ -1093,11 +1093,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     (* prevents cycles *)
     if gen >= parent_gen then failwith "generation is not lower than for parent";
     let rec scan_key off =
-      if off < hdrsize + redzone_size - sizeof_logical then failwith "keydata bleeding into start of node";
+      if off < hdrsize + redzone_size - sizeof_logical then failwith "child link data bleeding into start of node";
       let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
       begin if log1 <> 0L then
         _scan_all_nodes open_fs log1 (depth + 1) gen >> scan_key (off - childlink_size)
-      else if redzone_size > sizeof_logical && not @@ String.equal zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
+      else if redzone_size > sizeof_logical && not @@ is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
         Lwt.fail @@ Failure "partial redzone"
       else Lwt.return () end in
       scan_key (block_end - childlink_size)
