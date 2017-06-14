@@ -46,5 +46,5 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         Stor.flush !root >|= ignore
       end done
     )
-      [%lwt.finally Lwt.return @@ Stor.log_statistics root]
+      (*[%lwt.finally Lwt.return @@ Stor.log_statistics root]*)
 end
