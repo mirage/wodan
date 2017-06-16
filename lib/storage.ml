@@ -313,7 +313,7 @@ let rec _mark_dirty cache lru_key : flush_info =
                 |Some _parent_entry ->
                     let parent_di = _mark_dirty cache parent_key in
                     begin
-                      match List.filter (fun lk -> lk == lru_key) parent_di.flush_children with
+                      match List.filter (fun lk -> lk = lru_key) parent_di.flush_children with
                       |[] -> begin parent_di.flush_children <- lru_key::parent_di.flush_children end
                       |_ -> failwith "dirty_node inconsistent" end
               end
@@ -854,11 +854,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let cl = KeyedMap.find best_spill_key children in
         let%lwt child_lru_key, _ce = _ensure_childlink fs lru_key entry best_spill_key cl in begin
         let clo = entry.childlinks.childlinks_offset in
+        let nko = entry.keydata.next_keydata_offset in
         Logs.info (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);
         _reserve_insert fs child_lru_key best_spill_score false @@ depth + 1 >> begin
         Logs.info (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
-        if clo == entry.childlinks.childlinks_offset then begin
-        (* _reserve_insert didn't split the child *)
+        if clo = entry.childlinks.childlinks_offset && nko = entry.keydata.next_keydata_offset then begin
+        (* _reserve_insert didn't split the child or the root *)
         let before_bsk = KeyedMap.find_last_opt (fun k1 -> String.compare k1 best_spill_key < 0) children in
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
