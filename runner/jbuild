@@ -2,6 +2,6 @@
 
 (executable
   ((name main)
-  (libraries (wodan mirage-types mirage-logs functoria-runtime mirage-runtime mirage-unix mirage-block-unix mirage-console-unix nocrypto.lwt))
+  (libraries (wodan mirage-types mirage-logs functoria-runtime mirage-runtime mirage-unix mirage-block-unix mirage-block-ramdisk mirage-console-unix nocrypto.lwt))
   (preprocess (pps (lwt.ppx ppx_cstruct)))
   ))
