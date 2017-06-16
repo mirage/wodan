@@ -21,7 +21,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     root := rootval;
     let%lwt cval2 = Stor.lookup !root key in
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval2));
-    assert (gen1 = gen2);
+    if gen1 <> gen2 then begin Logs.err (fun m -> m "Generation fail %Ld %Ld" gen1 gen2); assert false; end;
     while%lwt true do
       let key = Stor.key_of_cstruct @@ Nocrypto.Rng.generate 20 and
         cval = Stor.value_of_cstruct @@ Nocrypto.Rng.generate 40 in
