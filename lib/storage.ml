@@ -984,7 +984,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
          * OutOfSpace / NeedsFlush are discriminated *)
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
-        let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median in
+        let alloc1, entry1 = _new_node fs 2 (Some parent_key) median in
         let alloc_id1 = alloc1 in
         let kdo_out = ref @@ header_size entry.cached_node in
         let kdos = List.fold_right (fun kdo kdos ->
