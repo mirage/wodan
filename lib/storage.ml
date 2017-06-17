@@ -152,15 +152,14 @@ module LRUKey = struct
 end
 
 type flush_info = {
-  (* These LRU keys are of the form alloc_id *)
-  mutable flush_children: LRUKey.t list;
+  mutable flush_children: LRUKey.t KeyedMap.t;
 }
 
 type lru_entry = {
   cached_node: node;
   mutable parent_key: LRUKey.t option;
   (* A node is flushable iff it's referenced from flush_root
-     through a flush_children list.
+     through a flush_children map.
      We use an option here to make checking for flushability faster.
      A flushable node is either new or dirty, but not both. *)
   mutable flush_info: flush_info option;
@@ -309,13 +308,13 @@ let rec _mark_dirty cache alloc_id : flush_info =
                 |Some _parent_entry ->
                     let parent_di = _mark_dirty cache parent_key in
                     begin
-                      match List.filter (fun lk -> lk = alloc_id) parent_di.flush_children with
-                      |[] -> begin parent_di.flush_children <- alloc_id::parent_di.flush_children end
+                      match KeyedMap.filter (fun _k lk -> lk = alloc_id) parent_di.flush_children with
+                      |m when m = KeyedMap.empty -> begin parent_di.flush_children <- KeyedMap.add entry.highest_key alloc_id parent_di.flush_children end
                       |_ -> failwith "dirty_node inconsistent" end
               end
             |None -> failwith "entry.parent_key inconsistent (no parent)";
         end;
-        let di = { flush_children=[]; } in
+        let di = { flush_children=KeyedMap.empty; } in
         entry.flush_info <- Some di;
         begin
         match entry.prev_logical with
@@ -610,21 +609,23 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     let open_fs = root.open_fs in
     Logs.info (fun m -> m "flushing %d dirty roots" (match open_fs.node_cache.flush_root with None -> 0 |Some _ -> 1));
     _log_statistics open_fs.node_cache;
-    let rec flush_rec (completion_list : unit Lwt.t list) alloc_id = begin
+    let rec flush_rec _key alloc_id (completion_list : unit Lwt.t list) = begin
       match lru_get open_fs.node_cache.lru alloc_id with
       |None -> failwith "missing alloc_id"
       |Some entry ->
+          Logs.info (fun m -> m "collecting %Ld" alloc_id);
         match entry.flush_info with
-        |None -> failwith "Inconsistent flush_info"
+        (* Can happen with a diamond pattern *)
+        |None -> failwith "Flushed but missing flush_info"
         |Some di ->
-      let completion_list = List.fold_left flush_rec completion_list di.flush_children in
+      let completion_list = KeyedMap.fold flush_rec di.flush_children completion_list in
       entry.flush_info <- None;
       (_write_node open_fs alloc_id) :: completion_list
     end in
     let r = Lwt.join (match open_fs.node_cache.flush_root with
         |None -> []
         |Some alloc_id ->
-          flush_rec [] alloc_id
+            flush_rec zero_key alloc_id []
       ) in
     open_fs.node_cache.flush_root <- None;
     r >> Lwt.return @@ Int64.pred open_fs.node_cache.next_generation
@@ -731,7 +732,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
               entry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr off P.key_size) off (Lazy.force entry.logindex)
           end;
           ignore @@ _mark_dirty fs.node_cache alloc_id;
-        |InsChild (loc, alloc_id) ->
+        |InsChild (loc, child_alloc_id) ->
           let cstr = entry.raw_node in
           let cls = entry.childlinks in
           let offset = cls.childlinks_offset - childlink_size in
@@ -739,8 +740,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           cls.childlinks_offset <- offset;
           Cstruct.blit (Cstruct.of_string key) 0 cstr offset P.key_size;
           Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
-          let cl = { offset; alloc_id; } in
+          let cl = { offset; alloc_id=child_alloc_id; } in
           entry.children <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size) cl children;
+          ignore @@ _mark_dirty fs.node_cache alloc_id;
       end
     end
 
@@ -793,8 +795,23 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             |Some parent_entry ->
                 match parent_entry.flush_info with
                 |None -> failwith "Missing parent_entry.flush_info"
-                |Some di -> if not @@ List.exists (fun el -> el = alloc_id) di.flush_children then
-                  failwith "Dirty but not registered in parent_entry.flush_info"
+                |Some di -> if not @@ KeyedMap.exists (fun _k el -> el = alloc_id) di.flush_children then begin
+                  Logs.info (fun m -> m "Dirty but not registered in parent_entry.flush_info %d" depth);
+                  fail := true;
+                end
+      end else begin
+        match entry.parent_key with
+        |None -> ()
+        |Some parent_key ->
+            match lru_peek fs.node_cache.lru parent_key with
+            |None -> failwith "Missing parent"
+            |Some parent_entry ->
+                match parent_entry.flush_info with
+                |None -> ()
+                |Some di -> if KeyedMap.exists (fun _k el -> el = alloc_id) di.flush_children then begin
+                  Logs.info (fun m -> m "Not dirty but registered in parent_entry.flush_info %d" depth);
+                  fail := true;
+                end
       end;
       KeyedMap.iter (fun _k v -> match v.alloc_id with
           |None -> ()
@@ -908,12 +925,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
          * OutOfSpace / NeedsFlush are discriminated *)
-        ignore @@ _mark_dirty fs.node_cache alloc_id;
+        let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median in
         let alloc2, entry2 = _new_node fs 2 (Some alloc_id) entry.highest_key in
         let logi1, logi2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) logindex in
         let cl1, cl2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) children in
+        let fc1, fc2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) di.flush_children in
         let blit_kd_child off centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
@@ -938,9 +956,15 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         KeyedMap.iter (fun _k off -> blit_kd_child off entry2) logi2;
         KeyedMap.iter (fun _k ce -> blit_cd_child ce entry1) cl1;
         KeyedMap.iter (fun _k ce -> blit_cd_child ce entry2) cl2;
+        let fc = KeyedMap.empty in
+        let fc = KeyedMap.add median alloc1 fc in
+        let fc = KeyedMap.add entry.highest_key alloc2 fc in
         _reset_contents entry;
         _add_child entry entry1 alloc1 fs.node_cache alloc_id;
         _add_child entry entry2 alloc2 fs.node_cache alloc_id;
+        entry1.flush_info <- Some { flush_children=fc1 };
+        entry2.flush_info <- Some { flush_children=fc2 };
+        entry.flush_info <- Some { flush_children=fc };
         _fixup_parent_links fs.node_cache alloc1 entry1;
         _fixup_parent_links fs.node_cache alloc2 entry2;
         Lwt.return ()
@@ -954,7 +978,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let _children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
          * OutOfSpace / NeedsFlush are discriminated *)
-        ignore @@ _mark_dirty fs.node_cache alloc_id;
+        let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median in
         let alloc_id1 = alloc1 in
@@ -988,23 +1012,27 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let clo = ref @@ block_end - childlink_size in
         let children = ref @@ Lazy.force entry.children in
         let children1 = ref @@ KeyedMap.empty in
+        let fc1 = ref @@ KeyedMap.empty in
         while !clo >= entry.childlinks.childlinks_offset do
         (* Move children data *)
           let key1 = Cstruct.to_string @@ Cstruct.sub entry.raw_node !clo P.key_size in
           if String.compare key1 median <= 0 then begin
             clo_out1 := !clo_out1 - childlink_size;
             Cstruct.blit entry.raw_node !clo entry1.raw_node !clo_out1 childlink_size;
-            let key2 = Cstruct.to_string @@ Cstruct.sub entry1.raw_node !clo_out1 P.key_size in
             let cl = KeyedMap.find key1 !children in
             children := KeyedMap.remove key1 !children;
-            children1 := KeyedMap.add key2 {cl with offset = !clo_out1} !children1
+            children1 := KeyedMap.add key1 {cl with offset = !clo_out1} !children1;
+            if KeyedMap.mem key1 di.flush_children then begin
+              let child_alloc_id = KeyedMap.find key1 di.flush_children in
+              di.flush_children <- KeyedMap.remove key1 di.flush_children;
+              fc1 := KeyedMap.add key1 child_alloc_id !fc1;
+            end
           end else begin
             clo_out := !clo_out - childlink_size;
             Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out childlink_size;
-            let key2 = Cstruct.to_string @@ Cstruct.sub entry.raw_node !clo_out P.key_size in
+            let key1 = Cstruct.to_string @@ Cstruct.sub entry.raw_node !clo_out P.key_size in
             let cl = KeyedMap.find key1 !children in
-            (*children := KeyedMap.remove key1 !children;*)
-            children := KeyedMap.add key2 {cl with offset = !clo_out} !children
+            children := KeyedMap.add key1 {cl with offset = !clo_out} !children
           end
         done;
         entry.childlinks.childlinks_offset <- !clo_out;
@@ -1015,8 +1043,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         (* Hook new node into parent *)
         match lru_peek fs.node_cache.lru parent_key with
         |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (parent)" alloc_id
-        |Some parent ->
-            _add_child parent entry1 alloc1 fs.node_cache parent_key;
+        |Some parent -> begin
+          _add_child parent entry1 alloc1 fs.node_cache parent_key;
+          entry1.flush_info <- Some { flush_children = !fc1 };
+          match parent.flush_info with
+          |None -> failwith "Missing flush_info for parent"
+          |Some di ->
+              di.flush_children <- KeyedMap.add median alloc1 di.flush_children;
+          end;
         _reserve_insert fs alloc_id size split_path depth;
       end
     end
