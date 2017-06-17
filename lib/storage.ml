@@ -784,6 +784,18 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
                 assert (cl.alloc_id = Some alloc_id);
           end;
       end;
+      if entry.flush_info <> None then begin
+        match entry.parent_key with
+        |None -> ()
+        |Some parent_key ->
+            match lru_peek fs.node_cache.lru parent_key with
+            |None -> failwith "Missing parent"
+            |Some parent_entry ->
+                match parent_entry.flush_info with
+                |None -> failwith "Missing parent_entry.flush_info"
+                |Some di -> if not @@ List.exists (fun el -> el = alloc_id) di.flush_children then
+                  failwith "Dirty but not registered in parent_entry.flush_info"
+      end;
       KeyedMap.iter (fun _k v -> match v.alloc_id with
           |None -> ()
           |Some alloc_id -> _check_live_integrity fs
