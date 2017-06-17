@@ -609,34 +609,34 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     let open_fs = root.open_fs in
     Logs.info (fun m -> m "flushing %d dirty roots" (match open_fs.node_cache.flush_root with None -> 0 |Some _ -> 1));
     _log_statistics open_fs.node_cache;
-    let rec flush_rec _key alloc_id (completion_list : unit Lwt.t list) = begin
+    let rec flush_rec parent_key _key alloc_id (completion_list : unit Lwt.t list) = begin
       match lru_get open_fs.node_cache.lru alloc_id with
       |None -> failwith "missing alloc_id"
       |Some entry ->
-          Logs.info (fun m -> m "collecting %Ld" alloc_id);
+          Logs.info (fun m -> m "collecting %Ld parent %Ld" alloc_id parent_key);
         match entry.flush_info with
         (* Can happen with a diamond pattern *)
         |None -> failwith "Flushed but missing flush_info"
         |Some di ->
-      let completion_list = KeyedMap.fold flush_rec di.flush_children completion_list in
+      let completion_list = KeyedMap.fold (flush_rec alloc_id) di.flush_children completion_list in
       entry.flush_info <- None;
       (_write_node open_fs alloc_id) :: completion_list
     end in
     let r = Lwt.join (match open_fs.node_cache.flush_root with
         |None -> []
         |Some alloc_id ->
-            flush_rec zero_key alloc_id []
+            flush_rec 0L zero_key alloc_id []
       ) in
     open_fs.node_cache.flush_root <- None;
     r >> Lwt.return @@ Int64.pred open_fs.node_cache.next_generation
 
   let _new_node open_fs tycode parent_key highest_key =
-    Logs.info (fun m -> m "_new_node type:%d" tycode);
     let cache = open_fs.node_cache in
+    let alloc_id = next_alloc_id cache in
+    Logs.info (fun m -> m "_new_node type:%d alloc_id:%Ld" tycode alloc_id);
     let cstr = _get_block_io () in
     assert (Cstruct.len cstr = P.block_size);
     set_anynode_hdr_nodetype cstr tycode;
-    let alloc_id = next_alloc_id cache in
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
     let cached_node = match tycode with
     |1 -> `Root
@@ -707,8 +707,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |InsChild (_loc, _alloc_id) ->
         P.key_size + sizeof_logical
 
-  let _fast_insert fs alloc_id key insertable depth =
-    Logs.info (fun m -> m "_fast_insert %d" depth);
+  let _fast_insert fs alloc_id key insertable _depth =
+    (*Logs.info (fun m -> m "_fast_insert %d" _depth);*)
     match lru_get fs.node_cache.lru alloc_id with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (_fast_insert)" alloc_id
     |Some entry ->
@@ -795,8 +795,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             |Some parent_entry ->
                 match parent_entry.flush_info with
                 |None -> failwith "Missing parent_entry.flush_info"
-                |Some di -> if not @@ KeyedMap.exists (fun _k el -> el = alloc_id) di.flush_children then begin
+                |Some di -> let n = KeyedMap.fold (fun _k el acc -> if el = alloc_id then acc + 1 else acc) di.flush_children 0 in
+                if n = 0 then begin
                   Logs.info (fun m -> m "Dirty but not registered in parent_entry.flush_info %d" depth);
+                  fail := true;
+                end else if n > 1 then begin
+                  Logs.info (fun m -> m "Dirty, registered %d times in parent_entry.flush_info %d" n depth);
                   fail := true;
                 end
       end else begin
@@ -831,7 +835,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs alloc_id size split_path depth =
-    Logs.info (fun m -> m "_reserve_insert %d" depth);
+    (*Logs.info (fun m -> m "_reserve_insert %d" depth);*)
     _check_live_integrity fs alloc_id depth;
     match lru_get fs.node_cache.lru alloc_id with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
@@ -920,7 +924,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       else match entry.parent_key with
       |None -> begin (* Node splitting (root) *)
         assert (depth = 0);
-        Logs.info (fun m -> m "node splitting %d" depth);
+        Logs.info (fun m -> m "node splitting %d %Ld" depth alloc_id);
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
@@ -971,7 +975,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
         assert (depth > 0);
-        Logs.info (fun m -> m "node splitting %d" depth);
+        Logs.info (fun m -> m "node splitting %d %Ld" depth alloc_id);
         (* Set split_path to prevent spill/split recursion; will split towards the root *)
         _reserve_insert fs parent_key childlink_size true @@ depth - 1 >>
         let _logindex = Lazy.force entry.logindex in

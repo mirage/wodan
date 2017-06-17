@@ -25,14 +25,14 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     while%lwt true do
       let key = Stor.key_of_cstruct @@ Nocrypto.Rng.generate 20 and
         cval = Stor.value_of_cstruct @@ Nocrypto.Rng.generate 40 in
-      begin try%lwt
+      (*begin try%lwt*)
         Stor.insert !root key cval
-      with Storage.NeedsFlush -> begin
+      (*with Storage.NeedsFlush -> begin
         Logs.info (fun m -> m "Emergency flushing");
         Stor.flush !root >>= function _gen ->
         Stor.insert !root key cval
       end
-      end
+      end*)
       >>
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
         Stor.flush !root >>= function gen3 ->
@@ -41,7 +41,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         assert (gen3 = gen4);
         Lwt.return ()
       end
-      else if%lwt Lwt.return (Nocrypto.Rng.Int.gen 8192 = 0) then begin (* Infrequent flushing *)
+      else if%lwt Lwt.return (false && Nocrypto.Rng.Int.gen 8192 = 0) then begin (* Infrequent flushing *)
         Stor.log_statistics !root;
         Stor.flush !root >|= ignore
       end done
