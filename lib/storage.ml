@@ -561,10 +561,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     match lru_get cache.lru alloc_id with
     |None -> failwith "missing lru entry in _write_node"
     |Some entry ->
-    set_anynode_hdr_generation entry.raw_node (next_generation open_fs.node_cache);
+    let gen = next_generation open_fs.node_cache in
+    set_anynode_hdr_generation entry.raw_node gen;
     Crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
-    Logs.info (fun m -> m "_write_node logical:%Ld" logical);
+    Logs.info (fun m -> m "_write_node logical:%Ld gen:%Ld" logical gen);
     begin match lookup_parent_link cache.lru entry with
     |Some (parent_key, parent_entry, cl) ->
       assert (parent_key <> alloc_id);
