@@ -205,7 +205,7 @@ let lookup_parent_link lru entry =
     |Some parent_entry ->
     let children = Lazy.force parent_entry.children in
     let cl = KeyedMap.find entry.highest_key children in
-    Some (parent_entry, cl)
+    Some (parent_key, parent_entry, cl)
 
 let lru_xset lru key value =
   if LRU.mem key lru then raise @@ AlreadyCached key;
@@ -218,7 +218,7 @@ let lru_xset lru key value =
     |Some (_lru_key, entry) ->
       begin match lookup_parent_link lru entry with
       |None -> failwith "Would discard a root key, LRU too small for tree depth"
-      |Some (_parent_entry, cl) ->
+      |Some (_parent_key, _parent_entry, cl) ->
         cl.alloc_id <- None
       end
     |_ -> failwith "LRU capacity is too small"
@@ -571,7 +571,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     let logical = next_logical_alloc_valid cache in
     Logs.info (fun m -> m "_write_node logical:%Ld" logical);
     begin match lookup_parent_link cache.lru entry with
-    |Some (parent_entry, cl) ->
+    |Some (parent_key, parent_entry, cl) ->
+      assert (parent_key <> key);
       Cstruct.LE.set_uint64 parent_entry.raw_node (cl.offset + P.key_size) logical;
     |None -> () end;
     begin match entry.prev_logical with
