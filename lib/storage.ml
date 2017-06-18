@@ -293,7 +293,7 @@ type insert_space =
   |InsSpaceChild of int
 
 let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
-  (*Logs.info (fun m -> m "_reserve_dirty_rec %Ld" alloc_id);*)
+  (*Logs.debug (fun m -> m "_reserve_dirty_rec %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   |None -> failwith "Missing LRU key"
   |Some entry -> begin
@@ -321,7 +321,7 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
   end
 
 let _reserve_dirty cache alloc_id new_count =
-  (*Logs.info (fun m -> m "_reserve_dirty %Ld" alloc_id);*)
+  (*Logs.debug (fun m -> m "_reserve_dirty %Ld" alloc_id);*)
   let new_count = ref new_count in
   let dirty_count = ref 0L in
   _reserve_dirty_rec cache alloc_id new_count dirty_count;
@@ -333,7 +333,7 @@ let _reserve_dirty cache alloc_id new_count =
   end
 
 let rec _mark_dirty cache alloc_id : flush_info =
-  (*Logs.info (fun m -> m "_mark_dirty %Ld" alloc_id);*)
+  (*Logs.debug (fun m -> m "_mark_dirty %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   |None -> failwith "Missing LRU key"
   |Some entry -> begin
@@ -502,7 +502,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   }
 
   let _load_data_at filesystem logical =
-    Logs.info (fun m -> m "_load_data_at %Ld" logical);
+    Logs.debug (fun m -> m "_load_data_at %Ld" logical);
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list filesystem.sector_size cstr in
     B.read filesystem.disk Int64.(div (mul logical @@ of_int P.block_size) @@ of_int filesystem.other_sector_size) io_data >>= Lwt.wrap1 begin function
@@ -520,7 +520,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   (* build a keydata_index *)
   let _index_keydata cstr hdrsize =
-    Logs.info (fun m -> m "_index_keydata");
+    Logs.debug (fun m -> m "_index_keydata");
     let r = {
       keydata_offsets=[];
       next_keydata_offset=hdrsize;
@@ -538,7 +538,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     else start::(_gen_childlink_offsets @@ start + childlink_size)
 
   let _compute_children entry =
-    Logs.info (fun m -> m "_compute_children");
+    Logs.debug (fun m -> m "_compute_children");
     List.fold_left (
       fun acc off ->
         let key = Cstruct.to_string @@ Cstruct.sub (
@@ -548,7 +548,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   (* Needs an up to date _index_keydata *)
   let _compute_keydata entry =
-    (*Logs.info (fun m -> m "_compute_keydata");*)
+    (*Logs.debug (fun m -> m "_compute_keydata");*)
     let kd = entry.keydata in
     List.fold_left (
       fun acc off ->
@@ -558,7 +558,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       KeyedMap.empty kd.keydata_offsets
 
   let _load_root_node_at open_fs logical =
-    Logs.info (fun m -> m "_load_root_node_at");
+    Logs.debug (fun m -> m "_load_root_node_at");
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     assert (Cstruct.len cstr = P.block_size);
@@ -573,7 +573,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       Lwt.return (alloc_id, entry)
 
   let _load_child_node_at open_fs logical highest_key parent_key =
-    Logs.info (fun m -> m "_load_child_node_at");
+    Logs.debug (fun m -> m "_load_child_node_at");
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     assert (Cstruct.len cstr = P.block_size);
@@ -617,7 +617,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     set_anynode_hdr_generation entry.raw_node gen;
     Crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
-    Logs.info (fun m -> m "_write_node logical:%Ld gen:%Ld" logical gen);
+    Logs.debug (fun m -> m "_write_node logical:%Ld gen:%Ld" logical gen);
     begin match lookup_parent_link cache.lru entry with
     |Some (parent_key, parent_entry, cl) ->
       assert (parent_key <> alloc_id);
@@ -661,14 +661,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let flush root =
     let open_fs = root.open_fs in
     let cache = open_fs.node_cache in
-    Logs.info (fun m -> m "flushing %d dirty roots" (match cache.flush_root with None -> 0 |Some _ -> 1));
+    Logs.info (fun m -> m "Flushing %d dirty roots" (match cache.flush_root with None -> 0 |Some _ -> 1));
     _log_statistics cache;
     if Int64.(compare cache.free_count @@ add cache.new_count cache.dirty_count) < 0 then failwith "Out of space";
     let rec flush_rec parent_key _key alloc_id (completion_list : unit Lwt.t list) = begin
       match lru_get cache.lru alloc_id with
       |None -> failwith "missing alloc_id"
       |Some entry ->
-          Logs.info (fun m -> m "collecting %Ld parent %Ld" alloc_id parent_key);
+          Logs.debug (fun m -> m "collecting %Ld parent %Ld" alloc_id parent_key);
         match entry.flush_info with
         (* Can happen with a diamond pattern *)
         |None -> failwith "Flushed but missing flush_info"
@@ -688,7 +688,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let _new_node open_fs tycode parent_key highest_key =
     let cache = open_fs.node_cache in
     let alloc_id = next_alloc_id cache in
-    Logs.info (fun m -> m "_new_node type:%d alloc_id:%Ld" tycode alloc_id);
+    Logs.debug (fun m -> m "_new_node type:%d alloc_id:%Ld" tycode alloc_id);
     let cstr = _get_block_io () in
     assert (Cstruct.len cstr = P.block_size);
     set_anynode_hdr_nodetype cstr tycode;
@@ -716,7 +716,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     Cstruct.blit zero_data 0 entry.raw_node hdrsize (block_end - hdrsize)
 
   let _add_child parent child alloc_id cache parent_key =
-    Logs.info (fun m -> m "_add_child");
+    Logs.debug (fun m -> m "_add_child");
     let child_key = alloc_id in
     let off = parent.childlinks.childlinks_offset - childlink_size in
     let children = Lazy.force parent.children in (* Force *before* blitting *)
@@ -734,7 +734,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     Cstruct.LE.get_uint64 cstr (cl.offset + P.key_size)
 
   let _ensure_childlink open_fs entry_key entry cl_key cl =
-    (*Logs.info (fun m -> m "_ensure_childlink");*)
+    (*Logs.debug (fun m -> m "_ensure_childlink");*)
     let cstr = entry.raw_node in
     let cache = open_fs.node_cache in
     match cl.alloc_id with
@@ -760,7 +760,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         InsSpaceChild (P.key_size + sizeof_logical)
 
   let _fast_insert fs alloc_id key insertable _depth =
-    (*Logs.info (fun m -> m "_fast_insert %d" _depth);*)
+    (*Logs.debug (fun m -> m "_fast_insert %d" _depth);*)
     match lru_get fs.node_cache.lru alloc_id with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (_fast_insert)" alloc_id
     |Some entry ->
@@ -898,7 +898,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs alloc_id space split_path depth =
-    (*Logs.info (fun m -> m "_reserve_insert %d" depth);*)
+    (*Logs.debug (fun m -> m "_reserve_insert %d" depth);*)
     _check_live_integrity fs alloc_id depth;
     match lru_get fs.node_cache.lru alloc_id with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
@@ -909,7 +909,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       end
       else if not split_path && _has_children entry && _has_logdata entry then begin
         (* log spilling *)
-        Logs.info (fun m -> m "log spilling %d" depth);
+        Logs.debug (fun m -> m "log spilling %d" depth);
         let children = Lazy.force entry.children in
         let find_victim () =
           let spill_score = ref 0 in
@@ -944,9 +944,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let%lwt child_alloc_id, _ce = _ensure_childlink fs alloc_id entry best_spill_key cl in begin
         let clo = entry.childlinks.childlinks_offset in
         let nko = entry.keydata.next_keydata_offset in
-        Logs.info (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);
+        Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);
         _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ depth + 1 >> begin
-        Logs.info (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
+        Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
         if clo = entry.childlinks.childlinks_offset && nko = entry.keydata.next_keydata_offset then begin
         (* _reserve_insert didn't split the child or the root *)
           _reserve_dirty fs.node_cache child_alloc_id 0L;
@@ -972,7 +972,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         ) entry.keydata.keydata_offsets [] in begin
         entry.keydata.keydata_offsets <- kdos;
         if not (!kdo_out < entry.keydata.next_keydata_offset) then begin
-          (match before_bsk with None -> Logs.info (fun m -> m "No before_bsk") |Some (bbsk, _) -> string_dump bbsk);
+          (match before_bsk with None -> Logs.debug (fun m -> m "No before_bsk") |Some (bbsk, _) -> string_dump bbsk);
           string_dump best_spill_key;
           failwith @@ Printf.sprintf "Key data didn't shrink %d %d %d" !kdo_out entry.keydata.next_keydata_offset @@ header_size entry.cached_node
         end;
@@ -990,7 +990,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       else match entry.parent_key with
       |None -> begin (* Node splitting (root) *)
         assert (depth = 0);
-        Logs.info (fun m -> m "node splitting %d %Ld" depth alloc_id);
+        Logs.debug (fun m -> m "node splitting %d %Ld" depth alloc_id);
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
         _reserve_dirty fs.node_cache alloc_id 2L;
@@ -1040,7 +1040,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
         assert (depth > 0);
-        Logs.info (fun m -> m "node splitting %d %Ld" depth alloc_id);
+        Logs.debug (fun m -> m "node splitting %d %Ld" depth alloc_id);
         (* Set split_path to prevent spill/split recursion; will split towards the root *)
         _reserve_insert fs parent_key (InsSpaceChild childlink_size) true @@ depth - 1 >>
         let _logindex = Lazy.force entry.logindex in
@@ -1124,7 +1124,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     end
 
   let insert root key value =
-    Logs.info (fun m -> m "insert");
+    Logs.debug (fun m -> m "insert");
     let _len = Cstruct.len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
@@ -1149,7 +1149,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
             Lwt.return @@ Cstruct.sub cstr (logoffset + P.key_size + 2) len
         |exception Not_found ->
-            Logs.info (fun m -> m "_lookup");
+            Logs.debug (fun m -> m "_lookup");
             let key1, cl = KeyedMap.find_first (
               fun k -> String.compare k key >= 0) @@ Lazy.force entry.children in
             let%lwt child_alloc_id, _ce = _ensure_childlink open_fs alloc_id entry key1 cl in
@@ -1186,7 +1186,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     _search_range root.open_fs root.root_key start_cond end_cond seen callback
 
   let rec _scan_all_nodes open_fs logical depth parent_gen =
-    Logs.info (fun m -> m "_scan_all_nodes %Ld %d" logical depth);
+    Logs.debug (fun m -> m "_scan_all_nodes %Ld %d" logical depth);
     (* TODO add more fsck style checks *)
     let cache = open_fs.node_cache in
     let sm = bitv_get64 cache.space_map logical in
@@ -1270,7 +1270,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     Some mid
 
   let _scan_for_root fs start0 lsize =
-    Logs.info (fun m -> m "_scan_for_root");
+    Logs.debug (fun m -> m "_scan_for_root");
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list fs.sector_size cstr in
 
@@ -1315,7 +1315,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let prepare_io mode disk cache_size =
     B.get_info disk >>= fun info ->
-      Logs.info (fun m -> m "prepare_io sector_size %d" info.sector_size);
+      Logs.debug (fun m -> m "prepare_io sector_size %d" info.sector_size);
       let sector_size = if false then info.sector_size else 512 in
       let block_size = P.block_size in
       let io_size = if block_size >= Io_page.page_size then Io_page.page_size else block_size in
