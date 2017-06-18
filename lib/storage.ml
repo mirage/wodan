@@ -135,7 +135,8 @@ let header_size = function
   |`Child -> sizeof_childnode_hdr
 
 let check_node_type = function
-  |1|2 -> ()
+  |1 -> `Root
+  |2 -> `Child
   |ty -> raise @@ BadNodeType ty
 
 let string_dump key =
@@ -261,7 +262,7 @@ let next_logical_novalid cache logical =
   if log1 = cache.logical_size then 1L else log1
 
 let next_logical_alloc_valid cache =
-  if cache.free_count = 0L then raise OutOfSpace;
+  if cache.free_count = 0L then failwith "Out of space"; (* Not the same as OutOfSpace *)
   let rec after log =
     if not @@ bitv_get64 cache.space_map log then log else
       after @@ next_logical_novalid cache log
@@ -288,6 +289,7 @@ type insertable =
   (*|InsTombstone*) (* use empty values for now *)
 
 let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
+  (*Logs.info (fun m -> m "_reserve_dirty_rec %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   |None -> failwith "Missing LRU key"
   |Some entry -> begin
@@ -315,19 +317,19 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
   end
 
 let _reserve_dirty cache alloc_id new_count =
-  (*Logs.info (fun m -> m "_reserve_dirty");*)
+  (*Logs.info (fun m -> m "_reserve_dirty %Ld" alloc_id);*)
   let new_count = ref new_count in
   let dirty_count = ref 0L in
   _reserve_dirty_rec cache alloc_id new_count dirty_count;
-  if Int64.(compare cache.free_count @@ add cache.dirty_count @@ add cache.new_count !new_count) < 0 then begin
-    if Int64.(compare cache.free_count @@ add cache.new_count !new_count) >= 0 then
+  if Int64.(compare cache.free_count @@ add cache.dirty_count @@ add !dirty_count @@ add cache.new_count !new_count) < 0 then begin
+    if Int64.(compare cache.free_count @@ add !dirty_count @@ add cache.new_count !new_count) >= 0 then
       raise NeedsFlush (* flush and retry, it will succeed *)
     else
       raise OutOfSpace (* flush if you like, but retrying will not succeed *)
   end
 
 let rec _mark_dirty cache alloc_id : flush_info =
-  (*Logs.info (fun m -> m "_mark_dirty");*)
+  (*Logs.info (fun m -> m "_mark_dirty %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   |None -> failwith "Missing LRU key"
   |Some entry -> begin
@@ -359,10 +361,10 @@ let rec _mark_dirty cache alloc_id : flush_info =
         match entry.prev_logical with
         |None ->
           cache.new_count <- Int64.succ cache.new_count;
-          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then raise OutOfSpace;
+          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then failwith "Out of space"; (* Not the same as OutOfSpace *)
         |Some _plog ->
           cache.dirty_count <- Int64.succ cache.dirty_count;
-          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then raise OutOfSpace;
+          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then failwith "Out of space";
         end;
         di
     end
@@ -609,7 +611,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     begin match entry.prev_logical with
     |Some plog ->
         begin
-          (* Sometimes wraps in the NeedsFlush path *)
           cache.dirty_count <- int64_pred_nowrap cache.dirty_count;
           bitv_set64 cache.space_map plog false;
         end
@@ -644,10 +645,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let flush root =
     let open_fs = root.open_fs in
-    Logs.info (fun m -> m "flushing %d dirty roots" (match open_fs.node_cache.flush_root with None -> 0 |Some _ -> 1));
-    _log_statistics open_fs.node_cache;
+    let cache = open_fs.node_cache in
+    Logs.info (fun m -> m "flushing %d dirty roots" (match cache.flush_root with None -> 0 |Some _ -> 1));
+    _log_statistics cache;
+    if Int64.(compare cache.free_count @@ add cache.new_count cache.dirty_count) < 0 then failwith "Out of space";
     let rec flush_rec parent_key _key alloc_id (completion_list : unit Lwt.t list) = begin
-      match lru_get open_fs.node_cache.lru alloc_id with
+      match lru_get cache.lru alloc_id with
       |None -> failwith "missing alloc_id"
       |Some entry ->
           Logs.info (fun m -> m "collecting %Ld parent %Ld" alloc_id parent_key);
@@ -659,13 +662,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       entry.flush_info <- None;
       (_write_node open_fs alloc_id) :: completion_list
     end in
-    let r = Lwt.join (match open_fs.node_cache.flush_root with
+    let r = Lwt.join (match cache.flush_root with
         |None -> []
         |Some alloc_id ->
             flush_rec 0L zero_key alloc_id []
       ) in
-    open_fs.node_cache.flush_root <- None;
-    r >> Lwt.return @@ Int64.pred open_fs.node_cache.next_generation
+    cache.flush_root <- None;
+    r >> Lwt.return @@ Int64.pred cache.next_generation
 
   let _new_node open_fs tycode parent_key highest_key =
     let cache = open_fs.node_cache in
@@ -706,7 +709,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     Cstruct.blit (Cstruct.of_string child.highest_key) 0 parent.raw_node off P.key_size;
     parent.childlinks.childlinks_offset <- off;
     parent.children <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size) {offset=off; alloc_id=Some alloc_id} children;
-    ignore @@ _mark_dirty cache parent_key;
+    (*ignore @@ _mark_dirty cache parent_key;*)
     ignore @@ _mark_dirty cache child_key
 
   let _has_children entry =
@@ -823,6 +826,17 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
                 assert (cl.alloc_id = Some alloc_id);
           end;
       end;
+      (*let hdrsize = header_size entry.cached_node in
+      let cstr = entry.raw_node in
+      let rec scan_key off =
+        if off < hdrsize + redzone_size - sizeof_logical then failwith "child link data bleeding into start of node";
+        let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
+        if log1 <> 0L then
+          scan_key (off - childlink_size)
+        else if redzone_size > sizeof_logical && not @@ is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
+          begin Logs.info (fun m -> m "partial redzone"); fail := true end
+        in
+      scan_key (block_end - childlink_size);*)
       if entry.flush_info <> None then begin
         match entry.parent_key with
         |None -> ()
@@ -859,7 +873,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           |Some alloc_id -> _check_live_integrity fs
             alloc_id @@ depth + 1
         ) @@ Lazy.force entry.children;
-      if !fail then assert(false)
+      if !fail then failwith "Integrity errors"
 
   let _fixup_parent_links cache alloc_id entry =
     KeyedMap.iter (fun _k v -> match v.alloc_id with
@@ -878,8 +892,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
     |Some entry ->
     let free = free_space entry in
-      if free >= size then
+      if free >= size then begin
+        _reserve_dirty fs.node_cache alloc_id 0L;
         Lwt.return ()
+      end
       else if not split_path && _has_children entry && _has_logdata entry then begin
         (* log spilling *)
         Logs.info (fun m -> m "log spilling %d" depth);
@@ -966,8 +982,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         Logs.info (fun m -> m "node splitting %d %Ld" depth alloc_id);
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
-        (* Mark parent dirty before marking children new, so that
-         * OutOfSpace / NeedsFlush are discriminated *)
         _reserve_dirty fs.node_cache alloc_id 2L;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
@@ -1020,8 +1034,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         _reserve_insert fs parent_key childlink_size true @@ depth - 1 >>
         let _logindex = Lazy.force entry.logindex in
         let _children = Lazy.force entry.children in
-        (* Mark parent dirty before marking children new, so that
-         * OutOfSpace / NeedsFlush are discriminated *)
         _reserve_dirty fs.node_cache alloc_id 1L;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
