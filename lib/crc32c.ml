@@ -80,13 +80,6 @@ let string_fold_left f acc str offset length =
   done;
   !acc_r
 
-let cstruct_fold_left f acc str =
-  let acc_r = ref acc in
-  for i = 0 to (Cstruct.len str) - 1 do
-    acc_r := f !acc_r @@ Cstruct.get_char str i
-  done;
-  !acc_r
-
 let update_crc acc c =
   let index = Int32.to_int ((acc ^^^ (Int32.of_int (int_of_char c))) &&& 0xffl) in
   (crc_table.(index) ^^^ (acc >>> 8)) &&& 0xffffffffl
@@ -98,8 +91,17 @@ let update_crc acc c =
 let string ?(crc=0l) str offset length =
   ~~~(string_fold_left update_crc ~~~crc str offset length)
 
-let cstruct ?(crc=0l) str =
-  ~~~(cstruct_fold_left update_crc ~~~crc str)
+external _crc32c: unit -> unit = "crc32c" "crc32c"
+
+open Ctypes
+let crc32c_adler =
+  let cfunc = Foreign.foreign "crc32c" (int32_t @-> ptr char @-> int @-> returning int32_t) in
+  fun crc cstr ->
+    let ba = Cstruct.to_bigarray cstr in
+    cfunc crc (bigarray_start array1 ba) (Cstruct.len cstr)
+
+let cstruct ?(crc=0l) cstr =
+  crc32c_adler crc cstr
 
 let cstruct_valid str =
   ~~~(cstruct str) = 0l
