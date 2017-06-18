@@ -288,6 +288,10 @@ type insertable =
   |InsChild of int64 * int64 option (* loc, alloc_id *)
   (*|InsTombstone*) (* use empty values for now *)
 
+type insert_space =
+  |InsSpaceValue of int
+  |InsSpaceChild of int
+
 let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
   (*Logs.info (fun m -> m "_reserve_dirty_rec %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
@@ -583,10 +587,21 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       lru_xset cache.lru alloc_id entry;
       Lwt.return entry
 
-  let free_space entry =
-    match entry.cached_node with
-    |`Root
-    |`Child -> entry.childlinks.childlinks_offset - entry.keydata.next_keydata_offset - redzone_size
+  let _has_children entry =
+    entry.childlinks.childlinks_offset <> block_end
+
+  let has_free_space entry space =
+    match space with
+    |InsSpaceChild size ->
+        let refsize = entry.childlinks.childlinks_offset - redzone_size - P.block_size / 2 in
+        refsize >= size
+    |InsSpaceValue size ->
+        let refsize = if _has_children entry then
+          P.block_size / 2 - entry.keydata.next_keydata_offset
+        else
+          P.block_size - sizeof_crc - redzone_size - entry.keydata.next_keydata_offset
+        in
+        refsize >= size
 
   type root = {
     open_fs: open_fs;
@@ -712,9 +727,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     (*ignore @@ _mark_dirty cache parent_key;*)
     ignore @@ _mark_dirty cache child_key
 
-  let _has_children entry =
-    entry.childlinks.childlinks_offset <> block_end
-
   let _has_logdata entry =
     entry.keydata.next_keydata_offset <> header_size entry.cached_node
 
@@ -743,9 +755,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |InsValue value ->
         let len = Cstruct.len value in
         let len1 = P.key_size + sizeof_datalen + len in
-        len1
+        InsSpaceValue len1
     |InsChild (_loc, _alloc_id) ->
-        P.key_size + sizeof_logical
+        InsSpaceChild (P.key_size + sizeof_logical)
 
   let _fast_insert fs alloc_id key insertable _depth =
     (*Logs.info (fun m -> m "_fast_insert %d" _depth);*)
@@ -753,8 +765,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (_fast_insert)" alloc_id
     |Some entry ->
     assert (String.compare key entry.highest_key <= 0);
-    let free = free_space entry in begin
-      assert (free >= _ins_req_space insertable);
+    begin
+      assert (has_free_space entry @@ _ins_req_space insertable);
       begin (* Simple insertion *)
         match insertable with
         |InsValue value ->
@@ -885,14 +897,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       ) @@ Lazy.force entry.children
 
   (* lwt because it might load from disk *)
-  let rec _reserve_insert fs alloc_id size split_path depth =
+  let rec _reserve_insert fs alloc_id space split_path depth =
     (*Logs.info (fun m -> m "_reserve_insert %d" depth);*)
     _check_live_integrity fs alloc_id depth;
     match lru_get fs.node_cache.lru alloc_id with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
     |Some entry ->
-    let free = free_space entry in
-      if free >= size then begin
+      if has_free_space entry space then begin
         _reserve_dirty fs.node_cache alloc_id 0L;
         Lwt.return ()
       end
@@ -934,7 +945,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let clo = entry.childlinks.childlinks_offset in
         let nko = entry.keydata.next_keydata_offset in
         Logs.info (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);
-        _reserve_insert fs child_alloc_id best_spill_score false @@ depth + 1 >> begin
+        _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ depth + 1 >> begin
         Logs.info (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
         if clo = entry.childlinks.childlinks_offset && nko = entry.keydata.next_keydata_offset then begin
         (* _reserve_insert didn't split the child or the root *)
@@ -972,7 +983,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         entry.logindex <- lazy (_compute_keydata entry);
         end
         end;
-        _reserve_insert fs alloc_id size split_path depth
+        _reserve_insert fs alloc_id space split_path depth
         end
         end
       end
@@ -1031,7 +1042,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         assert (depth > 0);
         Logs.info (fun m -> m "node splitting %d %Ld" depth alloc_id);
         (* Set split_path to prevent spill/split recursion; will split towards the root *)
-        _reserve_insert fs parent_key childlink_size true @@ depth - 1 >>
+        _reserve_insert fs parent_key (InsSpaceChild childlink_size) true @@ depth - 1 >>
         let _logindex = Lazy.force entry.logindex in
         let _children = Lazy.force entry.children in
         _reserve_dirty fs.node_cache alloc_id 1L;
@@ -1108,7 +1119,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           |Some di ->
               di.flush_children <- KeyedMap.add median alloc1 di.flush_children;
           end;
-        _reserve_insert fs alloc_id size split_path depth;
+        _reserve_insert fs alloc_id space split_path depth;
       end
     end
 
