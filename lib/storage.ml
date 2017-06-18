@@ -287,6 +287,44 @@ type insertable =
   |InsChild of int64 * int64 option (* loc, alloc_id *)
   (*|InsTombstone*) (* use empty values for now *)
 
+let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
+  match lru_get cache.lru alloc_id with
+  |None -> failwith "Missing LRU key"
+  |Some entry -> begin
+      match entry.flush_info with
+      |Some _di -> ()
+      |None -> begin
+          match entry.cached_node with
+          |`Root -> ()
+          |`Child ->
+            match entry.parent_key with
+            |Some parent_key -> begin
+                match lru_get cache.lru parent_key with
+                |None -> failwith "missing parent_entry"
+                |Some _parent_entry -> _reserve_dirty_rec cache parent_key new_count dirty_count
+              end
+            |None -> failwith "entry.parent_key inconsistent (no parent)";
+        end;
+        begin
+        match entry.prev_logical with
+        |None ->
+            new_count := Int64.succ !new_count
+        |Some _plog ->
+            dirty_count := Int64.succ !dirty_count
+        end;
+  end
+
+let _reserve_dirty cache alloc_id new_count =
+  (*Logs.info (fun m -> m "_reserve_dirty");*)
+  let new_count = ref new_count in
+  let dirty_count = ref 0L in
+  _reserve_dirty_rec cache alloc_id new_count dirty_count;
+  if Int64.(compare cache.free_count @@ add cache.dirty_count @@ add cache.new_count !new_count) < 0 then begin
+    if Int64.(compare cache.free_count @@ add cache.new_count !new_count) >= 0 then
+      raise NeedsFlush
+    else
+      raise OutOfSpace
+  end
 
 let rec _mark_dirty cache alloc_id : flush_info =
   (*Logs.info (fun m -> m "_mark_dirty");*)
@@ -294,6 +332,7 @@ let rec _mark_dirty cache alloc_id : flush_info =
   |None -> failwith "Missing LRU key"
   |Some entry -> begin
       match entry.flush_info with
+      |Some di -> di
       |None -> begin
           match entry.cached_node with
           |`Root ->
@@ -319,16 +358,13 @@ let rec _mark_dirty cache alloc_id : flush_info =
         begin
         match entry.prev_logical with
         |None ->
-          let nc1 = Int64.succ cache.new_count in
-          if Int64.(compare (add nc1 cache.dirty_count) cache.free_count) > 0 then raise OutOfSpace;
-          cache.new_count <- nc1;
+          cache.new_count <- Int64.succ cache.new_count;
+          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then raise OutOfSpace;
         |Some _plog ->
-          let dc1 = Int64.succ cache.dirty_count in
-          if Int64.(compare (add dc1 cache.new_count) cache.free_count) > 0 then raise NeedsFlush;
-          cache.dirty_count <- dc1;
+          cache.dirty_count <- Int64.succ cache.dirty_count;
+          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then raise OutOfSpace;
         end;
         di
-      |Some di -> di
     end
 
 exception RangeEnd
@@ -573,6 +609,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     begin match entry.prev_logical with
     |Some plog ->
         begin
+          (* Sometimes wraps in the NeedsFlush path *)
           cache.dirty_count <- int64_pred_nowrap cache.dirty_count;
           bitv_set64 cache.space_map plog false;
         end
@@ -885,10 +922,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         Logs.info (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
         if clo = entry.childlinks.childlinks_offset && nko = entry.keydata.next_keydata_offset then begin
         (* _reserve_insert didn't split the child or the root *)
+          _reserve_dirty fs.node_cache child_alloc_id 0L;
         let before_bsk = KeyedMap.find_last_opt (fun k1 -> String.compare k1 best_spill_key < 0) children in
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
         let kdo_out = ref @@ header_size entry.cached_node in
+        let _di = _mark_dirty fs.node_cache child_alloc_id in
         let kdos = List.fold_right (fun kdo kdos ->
           let key1 = Cstruct.to_string @@ Cstruct.sub entry.raw_node kdo P.key_size in
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
@@ -929,6 +968,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
          * OutOfSpace / NeedsFlush are discriminated *)
+        _reserve_dirty fs.node_cache alloc_id 2L;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median in
@@ -982,6 +1022,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let _children = Lazy.force entry.children in
         (* Mark parent dirty before marking children new, so that
          * OutOfSpace / NeedsFlush are discriminated *)
+        _reserve_dirty fs.node_cache alloc_id 1L;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some parent_key) median in
