@@ -27,10 +27,16 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         cval = Stor.value_of_cstruct @@ Nocrypto.Rng.generate 40 in
       begin try%lwt
         Stor.insert !root key cval
-      with Storage.NeedsFlush -> begin
+      with
+      |Storage.NeedsFlush -> begin
         Logs.info (fun m -> m "Emergency flushing");
         Stor.flush !root >>= function _gen ->
         Stor.insert !root key cval
+      end
+      |Storage.OutOfSpace as e -> begin
+        Logs.info (fun m -> m "Final flush");
+        Stor.flush !root >|= ignore >>
+        raise e
       end
       end
       >>

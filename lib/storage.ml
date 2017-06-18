@@ -321,9 +321,9 @@ let _reserve_dirty cache alloc_id new_count =
   _reserve_dirty_rec cache alloc_id new_count dirty_count;
   if Int64.(compare cache.free_count @@ add cache.dirty_count @@ add cache.new_count !new_count) < 0 then begin
     if Int64.(compare cache.free_count @@ add cache.new_count !new_count) >= 0 then
-      raise NeedsFlush
+      raise NeedsFlush (* flush and retry, it will succeed *)
     else
-      raise OutOfSpace
+      raise OutOfSpace (* flush if you like, but retrying will not succeed *)
   end
 
 let rec _mark_dirty cache alloc_id : flush_info =
