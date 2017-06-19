@@ -963,11 +963,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           if String.compare key1 best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, _cl1) -> String.compare bbsk key1 < 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
             _fast_insert fs child_alloc_id key1 (InsValue value1) @@ depth + 1;
+            entry.logindex <- Lazy.from_val @@ KeyedMap.remove key1 @@ Lazy.force entry.logindex;
             kdos
           end else begin
             let len1 = len + P.key_size + sizeof_datalen in
             Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
             let kdos = !kdo_out::kdos in
+            entry.logindex <- Lazy.from_val @@ KeyedMap.add key1 !kdo_out @@ Lazy.force entry.logindex;
             kdo_out := !kdo_out + len1;
             kdos
           end
@@ -981,8 +983,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         (* zero newly free space *)
         Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
         entry.keydata.next_keydata_offset <- !kdo_out;
-        (* Invalidate logcache since keydata_offsets changed *)
-        entry.logindex <- lazy (_compute_keydata entry);
         end
         end;
         _reserve_insert fs alloc_id space split_path depth
@@ -1076,7 +1076,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         Cstruct.blit zero_data 0 entry.raw_node !kdo_out (entry.keydata.next_keydata_offset - !kdo_out);
         entry.keydata.next_keydata_offset <- !kdo_out;
         (* Invalidate logcache since keydata_offsets changed *)
-        entry.logindex <- lazy (_compute_keydata entry);
+        entry.logindex <- lazy (_compute_keydata entry); (* Perf FIXME *)
         let clo_out = ref block_end in
         let clo_out1 = ref block_end in
         let clo = ref @@ block_end - childlink_size in
