@@ -32,8 +32,8 @@ opam pin add lwt https://github.com/ocsigen/lwt.git
 ### Building the library
 
 ```
-opam install ctypes ctypes-foreign
-jbuilder external-lib-deps --missing --dev @install runner/main.exe # Follow the opam instructions
+opam install jbuilder mirage ctypes-foreign
+jbuilder external-lib-deps --missing @install runner/main.exe # Follow the opam instructions
 (cd runner; mirage configure --target unix)
 make
 ```
