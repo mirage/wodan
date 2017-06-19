@@ -9,6 +9,12 @@ Currently the basic disk format is implemented.
 
 Wodan requires Opam, Mirage 3, and OCaml 4.04.
 
+An opam switch with flambda is recommended for performance reasons.
+
+```
+opam switch 4.04.1+fp+flambda
+```
+
 ### Pinned dependencies
 
 Currently Mirage needs to be pinned to the
@@ -26,28 +32,27 @@ opam pin add lwt https://github.com/ocsigen/lwt.git
 ### Building the library
 
 ```
+opam install ctypes ctypes-foreign
+jbuilder external-lib-deps --missing --dev @install runner/main.exe # Follow the opam instructions
+(cd runner; mirage configure --target unix)
 make
 ```
 
 ### Running tests
 
 ```
-cd runner
-opam install mirage
-mirage configure --target unix
-make depend
-mirage build
-./storage
+_build/default/runner/main.exe
 ```
 
 By default, tests will run using a ramdisk.
 To use a file:
 
 ```
-mirage configure --target unix --block=file
+(cd runner; mirage configure --target unix --block=file)
 make
-fallocate -l$[16*2**20] -z disk.img
-./storage
+touch runner/disk.img
+fallocate -l$[16*2**20] -z runner/disk.img
+_build/default/runner/main.exe
 ```
 
 The file must be cleared (using fallocate) before each run.
