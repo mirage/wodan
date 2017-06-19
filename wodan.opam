@@ -26,6 +26,8 @@ depends: [
   "nocrypto"
   "bitv"
   "mirage-types-lwt"
+  "ctypes"
+  "ctypes-foreign"
 ]
 
 available: [ocaml-version >= "4.03.0"]
