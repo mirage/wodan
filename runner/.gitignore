@@ -3,7 +3,7 @@
 /key_gen.ml
 /log
 /main.ml
-/mir-storage.virtio
+/storage.virtio
 /storage.xe
 /storage.xl
 /storage.xl.in
@@ -11,12 +11,11 @@
 *_tests.native
 /disk.img
 /main.native
-/mir-storage
+/storage
 /Makefile.ukvm
 /_build-ukvm/
-/mir-storage.ukvm
+/storage.ukvm
 /ukvm-bin
-/mirage-unikernel-storage-unix.opam
-/mirage-unikernel-storage-unix.install
-/storage
+/mirage-unikernel-storage-*.opam
+/mirage-unikernel-storage-*.install
 /.mirage.config
