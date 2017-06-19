@@ -887,6 +887,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         ) @@ Lazy.force entry.children;
       if !fail then failwith "Integrity errors"
 
+  let _check_live_integrity _fs _alloc_id _depth = ()
+
   let _fixup_parent_links cache alloc_id entry =
     KeyedMap.iter (fun _k v -> match v.alloc_id with
           None -> ()
