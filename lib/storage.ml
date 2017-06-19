@@ -165,7 +165,7 @@ type lru_entry = {
      A flushable node is either new or dirty, but not both. *)
   mutable flush_info: flush_info option;
   mutable children: childlink_entry KeyedMap.t Lazy.t;
-  mutable logindex: int KeyedMap.t Lazy.t;
+  mutable logindex: int ref KeyedMap.t Lazy.t;
   mutable highest_key: string;
   raw_node: Cstruct.t;
   io_data: Cstruct.t list;
@@ -554,7 +554,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       fun acc off ->
         let key = Cstruct.to_string @@ Cstruct.sub
           entry.raw_node off P.key_size in
-        KeyedMap.add key off acc)
+        KeyedMap.add key (ref off) acc)
       KeyedMap.empty kd.keydata_offsets
 
   let _load_root_node_at open_fs logical =
@@ -781,7 +781,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
             kd.keydata_offsets <- off::kd.keydata_offsets;
             if Lazy.is_val entry.logindex then
-              entry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr off P.key_size) off (Lazy.force entry.logindex)
+              entry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr off P.key_size) (ref off) (Lazy.force entry.logindex)
           end;
           ignore @@ _mark_dirty fs.node_cache alloc_id;
         |InsChild (loc, child_alloc_id) ->
@@ -931,7 +931,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
               |Some (sk, _cl) ->
                 scored_key := sk;
             end;
-            let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
+            let len = Cstruct.LE.get_uint16 entry.raw_node (!off + P.key_size) in
             let len1 = P.key_size + sizeof_datalen + len in
             spill_score := !spill_score + len1;
           end) @@ Lazy.force entry.logindex;
@@ -969,7 +969,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             let len1 = len + P.key_size + sizeof_datalen in
             Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
             let kdos = !kdo_out::kdos in
-            entry.logindex <- Lazy.from_val @@ KeyedMap.add key1 !kdo_out @@ Lazy.force entry.logindex;
+            KeyedMap.find key1 @@ Lazy.force entry.logindex := !kdo_out;
             kdo_out := !kdo_out + len1;
             kdos
           end
@@ -1008,13 +1008,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           let cstr1 = centry.raw_node in
           let ckd = centry.keydata in
           let off1 = ckd.next_keydata_offset in
-          let len = Cstruct.LE.get_uint16 cstr0 (off + P.key_size) in
+          let len = Cstruct.LE.get_uint16 cstr0 (!off + P.key_size) in
           let len1 = P.key_size + sizeof_datalen + len in
-          Cstruct.blit cstr0 off cstr1 off1 len1;
+          Cstruct.blit cstr0 !off cstr1 off1 len1;
           ckd.keydata_offsets <- off1::ckd.keydata_offsets;
           ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
           if Lazy.is_val centry.logindex then
-            centry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr1 off1 P.key_size) off1 (Lazy.force centry.logindex);
+            centry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr1 off1 P.key_size) (ref off1) (Lazy.force centry.logindex);
         in let blit_cd_child cle centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
@@ -1145,7 +1145,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |Some entry ->
     let cstr = entry.raw_node in
       match
-        KeyedMap.find key @@ Lazy.force entry.logindex
+        !(KeyedMap.find key @@ Lazy.force entry.logindex)
       with
         |logoffset ->
             let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
