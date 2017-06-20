@@ -1013,8 +1013,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           Cstruct.blit cstr0 !off cstr1 off1 len1;
           ckd.keydata_offsets <- off1::ckd.keydata_offsets;
           ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
-          if Lazy.is_val centry.logindex then
-            centry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr1 off1 P.key_size) (ref off1) (Lazy.force centry.logindex);
+          assert (Lazy.is_val centry.logindex);
+          centry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr1 off1 P.key_size) (ref off1) (Lazy.force centry.logindex);
         in let blit_cd_child cle centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
