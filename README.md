@@ -25,8 +25,8 @@ Additionally, Lwt needs to be pinned to the [master version](https://github.com/
 which contains <https://github.com/ocsigen/lwt/pull/374>.
 
 ```
-opam pin add mirage https://github.com/mirage/mirage.git
-opam pin add lwt https://github.com/ocsigen/lwt.git
+opam pin add --dev-repo mirage
+opam pin add --dev-repo lwt
 ```
 
 ### Building the library
