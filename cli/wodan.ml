@@ -24,6 +24,14 @@ let restore copts =
     >>= fun _nc ->
     Unikernel1.restore bl)
 
+let format copts =
+  Lwt_main.run (
+    Block.connect copts.disk
+    >>= fun bl ->
+    Nocrypto_entropy_lwt.initialize ()
+    >>= fun _nc ->
+    Unikernel1.format bl)
+
 let help _copts man_format cmds topic = match topic with
 | None -> `Help (`Pager, None) (* help about the program. *)
 | Some topic ->
@@ -77,6 +85,17 @@ let restore_cmd =
   Term.(const restore $ copts_t),
   Term.info "restore" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let format_cmd =
+  let doc = "Format a zeroed filesystem" in
+  let exits = Term.default_exits in
+  let man =
+    [`S Manpage.s_description;
+     `P "Format a filesystem that has been zeroed beforehand.";
+  ]
+  in
+  Term.(const format $ copts_t),
+  Term.info "format" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let help_cmd =
   let topic =
     let doc = "The topic to get help on. `topics' lists the topics." in
@@ -99,7 +118,7 @@ let default_cmd =
   Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "wodan" ~doc ~sdocs ~exits
 
-let cmds = [restore_cmd; dump_cmd; help_cmd]
+let cmds = [restore_cmd; dump_cmd; format_cmd; help_cmd]
 
 let () =
   Term.(exit @@ eval_choice default_cmd cmds)

@@ -427,9 +427,11 @@ module type S = sig
   type root
 
   val key_of_cstruct : Cstruct.t -> key
+  val key_of_string : string -> key
   val cstruct_of_key : key -> Cstruct.t
   val string_of_key : key -> string
   val value_of_cstruct : Cstruct.t -> value
+  val value_of_string : string -> value
   val cstruct_of_value : value -> Cstruct.t
   val string_of_value : value -> string
 
@@ -457,6 +459,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     then raise @@ BadKey key
     else Cstruct.to_string key
 
+  let key_of_string key = key
+
   let cstruct_of_key key =
     Cstruct.of_string key
 
@@ -465,6 +469,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let value_of_cstruct value =
     let len = Cstruct.len value in
     if len >= 65536 then raise @@ ValueTooLarge value else value
+
+  let value_of_string str =
+    value_of_cstruct @@ Cstruct.of_string str
 
   let cstruct_of_value value = value
 
