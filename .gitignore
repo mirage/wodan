@@ -2,3 +2,6 @@
 /wodan.install
 /lib/.merlin
 /runner/.merlin
+.merlin
+_build/
+disk.img
