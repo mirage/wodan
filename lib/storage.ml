@@ -428,8 +428,10 @@ module type S = sig
 
   val key_of_cstruct : Cstruct.t -> key
   val cstruct_of_key : key -> Cstruct.t
+  val string_of_key : key -> string
   val value_of_cstruct : Cstruct.t -> value
   val cstruct_of_value : value -> Cstruct.t
+  val string_of_value : value -> string
 
   val insert : root -> key -> value -> unit Lwt.t
   val lookup : root -> key -> value Lwt.t
@@ -438,7 +440,7 @@ module type S = sig
   val search_range : root
     -> (key -> bool)
     -> (key -> bool)
-    -> (key -> unit)
+    -> (key -> value -> unit)
     -> unit Lwt.t
   val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
 end
@@ -458,11 +460,16 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let cstruct_of_key key =
     Cstruct.of_string key
 
+  let string_of_key key = key
+
   let value_of_cstruct value =
     let len = Cstruct.len value in
     if len >= 65536 then raise @@ ValueTooLarge value else value
 
   let cstruct_of_value value = value
+
+  let string_of_value value =
+    Cstruct.to_string value
 
   let block_end = P.block_size - sizeof_crc
 
@@ -898,6 +905,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           |Some centry -> centry.parent_key <- Some alloc_id
       ) @@ Lazy.force entry.children
 
+  let value_at entry kdo =
+    let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
+    Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len
+
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs alloc_id space split_path depth =
     (*Logs.debug (fun m -> m "_reserve_insert %d" depth);*)
@@ -1143,13 +1154,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     match lru_get open_fs.node_cache.lru alloc_id with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" alloc_id
     |Some entry ->
-    let cstr = entry.raw_node in
       match
         !(KeyedMap.find key @@ Lazy.force entry.logindex)
       with
-        |logoffset ->
-            let len = Cstruct.LE.get_uint16 cstr (logoffset + P.key_size) in
-            Lwt.return @@ Cstruct.sub cstr (logoffset + P.key_size + 2) len
+        |kdo ->
+            Lwt.return @@ value_at entry kdo
         |exception Not_found ->
             Logs.debug (fun m -> m "_lookup");
             let key1, cl = KeyedMap.find_first (
@@ -1169,7 +1178,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       (* TODO get iter_from_first into the stdlib *)
       let seen1 = ref seen in
       let lwt_queue = ref [] in
-      csm_iter_range start_cond end_cond (fun k _v -> callback k; seen1 := KeyedSet.add k !seen1)
+      csm_iter_range start_cond end_cond (fun k kdo -> callback k @@ value_at entry !kdo; seen1 := KeyedSet.add k !seen1)
       @@ Lazy.force entry.logindex;
       csm_iter_range_plus start_cond end_cond (fun key1 cl ->
         lwt_queue := (key1, cl)::!lwt_queue)
