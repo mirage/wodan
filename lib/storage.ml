@@ -613,7 +613,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let refsize = if _has_children entry then
           P.block_size / 2 - entry.keydata.next_keydata_offset
         else
-          P.block_size - sizeof_crc - redzone_size - entry.keydata.next_keydata_offset
+          block_end - redzone_size - entry.keydata.next_keydata_offset
         in
         refsize >= size
 
