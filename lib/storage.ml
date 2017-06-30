@@ -788,14 +788,33 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           let len1 = P.key_size + sizeof_datalen + len in
           let cstr = entry.raw_node in
           let kd = entry.keydata in
-          let off = kd.next_keydata_offset in begin
+          let logindex = Lazy.force entry.logindex in
+          let compaction = KeyedMap.mem key logindex in
+
+          let kdo_out = ref @@ if compaction then header_size entry.cached_node else kd.next_keydata_offset in
+          if compaction then begin
+            kd.keydata_offsets <- List.fold_right (fun kdo kdos ->
+            let key1 = Cstruct.to_string @@ Cstruct.sub cstr kdo P.key_size in
+            let len = Cstruct.LE.get_uint16 cstr (kdo + P.key_size) in
+            if String.compare key1 key <> 0 then begin
+              let len1 = len + P.key_size + sizeof_datalen in
+              Cstruct.blit cstr kdo cstr !kdo_out len1;
+              let kdos = !kdo_out::kdos in
+              KeyedMap.find key1 logindex := !kdo_out;
+              kdo_out := !kdo_out + len1;
+              kdos
+            end
+            else kdos
+            ) kd.keydata_offsets [];
+          end;
+
+          let off = !kdo_out in begin
             kd.next_keydata_offset <- kd.next_keydata_offset + len1;
             Cstruct.blit (Cstruct.of_string key) 0 cstr off P.key_size;
             Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
             Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
             kd.keydata_offsets <- off::kd.keydata_offsets;
-            if Lazy.is_val entry.logindex then
-              entry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr off P.key_size) (ref off) (Lazy.force entry.logindex)
+            entry.logindex <- Lazy.from_val @@ KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr off P.key_size) (ref off) logindex
           end;
           ignore @@ _mark_dirty fs.node_cache alloc_id;
         |InsChild (loc, child_alloc_id) ->
