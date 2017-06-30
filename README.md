@@ -27,6 +27,7 @@ which contains <https://github.com/ocsigen/lwt/pull/374>.
 ```
 opam pin add --dev-repo mirage
 opam pin add --dev-repo lwt
+opam pin add --dev-repo csv
 ```
 
 ### Building the library
