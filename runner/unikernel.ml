@@ -14,12 +14,12 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let cval = Stor.value_of_cstruct @@ Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert !root key cval >>
     Stor.flush !root >>= function gen1 ->
-    let%lwt cval1 = Stor.lookup !root key in
+    let%lwt Some cval1 = Stor.lookup !root key in
     (*Cstruct.hexdump cval1;*)
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval1));
     let%lwt rootval, gen2 = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
     root := rootval;
-    let%lwt cval2 = Stor.lookup !root key in
+    let%lwt Some cval2 = Stor.lookup !root key in
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval2));
     if gen1 <> gen2 then begin Logs.err (fun m -> m "Generation fail %Ld %Ld" gen1 gen2); assert false; end;
     while%lwt true do

@@ -2,6 +2,8 @@
 
 (executable
   ((name main)
+  (flags (:standard -safe-string -w -8))
+  (ocamlopt_flags (:standard -O3))
   (libraries (wodan mirage-types mirage-logs functoria-runtime mirage-runtime mirage-unix mirage-block-unix mirage-block-ramdisk mirage-console-unix nocrypto.lwt))
   (preprocess (pps (lwt.ppx ppx_cstruct)))
   ))

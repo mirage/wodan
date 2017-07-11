@@ -436,7 +436,8 @@ module type S = sig
   val string_of_value : value -> string
 
   val insert : root -> key -> value -> unit Lwt.t
-  val lookup : root -> key -> value Lwt.t
+  val lookup : root -> key -> value option Lwt.t
+  val mem : root -> key -> bool Lwt.t
   val flush : root -> int64 Lwt.t
   val log_statistics : root -> unit
   val search_range : root
@@ -1181,21 +1182,44 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" alloc_id
     |Some entry ->
       match
-        !(KeyedMap.find key @@ Lazy.force entry.logindex)
+        KeyedMap.find_opt key @@ Lazy.force entry.logindex
       with
-        |kdo ->
-            Lwt.return @@ value_at entry kdo
-        |exception Not_found ->
+        |Some kdo ->
+            Lwt.return_some @@ value_at entry !kdo
+        |None ->
             Logs.debug (fun m -> m "_lookup");
+            if not @@ _has_children entry then Lwt.return_none else
             let key1, cl = KeyedMap.find_first (
               fun k -> String.compare k key >= 0) @@ Lazy.force entry.children in
             let%lwt child_alloc_id, _ce = _ensure_childlink open_fs alloc_id entry key1 cl in
             _lookup open_fs child_alloc_id key
 
+  let rec _mem open_fs alloc_id key =
+    match lru_get open_fs.node_cache.lru alloc_id with
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (mem)" alloc_id
+    |Some entry ->
+      match
+        KeyedMap.find_opt key @@ Lazy.force entry.logindex
+      with
+        |Some _kdo ->
+            Lwt.return_true
+        |None ->
+            Logs.debug (fun m -> m "_mem");
+            if not @@ _has_children entry then Lwt.return_false else
+            let key1, cl = KeyedMap.find_first (
+              fun k -> String.compare k key >= 0) @@ Lazy.force entry.children in
+            let%lwt child_alloc_id, _ce = _ensure_childlink open_fs alloc_id entry key1 cl in
+            _mem open_fs child_alloc_id key
+
   let lookup root key =
     let stats = root.open_fs.node_cache.statistics in
     stats.lookups <- succ stats.lookups;
     _lookup root.open_fs root.root_key key
+
+  let mem root key =
+    let stats = root.open_fs.node_cache.statistics in
+    stats.lookups <- succ stats.lookups;
+    _mem root.open_fs root.root_key key
 
   let rec _search_range open_fs alloc_id start_cond end_cond seen callback =
     match lru_get open_fs.node_cache.lru alloc_id with
