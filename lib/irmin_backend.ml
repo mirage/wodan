@@ -30,10 +30,20 @@ module type ConnectableBlock = sig
   val connect : string -> t
 end
 
-module AO
-: ConnectableBlock -> Storage.PARAMS -> Irmin.AO_MAKER
+module type OF_STRING = sig
+  type t
+  val of_string : string -> (t, [ `Msg of string ]) Result.result
+end
+
+module RO_BUILDER
+: ConnectableBlock -> Storage.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: OF_STRING) -> sig
+  include Irmin.RO
+  module Stor : Storage.S
+  val db_root : t -> Stor.root
+  val v : Irmin.config -> t Lwt.t
+end with type key = K.t and type value = V.t
 = functor (B: ConnectableBlock) (P: Storage.PARAMS)
-(K: Irmin.Hash.S) (V: Irmin.Contents.Raw) ->
+(K: Irmin.Hash.S) (V: OF_STRING) ->
 struct
   type key = K.t
   type value = V.t
@@ -41,6 +51,7 @@ struct
   type t = {
     root: Stor.root;
   }
+  let db_root db = db.root
 
   let v config =
     let module C = Irmin.Private.Conf in
@@ -55,13 +66,6 @@ struct
     Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
     Lwt.return { root }
 
-  let add db va =
-    let raw_v = V.raw va in
-    let k = K.digest raw_v in
-    let raw_k = K.to_raw k in
-    Stor.insert db.root (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v >>=
-      function () -> Lwt.return k
-
   let find db k =
     Stor.lookup db.root @@ Stor.key_of_cstruct @@ K.to_raw k >>= function
     |None -> Lwt.return_none
@@ -71,3 +75,32 @@ struct
   let mem db k =
     Stor.mem db.root @@ Stor.key_of_cstruct @@ K.to_raw k
 end
+
+module AO_BUILDER
+: ConnectableBlock -> Storage.PARAMS -> Irmin.AO_MAKER
+= functor (B: ConnectableBlock) (P: Storage.PARAMS)
+(K: Irmin.Hash.S) (V: Irmin.Contents.Raw) ->
+struct
+  include RO_BUILDER(B)(P)(K)(V)
+
+  let add db va =
+    let raw_v = V.raw va in
+    let k = K.digest raw_v in
+    let raw_k = K.to_raw k in
+    Stor.insert (db_root db) (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v >>=
+      function () -> Lwt.return k
+end
+
+module LINK_BUILDER
+: ConnectableBlock -> Storage.PARAMS -> Irmin.LINK_MAKER
+= functor (B: ConnectableBlock) (P: Storage.PARAMS)
+(K: Irmin.Hash.S) ->
+struct
+  include RO_BUILDER(B)(P)(K)(K)
+
+  let add db k va =
+    let raw_v = K.to_raw va in
+    let raw_k = K.to_raw k in
+    Stor.insert (db_root db) (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v
+end
+
