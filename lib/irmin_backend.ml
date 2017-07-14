@@ -22,7 +22,7 @@ let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size () =
   in
   C.add (C.add (C.add config Conf.lru_size lru_size) Conf.path path) Conf.create create
 
-module type ConnectableBlock = sig
+module type BLOCK_CON = sig
   include Mirage_types_lwt.BLOCK
   (* XXX mirage-block-unix and mirage-block-ramdisk don't have the
    * exact same signature *)
@@ -35,22 +35,23 @@ module type OF_STRING = sig
   val of_string : string -> (t, [ `Msg of string ]) Result.result
 end
 
-module RO_BUILDER
-: ConnectableBlock -> Storage.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: OF_STRING) -> sig
-  include Irmin.RO
+module type DB = sig
   module Stor : Storage.S
+  type t
   val db_root : t -> Stor.root
   val v : Irmin.config -> t Lwt.t
-end with type key = K.t and type value = V.t
-= functor (B: ConnectableBlock) (P: Storage.PARAMS)
-(K: Irmin.Hash.S) (V: OF_STRING) ->
+end
+
+module DB_BUILDER
+: BLOCK_CON -> Storage.PARAMS -> DB
+= functor (B: BLOCK_CON) (P: Storage.PARAMS) ->
 struct
-  type key = K.t
-  type value = V.t
   module Stor = Storage.Make(B)(P)
+
   type t = {
     root: Stor.root;
   }
+
   let db_root db = db.root
 
   let v config =
@@ -65,20 +66,33 @@ struct
     else Storage.OpenExistingDevice in
     Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
     Lwt.return { root }
+end
+
+module RO_BUILDER
+: BLOCK_CON -> Storage.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: OF_STRING) -> sig
+  include Irmin.RO
+  include DB with type t := t
+end with type key = K.t and type value = V.t
+= functor (B: BLOCK_CON) (P: Storage.PARAMS)
+(K: Irmin.Hash.S) (V: OF_STRING) ->
+struct
+  include DB_BUILDER(B)(P)
+  type key = K.t
+  type value = V.t
 
   let find db k =
-    Stor.lookup db.root @@ Stor.key_of_cstruct @@ K.to_raw k >>= function
+    Stor.lookup (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k >>= function
     |None -> Lwt.return_none
     |Some v -> Lwt.return_some
       @@ Rresult.R.get_ok @@ V.of_string @@ Stor.string_of_value v
 
   let mem db k =
-    Stor.mem db.root @@ Stor.key_of_cstruct @@ K.to_raw k
+    Stor.mem (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k
 end
 
 module AO_BUILDER
-: ConnectableBlock -> Storage.PARAMS -> Irmin.AO_MAKER
-= functor (B: ConnectableBlock) (P: Storage.PARAMS)
+: BLOCK_CON -> Storage.PARAMS -> Irmin.AO_MAKER
+= functor (B: BLOCK_CON) (P: Storage.PARAMS)
 (K: Irmin.Hash.S) (V: Irmin.Contents.Raw) ->
 struct
   include RO_BUILDER(B)(P)(K)(V)
@@ -92,9 +106,8 @@ struct
 end
 
 module LINK_BUILDER
-: ConnectableBlock -> Storage.PARAMS -> Irmin.LINK_MAKER
-= functor (B: ConnectableBlock) (P: Storage.PARAMS)
-(K: Irmin.Hash.S) ->
+: BLOCK_CON -> Storage.PARAMS -> Irmin.LINK_MAKER
+= functor (B: BLOCK_CON) (P: Storage.PARAMS) (K: Irmin.Hash.S) ->
 struct
   include RO_BUILDER(B)(P)(K)(K)
 
