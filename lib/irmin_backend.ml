@@ -114,3 +114,65 @@ struct
     Stor.insert (db_root db) (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v
 end
 
+module RW_BUILDER
+: BLOCK_CON -> Storage.PARAMS -> Irmin.Hash.S -> Irmin.RW_MAKER
+= functor (B: BLOCK_CON) (P: Storage.PARAMS) (H: Irmin.Hash.S)
+(K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) ->
+struct
+  include DB_BUILDER(B)(P)
+
+  let () = assert (H.digest_size = P.key_size)
+  let () = assert P.has_tombstone
+
+  type watch = ()
+  type key = K.t
+  type value = V.t
+
+  let key_to_inner_key k = Stor.key_of_cstruct @@ H.to_raw @@ H.digest K.t k
+  let val_to_inner_val va = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct V.t va
+  let _key_to_inner_val k = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct K.t k
+  let val_of_inner_val va =
+    Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t @@ Stor.cstruct_of_value va
+
+  let set db k va =
+    let k = key_to_inner_key k in
+    let va = val_to_inner_val va in
+    Stor.insert (db_root db) k va
+
+  let watch _db ?init _cb =
+    ignore init;
+    Lwt.return ()
+  let watch_key _db _k ?init _cb =
+    ignore init;
+    Lwt.return ()
+  let unwatch _db () =
+    Lwt.return_unit
+
+  let test_and_set db k ~test ~set =
+    let k = key_to_inner_key k in
+    let test = match test with Some va -> Some (val_to_inner_val va) |None -> None in
+    Stor.lookup (db_root db) @@ k >>= function v0 ->
+      if v0 = test then begin
+        match set with
+        |Some va -> Stor.insert (db_root db) k @@ val_to_inner_val va
+        |None -> Stor.insert (db_root db) k @@ Stor.value_of_string ""
+      end >>= function () -> Lwt.return_true
+      else Lwt.return_false
+
+  let remove db k =
+    let k = key_to_inner_key k in
+    let va = Stor.value_of_string "" in
+    Stor.insert (db_root db) k va
+
+  let list _db =
+    Lwt.return []
+
+  let find db k =
+    Stor.lookup (db_root db) @@ key_to_inner_key k >>= function
+    |None -> Lwt.return_none
+    |Some va -> Lwt.return_some @@ val_of_inner_val va
+
+  let mem db k =
+    Stor.mem (db_root db) @@ key_to_inner_key k
+end
+
