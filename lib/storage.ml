@@ -405,15 +405,19 @@ let _get_superblock_io () =
     Cstruct.create 512
 
 module type PARAMS = sig
-  (* in bytes *)
+  (* Size of blocks, in bytes *)
   val block_size: int
-  (* in bytes *)
+  (* The exact size of all keys, in bytes *)
   val key_size: int
+  (* Whether the empty value should be considered a tombstone,
+   * meaning that `mem` will return no value when finding it *)
+  val has_tombstone: bool
 end
 
 module StandardParams : PARAMS = struct
   let block_size = 256*1024
-  let key_size = 20;
+  let key_size = 20
+  let has_tombstone = false
 end
 
 type deviceOpenMode =
@@ -792,6 +796,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           let logindex = Lazy.force entry.logindex in
           let compaction = KeyedMap.mem key logindex in
 
+          (* TODO optionally handle tombstones on leaf nodes *)
           let kdo_out = ref @@ if compaction then header_size entry.cached_node else kd.next_keydata_offset in
           if compaction then begin
             kd.keydata_offsets <- List.fold_right (fun kdo kdos ->
@@ -934,7 +939,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let value_at entry kdo =
     let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
-    Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len
+    if P.has_tombstone && len = 0 then None else
+    Some (Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len)
+
+  let has_value entry kdo =
+    if not P.has_tombstone then true
+    else let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
+      len <> 0
 
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs alloc_id space split_path depth =
@@ -1184,7 +1195,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         KeyedMap.find_opt key @@ Lazy.force entry.logindex
       with
         |Some kdo ->
-            Lwt.return_some @@ value_at entry !kdo
+            Lwt.return @@ value_at entry !kdo
         |None ->
             Logs.debug (fun m -> m "_lookup");
             if not @@ _has_children entry then Lwt.return_none else
@@ -1200,8 +1211,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       match
         KeyedMap.find_opt key @@ Lazy.force entry.logindex
       with
-        |Some _kdo ->
-            Lwt.return_true
+        |Some kdo ->
+            Lwt.return @@ has_value entry !kdo
         |None ->
             Logs.debug (fun m -> m "_mem");
             if not @@ _has_children entry then Lwt.return_false else
@@ -1227,7 +1238,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       (* TODO get iter_from_first into the stdlib *)
       let seen1 = ref seen in
       let lwt_queue = ref [] in
-      csm_iter_range start_cond end_cond (fun k kdo -> callback k @@ value_at entry !kdo; seen1 := KeyedSet.add k !seen1)
+      csm_iter_range start_cond end_cond (fun k kdo -> (match value_at entry !kdo with Some v -> callback k v|None ->() ); seen1 := KeyedSet.add k !seen1)
       @@ Lazy.force entry.logindex;
       csm_iter_range_plus start_cond end_cond (fun key1 cl ->
         lwt_queue := (key1, cl)::!lwt_queue)
