@@ -1089,14 +1089,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some parent_key) median in
-        let alloc_id1 = alloc1 in
         let kdo_out = ref @@ header_size entry.cached_node in
         let kdos = List.fold_right (fun kdo kdos ->
           let key1 = Cstruct.to_string @@ Cstruct.sub entry.raw_node kdo P.key_size in
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
           if String.compare key1 median <= 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-            _fast_insert fs alloc_id1 key1 (InsValue value1) depth;
+            _fast_insert fs alloc1 key1 (InsValue value1) depth;
             kdos
           end else begin
             let len1 = len + P.key_size + sizeof_datalen in
