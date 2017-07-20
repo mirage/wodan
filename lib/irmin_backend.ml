@@ -75,6 +75,8 @@ struct
   type key = K.t
   type value = V.t
 
+  let () = assert (K.digest_size = P.key_size)
+
   let find db k =
     Stor.lookup (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k >>= function
     |None -> Lwt.return_none
