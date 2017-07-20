@@ -30,11 +30,6 @@ module type BLOCK_CON = sig
   val connect : string -> t
 end
 
-module type OF_STRING = sig
-  type t
-  val of_string : string -> (t, [ `Msg of string ]) Result.result
-end
-
 module type DB = sig
   module Stor : Storage.S
   type t
@@ -69,12 +64,12 @@ struct
 end
 
 module RO_BUILDER
-: BLOCK_CON -> Storage.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: OF_STRING) -> sig
+: BLOCK_CON -> Storage.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Contents.Conv) -> sig
   include Irmin.RO
   include DB with type t := t
 end with type key = K.t and type value = V.t
 = functor (B: BLOCK_CON) (P: Storage.PARAMS)
-(K: Irmin.Hash.S) (V: OF_STRING) ->
+(K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
 struct
   include DB_BUILDER(B)(P)
   type key = K.t
@@ -84,7 +79,7 @@ struct
     Stor.lookup (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k >>= function
     |None -> Lwt.return_none
     |Some v -> Lwt.return_some
-      @@ Rresult.R.get_ok @@ V.of_string @@ Stor.string_of_value v
+      @@ Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t @@ Stor.cstruct_of_value v
 
   let mem db k =
     Stor.mem (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k
@@ -93,13 +88,13 @@ end
 module AO_BUILDER
 : BLOCK_CON -> Storage.PARAMS -> Irmin.AO_MAKER
 = functor (B: BLOCK_CON) (P: Storage.PARAMS)
-(K: Irmin.Hash.S) (V: Irmin.Contents.Raw) ->
+(K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
 struct
   include RO_BUILDER(B)(P)(K)(V)
 
   let add db va =
-    let raw_v = V.raw va in
-    let k = K.digest raw_v in
+    let raw_v = Irmin.Type.encode_cstruct V.t va in
+    let k = K.digest V.t va in
     let raw_k = K.to_raw k in
     Stor.insert (db_root db) (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v >>=
       function () -> Lwt.return k
