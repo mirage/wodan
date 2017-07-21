@@ -443,6 +443,7 @@ module type S = sig
   val value_of_string : string -> value
   val cstruct_of_value : value -> Cstruct.t
   val string_of_value : value -> string
+  val next_key : key -> key
 
   val insert : root -> key -> value -> unit Lwt.t
   val lookup : root -> key -> value option Lwt.t
@@ -512,6 +513,17 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let redzone_size = max P.key_size sizeof_logical
 
   let childlink_size = P.key_size + sizeof_logical
+
+  let next_key key =
+    if key = top_key then invalid_arg "Already at top key";
+    let r = Bytes.make P.key_size '\000' in
+    let state = ref 1 in
+    for i = P.key_size - 1 downto 0 do
+      let code = (Char.code key.[i]) + 1 mod 256 in
+      Bytes.set r i @@ Char.chr code;
+      state := if code = 0 then 1 else 0;
+    done;
+    Bytes.to_string r
 
   type filesystem = {
     (* Backing device *)
