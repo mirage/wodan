@@ -10,17 +10,29 @@ module Conf = struct
       Irmin.Private.Conf.bool false
 
   let lru_size =
-    Irmin.Private.Conf.key ~doc:"How many cache items to keep in the LRU" "lru_size"
+    Irmin.Private.Conf.key ~doc:"How many cache items to keep in the LRU"
+      "lru_size"
       Irmin.Private.Conf.int 1024
+
+  let list_key =
+    Irmin.Private.Conf.key
+      ~doc:"A special key used to store metadata for listing other keys"
+      "list_key"
+      Irmin.Private.Conf.string "meta:keys-list:00000"
 end
 
-let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size () =
+let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size ?list_key () =
   let module C = Irmin.Private.Conf in
   let lru_size = match lru_size with
   |None -> C.default Conf.lru_size
   |Some lru_size -> lru_size
   in
-  C.add (C.add (C.add config Conf.lru_size lru_size) Conf.path path) Conf.create create
+  let list_key = match list_key with
+  |None -> C.default Conf.list_key
+  |Some list_key -> list_key
+  in
+  C.add (C.add (C.add (C.add config Conf.list_key list_key)
+    Conf.lru_size lru_size) Conf.path path) Conf.create create
 
 module type BLOCK_CON = sig
   include Mirage_types_lwt.BLOCK
@@ -119,25 +131,62 @@ module RW_BUILDER
 = functor (B: BLOCK_CON) (P: Storage.PARAMS) (H: Irmin.Hash.S)
 (K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) ->
 struct
-  include DB_BUILDER(B)(P)
+  module BUILDER = DB_BUILDER(B)(P)
+  module Stor = BUILDER.Stor
+
+  module KeyHashtbl = Hashtbl.Make(Stor.Key)
+
+  type t = {
+    root: Stor.root;
+    keydata: Stor.key KeyHashtbl.t;
+  }
+
+  let db_root db = db.root
 
   let () = assert (H.digest_size = P.key_size)
   let () = assert P.has_tombstone
 
-  type watch = ()
   type key = K.t
   type value = V.t
 
   let key_to_inner_key k = Stor.key_of_cstruct @@ H.to_raw @@ H.digest K.t k
   let val_to_inner_val va = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct V.t va
   let _key_to_inner_val k = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct K.t k
+  let key_of_inner_val va =
+    Rresult.R.get_ok @@ Irmin.Type.decode_cstruct K.t @@ Stor.cstruct_of_value va
   let val_of_inner_val va =
     Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t @@ Stor.cstruct_of_value va
+  let inner_val_to_inner_key va =
+    Stor.key_of_cstruct @@ H.to_raw @@ H.digest Irmin.Type.cstruct
+    @@ Stor.cstruct_of_value va
+
+  let v config =
+    let module C = Irmin.Private.Conf in
+    BUILDER.v config >>= function db ->
+      let root = BUILDER.db_root db in
+      let db = { root; keydata = KeyHashtbl.create 10; } in
+      let magic_key = ref @@ Stor.key_of_string @@ C.get config Conf.list_key in
+      begin try%lwt
+        while%lwt true do
+          Stor.lookup root !magic_key >>= function
+            |None -> Lwt.fail Exit
+            |Some va -> begin
+                let ik = inner_val_to_inner_key va in
+                KeyHashtbl.add db.keydata ik !magic_key;
+                magic_key := Stor.next_key !magic_key;
+                Lwt.return_unit
+            end
+        done
+      with Exit -> Lwt.return_unit
+        end >>
+          Lwt.return db
 
   let set db k va =
     let k = key_to_inner_key k in
     let va = val_to_inner_val va in
     Stor.insert (db_root db) k va
+
+  type watch = ()
 
   let watch _db ?init _cb =
     ignore init;
@@ -164,8 +213,17 @@ struct
     let va = Stor.value_of_string "" in
     Stor.insert (db_root db) k va
 
-  let list _db =
-    Lwt.return []
+  let list db =
+    KeyHashtbl.fold (fun ik mk io ->
+      io >>= function l ->
+        Stor.mem db.root ik >>= function
+          |true -> begin
+            Stor.lookup db.root mk >>= function
+              |None -> Lwt.fail @@ Failure "Missing metadata key"
+              |Some iv -> Lwt.return @@ (key_of_inner_val iv) :: l
+          end
+          |false -> Lwt.return l
+    ) db.keydata @@ Lwt.return []
 
   let find db k =
     Stor.lookup (db_root db) @@ key_to_inner_key k >>= function
