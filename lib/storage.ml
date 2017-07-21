@@ -430,6 +430,11 @@ module type S = sig
   type disk
   type root
 
+  module Key : sig
+    include Hashtbl.HashedType with type t = key
+    include Map.OrderedType with type t := key
+  end
+
   val key_of_cstruct : Cstruct.t -> key
   val key_of_string : string -> key
   val cstruct_of_key : key -> Cstruct.t
@@ -458,6 +463,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   type disk = B.t
 
   module P = P
+  module Key = struct
+    include String
+    let hash = Hashtbl.hash
+  end
 
   let key_of_cstruct key =
     if Cstruct.len key <> P.key_size
