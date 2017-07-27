@@ -139,6 +139,7 @@ struct
   type t = {
     root: Stor.root;
     keydata: Stor.key KeyHashtbl.t;
+    mutable magic_key: Stor.key;
   }
 
   let db_root db = db.root
@@ -151,7 +152,7 @@ struct
 
   let key_to_inner_key k = Stor.key_of_cstruct @@ H.to_raw @@ H.digest K.t k
   let val_to_inner_val va = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct V.t va
-  let _key_to_inner_val k = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct K.t k
+  let key_to_inner_val k = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct K.t k
   let key_of_inner_val va =
     Rresult.R.get_ok @@ Irmin.Type.decode_cstruct K.t @@ Stor.cstruct_of_value va
   let val_of_inner_val va =
@@ -164,16 +165,19 @@ struct
     let module C = Irmin.Private.Conf in
     BUILDER.v config >>= function db ->
       let root = BUILDER.db_root db in
-      let db = { root; keydata = KeyHashtbl.create 10; } in
-      let magic_key = ref @@ Stor.key_of_string @@ C.get config Conf.list_key in
+      let db = {
+        root;
+        keydata = KeyHashtbl.create 10;
+        magic_key = Stor.key_of_string @@ C.get config Conf.list_key;
+      } in
       begin try%lwt
         while%lwt true do
-          Stor.lookup root !magic_key >>= function
+          Stor.lookup root db.magic_key >>= function
             |None -> Lwt.fail Exit
             |Some va -> begin
                 let ik = inner_val_to_inner_key va in
-                KeyHashtbl.add db.keydata ik !magic_key;
-                magic_key := Stor.next_key !magic_key;
+                KeyHashtbl.add db.keydata ik db.magic_key;
+                db.magic_key <- Stor.next_key db.magic_key;
                 Lwt.return_unit
             end
         done
@@ -181,10 +185,19 @@ struct
         end >>
           Lwt.return db
 
+  let set_and_list db ik iv ikv =
+    assert (not @@ Stor.is_tombstone iv);
+    KeyHashtbl.add db.keydata ik db.magic_key;
+    Stor.insert db.root db.magic_key ikv >>
+    begin
+    db.magic_key <- Stor.next_key db.magic_key;
+    Stor.insert db.root ik iv
+    end
+
   let set db k va =
-    let k = key_to_inner_key k in
-    let va = val_to_inner_val va in
-    Stor.insert (db_root db) k va
+    let ik = key_to_inner_key k in
+    let iv = val_to_inner_val va in
+    set_and_list db ik iv @@ key_to_inner_val k
 
   type watch = ()
 
@@ -198,13 +211,16 @@ struct
     Lwt.return_unit
 
   let test_and_set db k ~test ~set =
-    let k = key_to_inner_key k in
-    let test = match test with Some va -> Some (val_to_inner_val va) |None -> None in
-    Stor.lookup (db_root db) @@ k >>= function v0 ->
+    let ik = key_to_inner_key k in
+    let test = match test with
+    |Some va -> Some (val_to_inner_val va)
+    |None -> None in
+    Stor.lookup (db_root db) @@ ik >>= function v0 ->
       if v0 = test then begin
         match set with
-        |Some va -> Stor.insert (db_root db) k @@ val_to_inner_val va
-        |None -> Stor.insert (db_root db) k @@ Stor.value_of_string ""
+        |Some va ->
+            set_and_list db ik (val_to_inner_val va) @@ key_to_inner_val k
+        |None -> Stor.insert (db_root db) ik @@ Stor.value_of_string ""
       end >>= function () -> Lwt.return_true
       else Lwt.return_false
 
