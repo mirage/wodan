@@ -187,12 +187,15 @@ struct
 
   let set_and_list db ik iv ikv =
     assert (not @@ Stor.is_tombstone iv);
-    KeyHashtbl.add db.keydata ik db.magic_key;
-    Stor.insert db.root db.magic_key ikv >>
-    begin
-    db.magic_key <- Stor.next_key db.magic_key;
-    Stor.insert db.root ik iv
-    end
+    if not @@ KeyHashtbl.mem db.keydata ik then begin
+      KeyHashtbl.add db.keydata ik db.magic_key;
+      Stor.insert db.root db.magic_key ikv >>
+      begin
+        db.magic_key <- Stor.next_key db.magic_key;
+        Stor.insert db.root ik iv
+      end
+    end else
+      Stor.insert db.root ik iv
 
   let set db k va =
     let ik = key_to_inner_key k in
