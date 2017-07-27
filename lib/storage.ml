@@ -444,6 +444,7 @@ module type S = sig
   val cstruct_of_value : value -> Cstruct.t
   val string_of_value : value -> string
   val next_key : key -> key
+  val is_tombstone : value -> bool
 
   val insert : root -> key -> value -> unit Lwt.t
   val lookup : root -> key -> value option Lwt.t
@@ -524,6 +525,9 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       state := if code = 0 then 1 else 0;
     done;
     Bytes.to_string r
+
+  let is_tombstone value =
+    P.has_tombstone && Cstruct.len value = 0
 
   type filesystem = {
     (* Backing device *)
