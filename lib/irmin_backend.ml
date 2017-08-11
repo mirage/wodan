@@ -135,11 +135,13 @@ struct
   module Stor = BUILDER.Stor
 
   module KeyHashtbl = Hashtbl.Make(Stor.Key)
+  module W = Irmin.Private.Watch.Make(K)(V)
 
   type t = {
     root: Stor.root;
     keydata: Stor.key KeyHashtbl.t;
     mutable magic_key: Stor.key;
+    watches: W.t;
   }
 
   let db_root db = db.root
@@ -169,6 +171,7 @@ struct
         root;
         keydata = KeyHashtbl.create 10;
         magic_key = Stor.key_of_string @@ C.get config Conf.list_key;
+        watches = W.v ();
       } in
       begin try%lwt
         while%lwt true do
@@ -200,18 +203,14 @@ struct
   let set db k va =
     let ik = key_to_inner_key k in
     let iv = val_to_inner_val va in
-    set_and_list db ik iv @@ key_to_inner_val k
+    set_and_list db ik iv @@ key_to_inner_val k >>
+    W.notify db.watches k (Some va)
 
-  type watch = ()
+  type watch = W.watch
 
-  let watch _db ?init _cb =
-    ignore init;
-    Lwt.return ()
-  let watch_key _db _k ?init _cb =
-    ignore init;
-    Lwt.return ()
-  let unwatch _db () =
-    Lwt.return_unit
+  let watch db = W.watch db.watches
+  let watch_key db = W.watch_key db.watches
+  let unwatch db = W.unwatch db.watches
 
   let test_and_set db k ~test ~set =
     let ik = key_to_inner_key k in
@@ -224,13 +223,14 @@ struct
         |Some va ->
             set_and_list db ik (val_to_inner_val va) @@ key_to_inner_val k
         |None -> Stor.insert (db_root db) ik @@ Stor.value_of_string ""
-      end >>= function () -> Lwt.return_true
+      end >> W.notify db.watches k set >> Lwt.return_true
       else Lwt.return_false
 
   let remove db k =
-    let k = key_to_inner_key k in
+    let ik = key_to_inner_key k in
     let va = Stor.value_of_string "" in
-    Stor.insert (db_root db) k va
+    Stor.insert (db_root db) ik va >>
+    W.notify db.watches k None
 
   let list db =
     KeyHashtbl.fold (fun ik mk io ->
