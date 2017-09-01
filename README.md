@@ -17,16 +17,11 @@ opam switch 4.04.1+fp+flambda
 
 ### Pinned dependencies
 
-Currently Mirage needs to be pinned to the
-[master version](https://github.com/mirage/mirage),
-which contains <https://github.com/mirage/mirage/pull/800>.
-
-Additionally, Lwt needs to be pinned to the [master version](https://github.com/ocsigen/lwt),
-which contains <https://github.com/ocsigen/lwt/pull/374>.
+Currently CSV needs to be pinned to the
+[master version](https://github.com/Chris00/ocaml-csv),
+which contains <https://github.com/Chris00/ocaml-csv/pull/18>.
 
 ```
-opam pin add --dev-repo mirage
-opam pin add --dev-repo lwt
 opam pin add --dev-repo csv
 ```
 
