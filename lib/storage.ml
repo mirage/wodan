@@ -53,6 +53,7 @@ let () = assert (sizeof_anynode_hdr = 9)
   nodetype: uint8_t;
   (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
   generation: uint64_t;
+  depth: uint32_t;
 }[@@little_endian]]
 (* Contents: logged data, and child node links *)
 (* All node types end with a CRC *)
@@ -1105,6 +1106,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let fc = KeyedMap.add median alloc1 fc in
         let fc = KeyedMap.add entry.highest_key alloc2 fc in
         _reset_contents entry;
+        set_rootnode_hdr_depth entry.raw_node @@ Int32.succ @@ get_rootnode_hdr_depth entry.raw_node;
         _add_child entry entry1 alloc1 fs.node_cache alloc_id;
         _add_child entry entry2 alloc2 fs.node_cache alloc_id;
         entry1.flush_info <- Some { flush_children=fc1 };
