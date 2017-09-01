@@ -25,7 +25,8 @@ depends: [
   "logs"
   "nocrypto"
   "bitv"
-  "mirage-types-lwt"
+  "lwt" {>= "3.1.0"}
+  "mirage-types-lwt" {>= "3.0.5"}
   "ctypes"
   "ctypes-foreign"
 ]
