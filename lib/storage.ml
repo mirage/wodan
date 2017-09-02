@@ -173,6 +173,8 @@ type lru_entry = {
   keydata: keydata_index;
   childlinks: childlinks;
   mutable prev_logical: int64 option;
+  (* depth counted from the leaves; mutable on the root only *)
+  mutable rdepth: int32;
 }
 
 module LRUValue = struct
@@ -242,6 +244,7 @@ type node_cache = {
   logical_size: int64;
   (* Logical -> bit.  Zero iff free. *)
   space_map: Bitv.t;
+  scan_map: Bitv.t option;
   statistics: statistics;
 }
 
@@ -413,12 +416,16 @@ module type PARAMS = sig
   (* Whether the empty value should be considered a tombstone,
    * meaning that `mem` will return no value when finding it *)
   val has_tombstone: bool
+  (* If enabled, instead of checking the entire filesystem when opening,
+   * leaf nodes won't be scanned.  They will be scanned on open instead. *)
+  val fast_scan: bool
 end
 
 module StandardParams : PARAMS = struct
   let block_size = 256*1024
   let key_size = 20
   let has_tombstone = false
+  let fast_scan = true
 end
 
 type deviceOpenMode =
@@ -612,12 +619,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       |1 -> `Root, _index_keydata cstr sizeof_rootnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
-      let alloc_id = next_alloc_id cache in
-    let rec entry = {parent_key=None; cached_node; raw_node=cstr; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); logindex=lazy (_compute_keydata entry); highest_key=top_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
+    let alloc_id = next_alloc_id cache in
+    let rdepth = get_rootnode_hdr_depth cstr in
+    let rec entry = {parent_key=None; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); logindex=lazy (_compute_keydata entry); highest_key=top_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
       lru_xset cache.lru alloc_id entry;
       Lwt.return (alloc_id, entry)
 
-  let _load_child_node_at open_fs logical highest_key parent_key =
+  let _load_child_node_at open_fs logical highest_key parent_key rdepth =
     Logs.debug (fun m -> m "_load_child_node_at");
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
@@ -628,7 +636,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       |ty -> raise @@ BadNodeType ty
     in
       let alloc_id = next_alloc_id cache in
-    let rec entry = {parent_key=Some parent_key; cached_node; raw_node=cstr; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); logindex=lazy (_compute_keydata entry); highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
+    let rec entry = {parent_key=Some parent_key; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); logindex=lazy (_compute_keydata entry); highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
       lru_xset cache.lru alloc_id entry;
       Lwt.return entry
 
@@ -730,7 +738,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     cache.flush_root <- None;
     r >> Lwt.return @@ Int64.pred cache.next_generation
 
-  let _new_node open_fs tycode parent_key highest_key =
+  let _new_node open_fs tycode parent_key highest_key rdepth =
     let cache = open_fs.node_cache in
     let alloc_id = next_alloc_id cache in
     Logs.debug (fun m -> m "_new_node type:%d alloc_id:%Ld" tycode alloc_id);
@@ -744,12 +752,12 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |ty -> raise @@ BadNodeType ty
     in
     let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
-    let entry = {parent_key; cached_node; raw_node=cstr; io_data; keydata; flush_info=None; children=Lazy.from_val KeyedMap.empty; logindex=Lazy.from_val KeyedMap.empty; highest_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
+    let entry = {parent_key; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=Lazy.from_val KeyedMap.empty; logindex=Lazy.from_val KeyedMap.empty; highest_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
     lru_xset cache.lru alloc_id entry;
     alloc_id, entry
 
   let _new_root open_fs =
-    _new_node open_fs 1 None top_key
+    _new_node open_fs 1 None top_key Int32.zero
 
   let _reset_contents entry =
     let hdrsize = header_size entry.cached_node in
@@ -775,6 +783,48 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let _has_logdata entry =
     entry.keydata.next_keydata_offset <> header_size entry.cached_node
 
+  let _update_space_map cache logical expect_sm =
+    let sm = bitv_get64 cache.space_map logical in
+    if sm <> expect_sm then if expect_sm then failwith "logical address appeared out of thin air" else failwith "logical address referenced twice";
+    bitv_set64 cache.space_map logical true;
+    cache.free_count <- int64_pred_nowrap cache.free_count
+
+  let rec _scan_all_nodes open_fs logical expect_root rdepth parent_gen expect_sm =
+    Logs.debug (fun m -> m "_scan_all_nodes %Ld %ld" logical rdepth);
+    (* TODO add more fsck style checks *)
+    let cache = open_fs.node_cache in
+    _update_space_map cache logical expect_sm;
+    let%lwt cstr, _io_data = _load_data_at open_fs.filesystem logical in
+    let hdrsize = match get_anynode_hdr_nodetype cstr with
+      |1 (* root *) when expect_root -> sizeof_rootnode_hdr
+      |2 (* inner *) when not expect_root -> sizeof_childnode_hdr
+      |ty -> raise @@ BadNodeType ty
+    in
+    let gen = get_anynode_hdr_generation cstr in
+    (* prevents cycles *)
+    if gen >= parent_gen then failwith "generation is not lower than for parent";
+    let rec scan_key off =
+      if off < hdrsize + redzone_size - sizeof_logical then failwith "child link data bleeding into start of node";
+      let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
+      begin if log1 <> 0L then begin
+        (* Children here would mean the fast_scan free space map is borked *)
+        if rdepth = Int32.zero then failwith "Found children on a leaf node";
+        begin if rdepth = Int32.one && P.fast_scan then begin
+          _update_space_map cache log1 false;
+          Lwt.return_unit
+        end else
+          _scan_all_nodes open_fs log1 false (Int32.pred rdepth) gen false
+      end >> scan_key (off - childlink_size)
+      end
+      else if redzone_size > sizeof_logical && not @@ is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
+        Lwt.fail @@ Failure "partial redzone"
+      else Lwt.return () end
+    in
+    scan_key (block_end - childlink_size) >>
+    match cache.scan_map with
+      |None -> Lwt.return_unit
+      |Some scan_map -> begin bitv_set64 scan_map logical true; Lwt.return_unit end
+
   let _logical_of_cl cstr cl =
     Cstruct.LE.get_uint64 cstr (cl.offset + P.key_size)
 
@@ -782,10 +832,19 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     (*Logs.debug (fun m -> m "_ensure_childlink");*)
     let cstr = entry.raw_node in
     let cache = open_fs.node_cache in
+    if entry.rdepth = Int32.zero then failwith "invalid rdepth: found children when rdepth = 0";
+    let rdepth = Int32.pred entry.rdepth in
     match cl.alloc_id with
     |None ->
         let logical = _logical_of_cl cstr cl in
-        let%lwt child_entry = _load_child_node_at open_fs logical cl_key entry_key in
+        begin if%lwt Lwt.return P.fast_scan then match cache.scan_map with None -> assert false |Some scan_map ->
+          if%lwt Lwt.return @@ not @@ bitv_get64 scan_map logical then
+            (* generation may not be fresh, but is always initialised in this branch,
+               so this is not a problem *)
+            let parent_gen = get_anynode_hdr_generation cstr in
+            _scan_all_nodes open_fs logical false rdepth parent_gen true end
+        >>
+        let%lwt child_entry = _load_child_node_at open_fs logical cl_key entry_key rdepth in
         let alloc_id = next_alloc_id cache in
         cl.alloc_id <- Some alloc_id;
         lru_xset cache.lru alloc_id child_entry;
@@ -1073,8 +1132,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         _reserve_dirty fs.node_cache alloc_id 2L;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
-        let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median in
-        let alloc2, entry2 = _new_node fs 2 (Some alloc_id) entry.highest_key in
+        let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median entry.rdepth in
+        let alloc2, entry2 = _new_node fs 2 (Some alloc_id) entry.highest_key entry.rdepth in
         let logi1, logi2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) logindex in
         let cl1, cl2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) children in
         let fc1, fc2 = KeyedMap.partition (fun k _v -> String.compare k median <= 0) di.flush_children in
@@ -1106,7 +1165,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let fc = KeyedMap.add median alloc1 fc in
         let fc = KeyedMap.add entry.highest_key alloc2 fc in
         _reset_contents entry;
-        set_rootnode_hdr_depth entry.raw_node @@ Int32.succ @@ get_rootnode_hdr_depth entry.raw_node;
+        entry.rdepth <- Int32.succ entry.rdepth;
+        set_rootnode_hdr_depth entry.raw_node entry.rdepth;
         _add_child entry entry1 alloc1 fs.node_cache alloc_id;
         _add_child entry entry2 alloc2 fs.node_cache alloc_id;
         entry1.flush_info <- Some { flush_children=fc1 };
@@ -1126,7 +1186,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         _reserve_dirty fs.node_cache alloc_id 1L;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
-        let alloc1, entry1 = _new_node fs 2 (Some parent_key) median in
+        let alloc1, entry1 = _new_node fs 2 (Some parent_key) median entry.rdepth in
         let kdo_out = ref @@ header_size entry.cached_node in
         let kdos = List.fold_right (fun kdo kdos ->
           let key1 = Cstruct.to_string @@ Cstruct.sub entry.raw_node kdo P.key_size in
@@ -1283,33 +1343,6 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     stats.range_searches <- succ stats.range_searches;
     _search_range root.open_fs root.root_key start_cond end_cond seen callback
 
-  let rec _scan_all_nodes open_fs logical depth parent_gen =
-    Logs.debug (fun m -> m "_scan_all_nodes %Ld %d" logical depth);
-    (* TODO add more fsck style checks *)
-    let cache = open_fs.node_cache in
-    let sm = bitv_get64 cache.space_map logical in
-    if sm then failwith "logical address referenced twice";
-    bitv_set64 cache.space_map logical true;
-    cache.free_count <- int64_pred_nowrap cache.free_count;
-    let%lwt cstr, _io_data = _load_data_at open_fs.filesystem logical in
-    let hdrsize = match get_anynode_hdr_nodetype cstr with
-      |1 (* root *) when depth = 0 -> sizeof_rootnode_hdr
-      |2 (* inner *) when depth > 0 -> sizeof_childnode_hdr
-      |ty -> raise @@ BadNodeType ty
-    in
-    let gen = get_anynode_hdr_generation cstr in
-    (* prevents cycles *)
-    if gen >= parent_gen then failwith "generation is not lower than for parent";
-    let rec scan_key off =
-      if off < hdrsize + redzone_size - sizeof_logical then failwith "child link data bleeding into start of node";
-      let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-      begin if log1 <> 0L then
-        _scan_all_nodes open_fs log1 (depth + 1) gen >> scan_key (off - childlink_size)
-      else if redzone_size > sizeof_logical && not @@ is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
-        Lwt.fail @@ Failure "partial redzone"
-      else Lwt.return () end in
-      scan_key (block_end - childlink_size)
-
   let _sb_io block_io =
     Cstruct.sub block_io 0 sizeof_superblock
 
@@ -1434,8 +1467,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             let typ = get_anynode_hdr_nodetype cstr in
             if typ <> 1 then raise @@ BadNodeType typ;
             let root_generation = get_rootnode_hdr_generation cstr in
+            let rdepth = get_rootnode_hdr_depth cstr in
             let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
+            let scan_map = if P.fast_scan then Some (bitv_create64 logical_size false) else None in
             let free_count = Int64.pred logical_size in
             let node_cache = {
               lru=lru_create cache_size;
@@ -1444,6 +1479,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
               next_generation=Int64.succ root_generation;
               logical_size;
               space_map;
+              scan_map;
               free_count;
               new_count=0L;
               dirty_count=0L;
@@ -1452,7 +1488,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             (* TODO add more integrity checking *)
-            _scan_all_nodes open_fs lroot 0 Int64.max_int >>
+            _scan_all_nodes open_fs lroot true rdepth Int64.max_int false >>
             let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
             let root = {open_fs; root_key;} in
             log_statistics root;
@@ -1470,6 +1506,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
               next_generation=1L;
               logical_size;
               space_map;
+              scan_map=None;
               free_count;
               new_count=0L;
               dirty_count=0L;
