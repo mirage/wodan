@@ -29,6 +29,7 @@ depends: [
   "mirage-types-lwt" {>= "3.0.5"}
   "ctypes"
   "ctypes-foreign"
+  "csv" {>= "2.0"}
 ]
 
 available: [ocaml-version >= "4.03.0"]

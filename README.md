@@ -15,16 +15,6 @@ An opam switch with flambda is recommended for performance reasons.
 opam switch 4.04.1+fp+flambda
 ```
 
-### Pinned dependencies
-
-Currently CSV needs to be pinned to the
-[master version](https://github.com/Chris00/ocaml-csv),
-which contains <https://github.com/Chris00/ocaml-csv/pull/18>.
-
-```
-opam pin add --dev-repo csv
-```
-
 ### Building the library
 
 ```
