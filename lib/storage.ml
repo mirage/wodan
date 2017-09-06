@@ -786,8 +786,10 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
   let _update_space_map cache logical expect_sm =
     let sm = bitv_get64 cache.space_map logical in
     if sm <> expect_sm then if expect_sm then failwith "logical address appeared out of thin air" else failwith "logical address referenced twice";
-    bitv_set64 cache.space_map logical true;
-    cache.free_count <- int64_pred_nowrap cache.free_count
+    if not expect_sm then begin
+      bitv_set64 cache.space_map logical true;
+      cache.free_count <- int64_pred_nowrap cache.free_count
+    end
 
   let rec _scan_all_nodes open_fs logical expect_root rdepth parent_gen expect_sm =
     Logs.debug (fun m -> m "_scan_all_nodes %Ld %ld" logical rdepth);
