@@ -676,6 +676,11 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       assert (parent_key <> alloc_id);
       Cstruct.LE.set_uint64 parent_entry.raw_node (cl.offset + P.key_size) logical;
     |None -> () end;
+    if entry.rdepth = Int32.zero then begin
+      match cache.scan_map with
+      |None -> ()
+      |Some scan_map -> bitv_set64 scan_map logical true
+    end;
     begin match entry.prev_logical with
     |Some plog ->
         begin
