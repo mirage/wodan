@@ -828,9 +828,14 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       else Lwt.return () end
     in
     scan_key (block_end - childlink_size) >>
-    match cache.scan_map with
-      |None -> Lwt.return_unit
-      |Some scan_map -> begin bitv_set64 scan_map logical true; Lwt.return_unit end
+    begin
+      if rdepth = Int32.zero then begin
+      match cache.scan_map with
+        |None -> ()
+        |Some scan_map -> bitv_set64 scan_map logical true;
+      end;
+      Lwt.return_unit
+    end
 
   let _logical_of_cl cstr cl =
     Cstruct.LE.get_uint64 cstr (cl.offset + P.key_size)
@@ -845,7 +850,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |None ->
         let logical = _logical_of_cl cstr cl in
         begin if%lwt Lwt.return P.fast_scan then match cache.scan_map with None -> assert false |Some scan_map ->
-          if%lwt Lwt.return @@ not @@ bitv_get64 scan_map logical then
+          if%lwt Lwt.return (rdepth = Int32.zero && not @@ bitv_get64 scan_map logical) then
             (* generation may not be fresh, but is always initialised in this branch,
                so this is not a problem *)
             let parent_gen = get_anynode_hdr_generation cstr in
