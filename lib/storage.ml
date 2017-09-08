@@ -21,6 +21,8 @@ exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
 
+let sb_incompat_rdepth = 1l
+
 (* 512 bytes.  The rest of the block isn't crc-controlled. *)
 [%%cstruct type superblock = {
   magic: uint8_t [@len 16];
@@ -1369,7 +1371,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       then raise BadMagic
       else if get_superblock_version sb <> superblock_version
       then raise BadVersion
-      else if get_superblock_incompat_flags sb <> 0l
+      else if get_superblock_incompat_flags sb <> sb_incompat_rdepth
       then raise BadFlags
       else if not @@ Crc32c.cstruct_valid sb
       then raise @@ BadCRC 0L
@@ -1392,6 +1394,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     let sb = _sb_io block_io in
     set_superblock_magic superblock_magic 0 sb;
     set_superblock_version sb superblock_version;
+    set_superblock_incompat_flags sb sb_incompat_rdepth;
     set_superblock_block_size sb (Int32.of_int P.block_size);
     set_superblock_key_size sb P.key_size;
     set_superblock_first_block_written sb first_block_written;
