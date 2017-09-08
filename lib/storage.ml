@@ -756,7 +756,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     |2 -> `Child
     |ty -> raise @@ BadNodeType ty
     in
-    let keydata = {keydata_offsets=[]; next_keydata_offset=sizeof_rootnode_hdr;} in
+    let keydata = {keydata_offsets=[]; next_keydata_offset=header_size cached_node;} in
     let entry = {parent_key; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=Lazy.from_val KeyedMap.empty; logindex=Lazy.from_val KeyedMap.empty; highest_key; prev_logical=None; childlinks={childlinks_offset=block_end;}} in
     lru_xset cache.lru alloc_id entry;
     alloc_id, entry
