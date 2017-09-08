@@ -18,9 +18,9 @@ opam switch 4.04.1+fp+flambda
 ### Building the library
 
 ```
-opam install jbuilder mirage ctypes-foreign
-jbuilder external-lib-deps --missing @install runner/main.exe # Follow the opam instructions
+opam install -y jbuilder mirage ctypes-foreign
 (cd runner; mirage configure --target unix)
+jbuilder external-lib-deps --missing @install runner/main.exe cli/wodan.exe # Follow the opam instructions
 make
 ```
 
