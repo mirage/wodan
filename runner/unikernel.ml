@@ -55,11 +55,12 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         Stor.log_statistics !root;
         Stor.flush !root >|= ignore
       end done
-      ) >> begin
-          let time1 = Unix.gettimeofday () in
-          let iops = (float_of_int !ios) /. (time1 -. !time0) in
-          Logs.info (fun m -> m "IOPS %f" iops);
-          Lwt.return_unit
-      end
-      (*[%lwt.finally Lwt.return @@ Stor.log_statistics root]*)
+      )
+      [%lwt.finally begin
+        let time1 = Unix.gettimeofday () in
+        let iops = (float_of_int !ios) /. (time1 -. !time0) in
+        (*Stor.log_statistics root;*)
+        Logs.info (fun m -> m "IOPS %f" iops);
+        Lwt.return_unit
+      end]
 end
