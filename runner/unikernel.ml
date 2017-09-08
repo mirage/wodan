@@ -5,6 +5,8 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
   module Stor = Storage.Make(B)(Storage.StandardParams)
 
   let start _con disk _crypto =
+    let ios = ref 0 in
+    let time0 = ref 0. in
     let%lwt info = B.get_info disk in
     let%lwt rootval, _gen0 = Stor.prepare_io (Storage.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)) disk 1024 in
@@ -22,10 +24,12 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let%lwt Some cval2 = Stor.lookup !root key in
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval2));
     if gen1 <> gen2 then begin Logs.err (fun m -> m "Generation fail %Ld %Ld" gen1 gen2); assert false; end;
+    time0 := Unix.gettimeofday ();
     while%lwt true do
       let key = Stor.key_of_cstruct @@ Nocrypto.Rng.generate 20 and
         cval = Stor.value_of_cstruct @@ Nocrypto.Rng.generate 40 in
       begin try%lwt
+        ios := succ !ios;
         Stor.insert !root key cval
       with
       |Storage.NeedsFlush -> begin
@@ -51,6 +55,11 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
         Stor.log_statistics !root;
         Stor.flush !root >|= ignore
       end done
-    )
+      ) >> begin
+          let time1 = Unix.gettimeofday () in
+          let iops = (float_of_int !ios) /. (time1 -. !time0) in
+          Logs.info (fun m -> m "IOPS %f" iops);
+          Lwt.return_unit
+      end
       (*[%lwt.finally Lwt.return @@ Stor.log_statistics root]*)
 end
