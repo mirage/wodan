@@ -24,6 +24,14 @@ jbuilder external-lib-deps --missing @install runner/main.exe # Follow the opam 
 make
 ```
 
+## CLI usage
+
+```
+_build/default/cli/wodan.exe --help
+```
+
+At the moment the CLI supports creating filesystems, dumping and restoring data into them.
+
 ### Running tests
 
 ```
