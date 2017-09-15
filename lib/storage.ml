@@ -23,6 +23,8 @@ exception BadNodeType of int
 
 let sb_incompat_rdepth = 1l
 
+[@@@warning "-32"]
+
 (* 512 bytes.  The rest of the block isn't crc-controlled. *)
 [%%cstruct type superblock = {
   magic: uint8_t [@len 16];
@@ -77,6 +79,8 @@ let () = assert (sizeof_anynode_hdr = 9)
 (* Contents: logged data, and child node links *)
 (* Layout: see above *)
 
+[@@@warning "+32"]
+
 let sizeof_datalen = 2
 
 let sizeof_logical = 8
@@ -125,22 +129,9 @@ type node = [
   |`Root
   |`Child]
 
-let is_root = function
-  |`Root -> true
-  |_ -> false
-
-let type_code = function
-  |`Root -> 1
-  |`Child -> 2
-
 let header_size = function
   |`Root -> sizeof_rootnode_hdr
   |`Child -> sizeof_childnode_hdr
-
-let check_node_type = function
-  |1 -> `Root
-  |2 -> `Child
-  |ty -> raise @@ BadNodeType ty
 
 let string_dump key =
   Cstruct.hexdump @@ Cstruct.of_string key
@@ -150,7 +141,6 @@ module KeyedSet = Set.Make(String)
 
 module LRUKey = struct
   type t = int64
-  let compare = Int64.compare
   let hash = Hashtbl.hash
   let equal = Int64.equal
 end
@@ -183,9 +173,6 @@ module LRUValue = struct
   type t = lru_entry
   let weight _val = 1
 end
-
-let generation_of_node entry =
-  get_anynode_hdr_generation entry.raw_node
 
 module LRU = Lru.M.Make(LRUKey)(LRUValue)
 
@@ -1367,7 +1354,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       |Result.Error _ -> raise ReadError
       |Result.Ok () ->
           let sb = _sb_io block_io in
-      if Cstruct.to_string @@ get_superblock_magic sb <> superblock_magic
+      if copy_superblock_magic sb <> superblock_magic
       then raise BadMagic
       else if get_superblock_version sb <> superblock_version
       then raise BadVersion
