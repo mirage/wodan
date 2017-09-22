@@ -253,3 +253,23 @@ struct
     Stor.mem (db_root db) @@ key_to_inner_key k
 end
 
+module Make (BC: BLOCK_CON) (PA: Storage.PARAMS)
+(M: Irmin.Metadata.S)
+(C: Irmin.Contents.S)
+(P: Irmin.Path.S)
+(B: Irmin.Branch.S)
+(H: Irmin.Hash.S)
+= struct
+  module AO = AO_BUILDER(BC)(PA)
+  module RW = RW_BUILDER(BC)(PA)(H)
+  include Irmin.Make(AO)(RW)(M)(C)(P)(B)(H)
+end
+
+module KV (BC: BLOCK_CON) (PA: Storage.PARAMS) (C: Irmin.Contents.S)
+= Make(BC)(PA)
+  (Irmin.Metadata.None)
+  (C)
+  (Irmin.Path.String_list)
+  (Irmin.Branch.String)
+  (Irmin.Hash.SHA1)
+
