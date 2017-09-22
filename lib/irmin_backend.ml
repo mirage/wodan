@@ -1,5 +1,10 @@
 open Lwt.Infix
 
+module StandardParams = struct
+  include Storage.StandardParams
+  let has_tombstone = true
+end
+
 module Conf = struct
   let path =
     Irmin.Private.Conf.key ~doc:"Path to filesystem image" "path"
@@ -38,8 +43,8 @@ module type BLOCK_CON = sig
   include Mirage_types_lwt.BLOCK
   (* XXX mirage-block-unix and mirage-block-ramdisk don't have the
    * exact same signature *)
-  (*val connect : name:string -> t*)
-  val connect : string -> t
+  (*val connect : name:string -> t io*)
+  val connect : string -> t Lwt.t
 end
 
 module type DB = sig
@@ -66,7 +71,7 @@ struct
     let path = C.get config Conf.path in
     let create = C.get config Conf.create in
     let lru_size = C.get config Conf.lru_size in
-    let disk = B.connect path in
+    B.connect path >>= function disk ->
     B.get_info disk >>= function info ->
     let open_arg = if create then
       Storage.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)

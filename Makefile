@@ -2,7 +2,7 @@
 .PHONY: build clean test
 
 build:
-	jbuilder build @install runner/main.exe cli/wodan.exe --dev
+	jbuilder build @install runner/main.exe cli/wodan.exe examples/irmin_example.exe --dev
 
 test:
 	jbuilder runtest
