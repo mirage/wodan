@@ -3,7 +3,7 @@
 (library
  ((name      test_wodan)
   (modules   (test_wodan))
-  (libraries (test irmin-mem wodan))))
+  (libraries (test irmin-mem io-page-unix nocrypto.lwt mirage-block-ramdisk wodan))))
 
 (executable
  ((name      test)

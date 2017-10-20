@@ -17,21 +17,33 @@
 open Lwt.Infix
 open Test_common
 
-let store = store (module Irmin_mem.Make) (module Irmin.Metadata.None)
+module BlockCon = struct
+  include Ramdisk
+  let connect name = Ramdisk.connect ~name
+end
 
+
+(*let store = store (module Irmin_backend.Make) (module Irmin.Metadata.None)*)
+let store = (module struct
+  include Irmin_backend.KV(BlockCon)(Irmin_backend.StandardParams)(Irmin.Contents.String) 
+  let author _t _id = failwith "Only used for testing Git stores"
+end : Test_common.Test_S)
+
+(*
 module Link = struct
-  include Irmin_mem.Link(Irmin.Hash.SHA1)
-  let v () = v (Irmin_mem.config ())
+  include Irmin_backend.Link(Irmin.Hash.SHA1)
+  let v () = v (Irmin_backend.config ())
 end
 
 let link = (module Link: Test_link.S)
-let config = Irmin_mem.config ()
+*)
+let config = Irmin_backend.config ~path:"disk.img" ~create:true ()
 
 let clean () =
   let (module S: Test_S) = store in
   S.Repo.v config >>= fun repo ->
   S.Repo.branches repo >>= Lwt_list.iter_p (S.Branch.remove repo)
 
-let init () = Lwt.return_unit
+let init () = Nocrypto_entropy_lwt.initialize ()
 let stats = None
 let suite = { name = "WODAN"; kind = `Core; init; clean; config; store; stats }

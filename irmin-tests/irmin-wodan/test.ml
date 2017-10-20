@@ -15,9 +15,9 @@
  *)
 
 let misc = [
-  "link", [
+  (*"link", [
     Test_link.test "wodan" Test_wodan.link;
-  ]
+  ]*)
 ]
 
 let () =
