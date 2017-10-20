@@ -1,0 +1,6 @@
+(jbuild_version 1)
+
+(library
+  ((name      test)
+   (wrapped   false)
+   (libraries (irmin mtime mtime.clock.os alcotest lwt.unix logs.fmt))))
