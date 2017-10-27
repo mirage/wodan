@@ -142,11 +142,16 @@ module Make (S: Test_S) = struct
       if time () -. t > timeout then fn (str i);
       try fn (str i); Lwt.return_unit
       with ex ->
-        Log.debug (fun f -> f "retry ex: %s" (Printexc.to_string ex));
-        let sleep_t = sleep_t *. (1. +. float i ** 2.) in
-        sleep ~sleep_t () >>= fun () ->
-        Log.debug (fun f -> f "Test.retry %s" (str i));
-        aux (i+1)
+        if i > 10 then begin
+          Log.debug (fun f -> f "retry ex: %s" (Printexc.to_string ex));
+          Lwt.fail @@ Failure "too many retries"
+        end else begin
+          Log.debug (fun f -> f "retry ex: %s" (Printexc.to_string ex));
+          let sleep_t = sleep_t *. (1. +. float i ** 2.) in
+          sleep ~sleep_t () >>= fun () ->
+          Log.debug (fun f -> f "Test.retry %s" (str i));
+          aux (i+1)
+        end
     in
     aux 0
 
@@ -1475,8 +1480,13 @@ module Make (S: Test_S) = struct
           fn () >>= function
           | true  -> Log.debug (fun f -> f "%d: ok!" d); Lwt.return_unit
           | false ->
-            Log.debug (fun f -> f "%d: conflict, retrying (%d)." d i);
-            aux (i+1)
+            if i > 10 then begin
+              Log.debug (fun f -> f "%d: conflict, giving up (%d)." d i);
+              Lwt.fail @@ Failure "too many conflicts"
+            end else begin
+              Log.debug (fun f -> f "%d: conflict, retrying (%d)." d i);
+              aux (i+1)
+            end
         in
         aux 1
       in
