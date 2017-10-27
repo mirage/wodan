@@ -141,12 +141,14 @@ struct
 
   module KeyHashtbl = Hashtbl.Make(Stor.Key)
   module W = Irmin.Private.Watch.Make(K)(V)
+  module L = Irmin.Private.Lock.Make(K)
 
   type t = {
     root: Stor.root;
     keydata: Stor.key KeyHashtbl.t;
     mutable magic_key: Stor.key;
     watches: W.t;
+    lock: L.t;
   }
 
   let db_root db = db.root
@@ -177,6 +179,7 @@ struct
         keydata = KeyHashtbl.create 10;
         magic_key = Stor.key_of_string @@ C.get config Conf.list_key;
         watches = W.v ();
+        lock = L.v ();
       } in
       begin try%lwt
         while%lwt true do
@@ -208,8 +211,9 @@ struct
   let set db k va =
     let ik = key_to_inner_key k in
     let iv = val_to_inner_val va in
-    set_and_list db ik iv @@ key_to_inner_val k >>
-    W.notify db.watches k (Some va)
+    L.with_lock db.lock k (fun () ->
+    set_and_list db ik iv @@ key_to_inner_val k)
+    >> W.notify db.watches k (Some va)
 
   type watch = W.watch
 
@@ -222,19 +226,24 @@ struct
     let test = match test with
     |Some va -> Some (val_to_inner_val va)
     |None -> None in
-    Stor.lookup (db_root db) @@ ik >>= function v0 ->
+    L.with_lock db.lock k (fun () ->
+      Stor.lookup (db_root db) @@ ik >>= function v0 ->
       if v0 = test then begin
         match set with
         |Some va ->
             set_and_list db ik (val_to_inner_val va) @@ key_to_inner_val k
         |None -> Stor.insert (db_root db) ik @@ Stor.value_of_string ""
-      end >> W.notify db.watches k set >> Lwt.return_true
+      end >> Lwt.return_true
       else Lwt.return_false
+    ) >>= fun updated -> begin
+      if updated then W.notify db.watches k set else Lwt.return_unit
+    end >> Lwt.return updated
 
   let remove db k =
     let ik = key_to_inner_key k in
     let va = Stor.value_of_string "" in
-    Stor.insert (db_root db) ik va >>
+    L.with_lock db.lock k (fun () ->
+    Stor.insert (db_root db) ik va) >>= fun () ->
     W.notify db.watches k None
 
   let list db =
