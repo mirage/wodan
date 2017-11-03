@@ -136,6 +136,9 @@ let header_size = function
 let string_dump key =
   Cstruct.hexdump @@ Cstruct.of_string key
 
+let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
+module Logs = (val Logs.src_log src : Logs.LOG)
+
 module KeyedMap = Map_pr869.Make(String)
 module KeyedSet = Set.Make(String)
 
