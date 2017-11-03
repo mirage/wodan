@@ -18,7 +18,7 @@ open Result
 open Lwt.Infix
 open Test_common
 
-let src = Logs.Src.create "test" ~doc:"Irmin tests"
+let src = Logs.Src.create "test2" ~doc:"Irmin tests"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 module T = Irmin.Type
@@ -143,13 +143,13 @@ module Make (S: Test_S) = struct
       try fn (str i); Lwt.return_unit
       with ex ->
         if i > 10 then begin
-          Log.debug (fun f -> f "retry ex: %s" (Printexc.to_string ex));
+          Logs.err (fun f -> f "retry ex: %s" (Printexc.to_string ex));
           Lwt.fail @@ Failure "too many retries"
         end else begin
-          Log.debug (fun f -> f "retry ex: %s" (Printexc.to_string ex));
+          Logs.err (fun f -> f "retry ex: %s" (Printexc.to_string ex));
           let sleep_t = sleep_t *. (1. +. float i ** 2.) in
           sleep ~sleep_t () >>= fun () ->
-          Log.debug (fun f -> f "Test.retry %s" (str i));
+          Logs.err (fun f -> f "Test.retry %s" (str i));
           aux (i+1)
         end
     in
@@ -391,13 +391,13 @@ module Make (S: Test_S) = struct
       >>= fun w ->
 
       S.set t ~info:(infof "update") key v1 >>= fun () ->
-      retry (fun n -> Alcotest.(check int) ("watch 1 " ^ n) 3 !r) >>= fun () ->
+      retry (fun n -> Alcotest.(check int) ("watch 1 " ^ n ^ " " ^ string_of_int !r) 3 !r) >>= fun () ->
 
       S.Head.find t >>= fun h ->
       old_head := h;
 
       S.set t ~info:(infof "update") key v2 >>= fun () ->
-      retry (fun n -> Alcotest.(check int) ("watch 2 " ^ n) 6 !r) >>= fun () ->
+      retry (fun n -> Alcotest.(check int) ("watch 2 " ^ n ^ " " ^ string_of_int !r) 6 !r) >>= fun () ->
 
       S.unwatch u >>= fun () ->
       S.unwatch v >>= fun () ->
@@ -413,9 +413,9 @@ module Make (S: Test_S) = struct
       S.watch_key ~init:h t key (fun _ -> incr r; Lwt.return_unit)
       >>= fun w ->
       S.set t ~info:(infof "update") key v1 >>= fun () ->
-      retry (fun n -> Alcotest.(check int) ("watch 3 " ^ n) 9 !r) >>= fun () ->
+      retry (fun n -> Alcotest.(check int) ("watch 3 " ^ n ^ " " ^ string_of_int !r) 9 !r) >>= fun () ->
       S.set t ~info:(infof "update") key v2 >>= fun () ->
-      retry (fun n -> Alcotest.(check int) ("watch 4 " ^ n) 12 !r) >>= fun () ->
+      retry (fun n -> Alcotest.(check int) ("watch 4 " ^ n ^ " " ^ string_of_int !r) 12 !r) >>= fun () ->
       S.unwatch u >>= fun () ->
       S.unwatch v >>= fun () ->
       S.unwatch w >>= fun () ->
