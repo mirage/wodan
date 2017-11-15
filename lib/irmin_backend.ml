@@ -165,13 +165,20 @@ struct
   type key = K.t
   type value = V.t
 
+  let copy_cstruct x =
+    let len = Cstruct.len x in
+    let dst = Cstruct.create_unsafe len in
+    Cstruct.blit x 0 dst 0 len;
+    dst
+
   let key_to_inner_key k = Stor.key_of_cstruct @@ H.to_raw @@ H.digest K.t k
   let val_to_inner_val va = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct V.t va
   let key_to_inner_val k = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct K.t k
   let key_of_inner_val va =
     Rresult.R.get_ok @@ Irmin.Type.decode_cstruct K.t @@ Stor.cstruct_of_value va
   let val_of_inner_val va =
-    Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t @@ Stor.cstruct_of_value va
+    Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t
+    @@ copy_cstruct @@ Stor.cstruct_of_value va
   let inner_val_to_inner_key va =
     Stor.key_of_cstruct @@ H.to_raw @@ H.digest Irmin.Type.cstruct
     @@ Stor.cstruct_of_value va
