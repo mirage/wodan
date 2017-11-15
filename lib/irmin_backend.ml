@@ -221,6 +221,11 @@ struct
   let watch_key db = W.watch_key db.watches
   let unwatch db = W.unwatch db.watches
 
+  let opt_equal f x y = match x, y with
+    | None  ,  None  -> true
+    | Some x, Some y -> f x y
+    | _ -> false
+
   let test_and_set db k ~test ~set =
     let ik = key_to_inner_key k in
     let test = match test with
@@ -228,7 +233,7 @@ struct
     |None -> None in
     L.with_lock db.lock k (fun () ->
       Stor.lookup (db_root db) @@ ik >>= function v0 ->
-      if v0 = test then begin
+      if opt_equal Stor.value_equal v0 test then begin
         match set with
         |Some va ->
             set_and_list db ik (val_to_inner_val va) @@ key_to_inner_val k
@@ -286,4 +291,3 @@ module KV (BC: BLOCK_CON) (PA: Storage.PARAMS) (C: Irmin.Contents.S)
   (Irmin.Path.String_list)
   (Irmin.Branch.String)
   (Irmin.Hash.SHA1)
-

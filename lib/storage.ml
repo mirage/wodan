@@ -350,7 +350,7 @@ let rec _mark_dirty cache alloc_id : flush_info =
                     let parent_di = _mark_dirty cache parent_key in
                     begin
                       match KeyedMap.filter (fun _k lk -> lk = alloc_id) parent_di.flush_children with
-                      |m when m = KeyedMap.empty -> begin parent_di.flush_children <- KeyedMap.add entry.highest_key alloc_id parent_di.flush_children end
+                      |m when KeyedMap.is_empty m -> begin parent_di.flush_children <- KeyedMap.add entry.highest_key alloc_id parent_di.flush_children end
                       |_ -> failwith "dirty_node inconsistent" end
               end
             |None -> failwith "entry.parent_key inconsistent (no parent)";
@@ -441,6 +441,7 @@ module type S = sig
   val string_of_key : key -> string
   val value_of_cstruct : Cstruct.t -> value
   val value_of_string : string -> value
+  val value_equal : value -> value -> bool
   val cstruct_of_value : value -> Cstruct.t
   val string_of_value : value -> string
   val next_key : key -> key
@@ -488,6 +489,8 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
 
   let value_of_string str =
     value_of_cstruct @@ Cstruct.of_string str
+
+  let value_equal = Cstruct.equal
 
   let cstruct_of_value value = value
 
@@ -1523,4 +1526,3 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             let root_key = 1L in
             Lwt.return ({open_fs; root_key;}, 1L)
 end
-
