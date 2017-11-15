@@ -54,7 +54,54 @@ module type DB = sig
   module Stor : Storage.S
   type t
   val db_root : t -> Stor.root
+  val make : path:string -> create:bool -> lru_size:int -> t Lwt.t
   val v : Irmin.config -> t Lwt.t
+end
+
+module Cache (X: sig
+    type config
+    type t
+    val v: config -> t Lwt.t
+  end): sig
+  val read : X.config -> (X.config * X.t) Lwt.t
+  val clear: unit -> unit
+end = struct
+
+  (* inspired from ocaml-git/src/git/fs.ml *)
+
+  type key = { config: X.config; w: X.t Weak.t }
+
+  module WeakTbl = Weak.Make(struct
+      type t = key
+      let hash t = Hashtbl.hash t.config
+      let equal t1 t2 = t1.config = t2.config
+    end)
+
+  let cache = WeakTbl.create 10
+  let clear () = WeakTbl.clear cache
+  let dummy = Weak.create 0 (* only used to create a search key *)
+
+  let find config =
+    try
+      let search_key = { config; w = dummy } in
+      let cached_value = WeakTbl.find cache search_key in
+      match Weak.get cached_value.w 0 with
+      | None   -> WeakTbl.remove cache cached_value; None
+      | Some f -> Some (cached_value.config, f)
+    with Not_found ->
+      None
+
+  let add config t =
+    let w = Weak.create 1 in
+    Weak.set w 0 (Some t);
+    let v = { config; w } in
+    Gc.finalise (fun _ -> Weak.set v.w 0 None) t; (* keep v alive *)
+    WeakTbl.add cache v
+
+  let read config =
+    match find config with
+    | Some v -> Lwt.return v
+    | None   -> X.v config >|= fun v -> add config v; config, v
 end
 
 module DB_BUILDER
@@ -69,11 +116,7 @@ struct
 
   let db_root db = db.root
 
-  let v config =
-    let module C = Irmin.Private.Conf in
-    let path = C.get config Conf.path in
-    let create = C.get config Conf.create in
-    let lru_size = C.get config Conf.lru_size in
+  let make ~path ~create ~lru_size =
     B.connect path >>= function disk ->
     B.get_info disk >>= function info ->
     let open_arg = if create then
@@ -81,6 +124,23 @@ struct
     else Storage.OpenExistingDevice in
     Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
     Lwt.return { root }
+
+  module Cache = Cache(struct
+      type nonrec t = t
+      type config = string * bool * int
+      let v (path, create, lru_size) = make ~path ~create ~lru_size
+    end)
+
+  let v config =
+    let module C = Irmin.Private.Conf in
+    let path = C.get config Conf.path in
+    let create = C.get config Conf.create in
+    let lru_size = C.get config Conf.lru_size in
+    Cache.read (path, create, lru_size) >|= fun ((_, _, lru_size'), t) ->
+    (* FIXME: handle 'create' *)
+    assert (lru_size=lru_size');
+    t
+
 end
 
 module RO_BUILDER
@@ -183,14 +243,13 @@ struct
     Stor.key_of_cstruct @@ H.to_raw @@ H.digest Irmin.Type.cstruct
     @@ Stor.cstruct_of_value va
 
-  let v config =
-    let module C = Irmin.Private.Conf in
-    BUILDER.v config >>= function db ->
+  let make ~path ~create ~lru_size ~list_key =
+    BUILDER.make ~path ~create ~lru_size >>= function db ->
       let root = BUILDER.db_root db in
       let db = {
         root;
         keydata = KeyHashtbl.create 10;
-        magic_key = Stor.key_of_string @@ C.get config Conf.list_key;
+        magic_key = Stor.key_of_string list_key;
         watches = W.v ();
         lock = L.v ();
       } in
@@ -208,6 +267,27 @@ struct
       with Exit -> Lwt.return_unit
         end >>
           Lwt.return db
+
+  module Cache = Cache(struct
+      type nonrec t = t
+      type config = string * bool * int * string
+      let v (path, create, lru_size, list_key) =
+        make ~path ~create ~lru_size ~list_key
+    end)
+
+  let v config =
+    let module C = Irmin.Private.Conf in
+    let path = C.get config Conf.path in
+    let create = C.get config Conf.create in
+    let lru_size = C.get config Conf.lru_size in
+    let list_key = C.get config Conf.list_key in
+    Cache.read (path, create, lru_size, list_key) >|=
+    fun ((_, _, lru_size', list_key'), t) ->
+    (* FIXME: handle 'create' *)
+    assert (lru_size=lru_size');
+    assert (list_key=list_key');
+    t
+
 
   let set_and_list db ik iv ikv =
     assert (not @@ Stor.is_tombstone iv);
