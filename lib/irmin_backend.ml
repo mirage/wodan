@@ -1,5 +1,8 @@
 open Lwt.Infix
 
+let src = Logs.Src.create "irmin.wodan"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 module StandardParams = struct
   include Storage.StandardParams
   let has_tombstone = true
@@ -95,12 +98,14 @@ struct
   let () = assert (K.digest_size = P.key_size)
 
   let find db k =
+    Log.debug (fun l -> l "find %a" K.pp k);
     Stor.lookup (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k >>= function
     |None -> Lwt.return_none
     |Some v -> Lwt.return_some
       @@ Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t @@ Stor.cstruct_of_value v
 
   let mem db k =
+    Log.debug (fun l -> l "mem %a" K.pp k);
     Stor.mem (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k
 end
 
@@ -114,6 +119,7 @@ struct
   let add db va =
     let raw_v = Irmin.Type.encode_cstruct V.t va in
     let k = K.digest V.t va in
+    Logs.debug (fun m -> m "add -> %a" K.pp k);
     let raw_k = K.to_raw k in
     Stor.insert (db_root db) (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v >>=
       function () -> Lwt.return k
@@ -240,6 +246,7 @@ struct
     end >> Lwt.return updated
 
   let remove db k =
+    Log.debug (fun l -> l "remove %a" K.pp k);
     let ik = key_to_inner_key k in
     let va = Stor.value_of_string "" in
     L.with_lock db.lock k (fun () ->
@@ -247,6 +254,7 @@ struct
     W.notify db.watches k None
 
   let list db =
+    Log.debug (fun l -> l "list");
     KeyHashtbl.fold (fun ik mk io ->
       io >>= function l ->
         Stor.mem db.root ik >>= function
@@ -259,6 +267,7 @@ struct
     ) db.keydata @@ Lwt.return []
 
   let find db k =
+    Log.debug (fun l -> l "find %a" K.pp k);
     Stor.lookup (db_root db) @@ key_to_inner_key k >>= function
     |None -> Lwt.return_none
     |Some va -> Lwt.return_some @@ val_of_inner_val va
