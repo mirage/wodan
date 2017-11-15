@@ -44,6 +44,7 @@ module type S =
     val string_of_key : key -> string
     val value_of_cstruct : Cstruct.t -> value
     val value_of_string : string -> value
+    val value_equal : value -> value -> bool
     val cstruct_of_value : value -> Cstruct.t
     val string_of_value : value -> string
     val next_key : key -> key
