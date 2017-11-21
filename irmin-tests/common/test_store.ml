@@ -42,7 +42,7 @@ let random_string n = String.init n (fun _i -> random_char ())
 let long_random_string = random_string (* 1024_000 *) 10
 
 let random_ascii_string n = String.init n (fun _i -> random_ascii ())
-let long_random_ascii_string = random_ascii_string 1024_000
+let long_random_ascii_string = random_ascii_string 65_000
 
 module Make (S: Test_S) = struct
 
