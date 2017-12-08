@@ -25,7 +25,7 @@ end
 
 (*let store = store (module Irmin_backend.Make) (module Irmin.Metadata.None)*)
 let store = (module struct
-  include Irmin_backend.KV(BlockCon)(Irmin_backend.StandardParams)(Irmin.Contents.String) 
+  include Irmin_backend.KV_chunked(BlockCon)(Irmin_backend.StandardParams)(Irmin.Contents.String)
   let author _t _id = failwith "Only used for testing Git stores"
 end : Test_common.Test_S)
 
