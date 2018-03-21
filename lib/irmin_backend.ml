@@ -56,6 +56,7 @@ module type DB = sig
   val db_root : t -> Stor.root
   val make : path:string -> create:bool -> lru_size:int -> t Lwt.t
   val v : Irmin.config -> t Lwt.t
+  val with_autoflush : Stor.root -> (unit -> 'a Lwt.t) -> 'a Lwt.t
 end
 
 module Cache (X: sig
@@ -125,6 +126,13 @@ struct
     Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
     Lwt.return { root }
 
+  let with_autoflush root op =
+    try%lwt
+      op ()
+    with Storage.NeedsFlush ->
+      Stor.flush root >>= function _gen ->
+      op ()
+
   module Cache = Cache(struct
       type nonrec t = t
       type config = string * bool * int
@@ -181,7 +189,10 @@ struct
     let k = K.digest V.t va in
     Logs.debug (fun m -> m "add -> %a" K.pp k);
     let raw_k = K.to_raw k in
-    Stor.insert (db_root db) (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v >>=
+    let root = db_root db in
+    with_autoflush root (fun () ->
+        Stor.insert root (Stor.key_of_cstruct raw_k)
+        @@ Stor.value_of_cstruct raw_v) >>=
       function () -> Lwt.return k
 end
 
@@ -194,7 +205,10 @@ struct
   let add db k va =
     let raw_v = K.to_raw va in
     let raw_k = K.to_raw k in
-    Stor.insert (db_root db) (Stor.key_of_cstruct raw_k) @@ Stor.value_of_cstruct raw_v
+    let root = db_root db in
+    with_autoflush root (fun () ->
+        Stor.insert root (Stor.key_of_cstruct raw_k)
+        @@ Stor.value_of_cstruct raw_v)
 end
 
 module RW_BUILDER
@@ -204,6 +218,7 @@ module RW_BUILDER
 struct
   module BUILDER = DB_BUILDER(B)(P)
   module Stor = BUILDER.Stor
+  let with_autoflush = BUILDER.with_autoflush
 
   module KeyHashtbl = Hashtbl.Make(Stor.Key)
   module W = Irmin.Private.Watch.Make(K)(V)
@@ -291,15 +306,19 @@ struct
 
   let set_and_list db ik iv ikv =
     assert (not @@ Stor.is_tombstone iv);
-    if not @@ KeyHashtbl.mem db.keydata ik then begin
+    begin if not @@ KeyHashtbl.mem db.keydata ik then begin
       KeyHashtbl.add db.keydata ik db.magic_key;
-      Stor.insert db.root db.magic_key ikv >>= fun () ->
-      begin
+      with_autoflush db.root
+      (fun () -> Stor.insert db.root db.magic_key ikv)
+      >>= fun () -> begin
         db.magic_key <- Stor.next_key db.magic_key;
-        Stor.insert db.root ik iv
+        Lwt.return_unit
       end
-    end else
-      Stor.insert db.root ik iv
+    end
+    else Lwt.return_unit end
+    >>= fun () ->
+    with_autoflush db.root
+      (fun () -> Stor.insert db.root ik iv)
 
   let set db k va =
     let ik = key_to_inner_key k in
@@ -319,18 +338,22 @@ struct
     | Some x, Some y -> f x y
     | _ -> false
 
+  (* XXX With autoflush, this might flush some data without finishing the insert *)
   let test_and_set db k ~test ~set =
     let ik = key_to_inner_key k in
+    let root = db_root db in
     let test = match test with
     |Some va -> Some (val_to_inner_val va)
     |None -> None in
     L.with_lock db.lock k (fun () ->
-      Stor.lookup (db_root db) @@ ik >>= function v0 ->
+      Stor.lookup root @@ ik >>= function v0 ->
       if opt_equal Stor.value_equal v0 test then begin
         match set with
         |Some va ->
             set_and_list db ik (val_to_inner_val va) @@ key_to_inner_val k
-        |None -> Stor.insert (db_root db) ik @@ Stor.value_of_string ""
+        |None ->
+            with_autoflush root (fun () ->
+              Stor.insert root ik @@ Stor.value_of_string "")
       end >>= fun () -> Lwt.return_true
       else Lwt.return_false
     ) >>= fun updated -> begin
@@ -341,8 +364,10 @@ struct
     Log.debug (fun l -> l "remove %a" K.pp k);
     let ik = key_to_inner_key k in
     let va = Stor.value_of_string "" in
+    let root = db_root db in
     L.with_lock db.lock k (fun () ->
-    Stor.insert (db_root db) ik va) >>= fun () ->
+        with_autoflush root (fun () ->
+            Stor.insert root ik va)) >>= fun () ->
     W.notify db.watches k None
 
   let list db =
