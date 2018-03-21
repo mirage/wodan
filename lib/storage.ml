@@ -736,7 +736,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             flush_rec 0L zero_key alloc_id []
       ) in
     cache.flush_root <- None;
-    r >> Lwt.return @@ Int64.pred cache.next_generation
+    r >>= fun () -> Lwt.return @@ Int64.pred cache.next_generation
 
   let _new_node open_fs tycode parent_key highest_key rdepth =
     let cache = open_fs.node_cache in
@@ -816,13 +816,13 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
           Lwt.return_unit
         end else
           _scan_all_nodes open_fs log1 false (Int32.pred rdepth) gen false
-      end >> scan_key (off - childlink_size)
+      end >>= fun () -> scan_key (off - childlink_size)
       end
       else if redzone_size > sizeof_logical && not @@ is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
         Lwt.fail @@ Failure "partial redzone"
       else Lwt.return () end
     in
-    scan_key (block_end - childlink_size) >>
+    scan_key (block_end - childlink_size) >>= fun () ->
     begin
       if rdepth = Int32.zero then begin
       match cache.scan_map with
@@ -850,7 +850,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
                so this is not a problem *)
             let parent_gen = get_anynode_hdr_generation cstr in
             _scan_all_nodes open_fs logical false rdepth parent_gen true end
-        >>
+        >>= fun () ->
         let%lwt child_entry = _load_child_node_at open_fs logical cl_key entry_key rdepth in
         let alloc_id = next_alloc_id cache in
         cl.alloc_id <- Some alloc_id;
@@ -1088,7 +1088,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         let clo = entry.childlinks.childlinks_offset in
         let nko = entry.keydata.next_keydata_offset in
         Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);
-        _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ depth + 1 >> begin
+        _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ depth + 1 >>= fun () -> begin
         Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
         if clo = entry.childlinks.childlinks_offset && nko = entry.keydata.next_keydata_offset then begin
         (* _reserve_insert didn't split the child or the root *)
@@ -1187,7 +1187,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
         assert (depth > 0);
         Logs.debug (fun m -> m "node splitting %d %Ld" depth alloc_id);
         (* Set split_path to prevent spill/split recursion; will split towards the root *)
-        _reserve_insert fs parent_key (InsSpaceChild childlink_size) true @@ depth - 1 >>
+        _reserve_insert fs parent_key (InsSpaceChild childlink_size) true @@ depth - 1 >>= fun () ->
         let _logindex = Lazy.force entry.logindex in
         let _children = Lazy.force entry.children in
         _reserve_dirty fs.node_cache alloc_id 1L;
@@ -1273,7 +1273,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
     _check_live_integrity root.open_fs root.root_key 0;
-    _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false 0 >>
+    _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false 0 >>= fun () ->
     begin
       _check_live_integrity root.open_fs root.root_key 0;
       _fast_insert root.open_fs root.root_key key (InsValue value) 0;
@@ -1382,7 +1382,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
     let block_io_fanned = make_fanned_io_list open_fs.filesystem.sector_size block_io in
     let alloc_id, _root = _new_root open_fs in
     open_fs.node_cache.new_count <- 1L;
-    _write_node open_fs alloc_id >> begin
+    _write_node open_fs alloc_id >>= fun () -> begin
     _log_statistics open_fs.node_cache;
     let sb = _sb_io block_io in
     set_superblock_magic superblock_magic 0 sb;
@@ -1432,7 +1432,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       (* Placeholder.
          TODO _scan_range start end
          TODO use _is_zero_data, type checks, crc checks, and loop *)
-      read start >>
+      read start >>= fun () ->
       if is_valid_root () then
         Lwt.return (start, get_anynode_hdr_generation cstr)
       else
@@ -1496,7 +1496,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
             } in
             let open_fs = { filesystem=fs; node_cache; } in
             (* TODO add more integrity checking *)
-            _scan_all_nodes open_fs lroot true rdepth Int64.max_int false >>
+            _scan_all_nodes open_fs lroot true rdepth Int64.max_int false >>= fun () ->
             let%lwt root_key, _entry = _load_root_node_at open_fs lroot in
             let root = {open_fs; root_key;} in
             log_statistics root;
@@ -1522,7 +1522,7 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
               statistics=default_statistics;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
-            _format open_fs logical_size first_block_written >>
+            _format open_fs logical_size first_block_written >>= fun () ->
             let root_key = 1L in
             Lwt.return ({open_fs; root_key;}, 1L)
 end

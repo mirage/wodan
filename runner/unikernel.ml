@@ -14,7 +14,7 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
     let root = ref rootval in
     let key = Stor.key_of_cstruct @@ Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Stor.value_of_cstruct @@ Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-    Stor.insert !root key cval >>
+    Stor.insert !root key cval >>= fun () ->
     Stor.flush !root >>= function gen1 ->
     let%lwt Some cval1 = Stor.lookup !root key in
     (*Cstruct.hexdump cval1;*)
@@ -39,11 +39,11 @@ module Client (C: CONSOLE) (B: BLOCK) = struct
       end
       |Storage.OutOfSpace as e -> begin
         Logs.info (fun m -> m "Final flush");
-        Stor.flush !root >|= ignore >>
+        Stor.flush !root >|= ignore >>= fun () ->
         raise e
       end
       end
-      >>
+      >>= fun () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
         Stor.flush !root >>= function gen3 ->
         let%lwt rootval, gen4 = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in

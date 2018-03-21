@@ -265,7 +265,7 @@ struct
             end
         done
       with Exit -> Lwt.return_unit
-        end >>
+        end >>= fun () ->
           Lwt.return db
 
   module Cache = Cache(struct
@@ -293,7 +293,7 @@ struct
     assert (not @@ Stor.is_tombstone iv);
     if not @@ KeyHashtbl.mem db.keydata ik then begin
       KeyHashtbl.add db.keydata ik db.magic_key;
-      Stor.insert db.root db.magic_key ikv >>
+      Stor.insert db.root db.magic_key ikv >>= fun () ->
       begin
         db.magic_key <- Stor.next_key db.magic_key;
         Stor.insert db.root ik iv
@@ -306,7 +306,7 @@ struct
     let iv = val_to_inner_val va in
     L.with_lock db.lock k (fun () ->
     set_and_list db ik iv @@ key_to_inner_val k)
-    >> W.notify db.watches k (Some va)
+    >>= fun () -> W.notify db.watches k (Some va)
 
   type watch = W.watch
 
@@ -331,11 +331,11 @@ struct
         |Some va ->
             set_and_list db ik (val_to_inner_val va) @@ key_to_inner_val k
         |None -> Stor.insert (db_root db) ik @@ Stor.value_of_string ""
-      end >> Lwt.return_true
+      end >>= fun () -> Lwt.return_true
       else Lwt.return_false
     ) >>= fun updated -> begin
       if updated then W.notify db.watches k set else Lwt.return_unit
-    end >> Lwt.return updated
+    end >>= fun () -> Lwt.return updated
 
   let remove db k =
     Log.debug (fun l -> l "remove %a" K.pp k);

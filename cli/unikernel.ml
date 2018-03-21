@@ -1,4 +1,5 @@
 open Mirage_types_lwt
+open Lwt.Infix
 
 module Client (B: BLOCK) = struct
   module Stor = Storage.Make(B)(Storage.StandardParams)
@@ -19,7 +20,7 @@ module Client (B: BLOCK) = struct
       compl := ( try%lwt Stor.insert root (Stor.key_of_string @@ B64.decode k) (Stor.value_of_string @@ B64.decode v) with Storage.NeedsFlush -> let%lwt _gen = Stor.flush root in Lwt.return_unit ) :: !compl
       |_ -> failwith "Bad CSV format"
       ) csv_in;
-    Lwt.join !compl >>
+    Lwt.join !compl >>= fun () ->
     let%lwt _gen = Stor.flush root in
     Lwt.return_unit
 
@@ -27,7 +28,7 @@ module Client (B: BLOCK) = struct
     let%lwt root, _gen = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
     let out_csv = Csv.to_channel ~separator:'\t' stdout in
     Stor.search_range root (fun _k -> true) (fun _k -> false) (fun k v ->
-      Csv.output_record out_csv [B64.encode @@ Stor.string_of_key k; B64.encode @@ Stor.string_of_value v]) >>
+      Csv.output_record out_csv [B64.encode @@ Stor.string_of_key k; B64.encode @@ Stor.string_of_value v]) >>= fun () ->
     begin Csv.close_out out_csv;
     Lwt.return_unit end
 end

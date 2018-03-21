@@ -26,13 +26,13 @@ end)
       let%lwt res = B.read disk Int64.(mul (of_int i) @@ of_int Stor.P.block_size) [cstr] in
       cstr_cond_reset cstr;
       Lwt.return ()
-    done >>
+    done >>= fun () ->
     let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
     let root = ref @@ Storage.RootMap.find 1l roots in
     let key = Cstruct.of_string "abcdefghijklmnopqrst" in
     let cval = Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-    Stor.insert !root key cval >>
-    Stor.flush !root.open_fs >>
+    Stor.insert !root key cval >>= fun () ->
+    Stor.flush !root.open_fs >>= fun () ->
     let%lwt cval1 = Stor.lookup !root key in
     assert (Cstruct.equal cval cval1);
     let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
