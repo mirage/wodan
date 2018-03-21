@@ -37,20 +37,29 @@ let http_store = create (module Irmin_unix.Http.Make)
 let git_store (module C: Irmin.Contents.S) =
   (module Irmin_unix.Git.FS.KV(C) : Irmin.S)
 
-module BlockCon = struct
+module RamBlockCon = struct
   include Ramdisk
   let connect name = Ramdisk.connect ~name
 end
 
+module FileBlockCon = struct
+  include Block
+  let connect name = Block.connect name
+end
+
 let wodan_mem_store (module C: Irmin.Contents.S) =
-  (module Irmin_wodan.KV(BlockCon)(Irmin_wodan.StandardParams)(C) : Irmin.S)
+  (module Irmin_wodan.KV(RamBlockCon)(Irmin_wodan.StandardParams)(C) : Irmin.S)
+
+let wodan_file_store (module C: Irmin.Contents.S) =
+  (module Irmin_wodan.KV(FileBlockCon)(Irmin_wodan.StandardParams)(C) : Irmin.S)
 
 let mk_store = function
   | `Mem  -> mem_store
   | `Irf  -> irf_store
   | `Http -> http_store
   | `Git  -> git_store
-  | `WodanMem  -> wodan_mem_store
+  | `WodanMem -> wodan_mem_store
+  | `Wodan -> wodan_file_store
 
 let store_kinds = [
   ("git" , `Git);
@@ -58,6 +67,7 @@ let store_kinds = [
   ("http", `Http);
   ("mem" , `Mem);
   ("wodan-mem" , `WodanMem);
+  ("wodan" , `Wodan);
 ]
 
 let default_store = `WodanMem
