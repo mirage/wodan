@@ -8,9 +8,9 @@ module BC = struct
   let connect name = Ramdisk.connect ~name
 end
 
-module S = Irmin_backend.KV(BC)(Irmin_backend.StandardParams)(Irmin.Contents.String)
+module S = Irmin_wodan.KV(BC)(Irmin_wodan.StandardParams)(Irmin.Contents.String)
 module Sync = Irmin.Sync(S)
-let config = Irmin_backend.config ~path:"disk.img" ~create:true ()
+let config = Irmin_wodan.config ~path:"disk.img" ~create:true ()
 
 let upstream = Irmin.remote_uri "git://github.com/g2p/wodan.git"
 

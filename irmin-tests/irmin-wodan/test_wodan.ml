@@ -23,21 +23,21 @@ module BlockCon = struct
 end
 
 
-(*let store = store (module Irmin_backend.Make) (module Irmin.Metadata.None)*)
+(*let store = store (module Irmin_wodan.Make) (module Irmin.Metadata.None)*)
 let store = (module struct
-  include Irmin_backend.KV_chunked(BlockCon)(Irmin_backend.StandardParams)(Irmin.Contents.String)
+  include Irmin_wodan.KV_chunked(BlockCon)(Irmin_wodan.StandardParams)(Irmin.Contents.String)
   let author _t _id = failwith "Only used for testing Git stores"
 end : Test_common.Test_S)
 
 (*
 module Link = struct
-  include Irmin_backend.Link(Irmin.Hash.SHA1)
-  let v () = v (Irmin_backend.config ())
+  include Irmin_wodan.Link(Irmin.Hash.SHA1)
+  let v () = v (Irmin_wodan.config ())
 end
 
 let link = (module Link: Test_link.S)
 *)
-let config = Irmin_backend.config ~path:"disk.img" ~create:true ()
+let config = Irmin_wodan.config ~path:"disk.img" ~create:true ()
 
 let clean () =
   let (module S: Test_S) = store in

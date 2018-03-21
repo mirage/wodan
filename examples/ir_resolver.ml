@@ -43,7 +43,7 @@ module BlockCon = struct
 end
 
 let wodan_mem_store (module C: Irmin.Contents.S) =
-  (module Irmin_backend.KV(BlockCon)(Irmin_backend.StandardParams)(C) : Irmin.S)
+  (module Irmin_wodan.KV(BlockCon)(Irmin_wodan.StandardParams)(C) : Irmin.S)
 
 let mk_store = function
   | `Mem  -> mem_store
@@ -95,20 +95,22 @@ let opt_key k = key k (Irmin.Private.Conf.default k)
 
 let config_term =
   let add k v config = Irmin.Private.Conf.add config k v in
-  let create root bare head level uri =
+  let create root bare head level uri creat =
     Irmin.Private.Conf.empty
     |> add Irmin.Private.Conf.root root
     |> add Irmin_git.bare bare
     |> add Irmin_git.head head
     |> add Irmin_git.level level
     |> add Irmin_http.uri uri
+    |> add Irmin_wodan.Conf.create creat
   in
   Term.(pure create $
         opt_key Irmin.Private.Conf.root $
         flag_key Irmin_git.bare $
         opt_key Irmin_git.head $
         opt_key Irmin_git.level $
-        opt_key Irmin_http.uri)
+        opt_key Irmin_http.uri $
+        flag_key Irmin_wodan.Conf.create)
 
 let mk_contents k: contents = match k with
   | `String  -> (module Irmin.Contents.String)
