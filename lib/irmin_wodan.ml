@@ -57,6 +57,7 @@ module type DB = sig
   val make : path:string -> create:bool -> lru_size:int -> t Lwt.t
   val v : Irmin.config -> t Lwt.t
   val with_autoflush : Stor.root -> (unit -> 'a Lwt.t) -> 'a Lwt.t
+  val flush : t -> int64 Lwt.t
 end
 
 module Cache (X: sig
@@ -149,6 +150,8 @@ struct
     assert (lru_size=lru_size');
     t
 
+  let flush db =
+    Stor.flush @@ db_root db
 end
 
 module RO_BUILDER
@@ -400,9 +403,11 @@ module Make (BC: BLOCK_CON) (PA: Wodan.PARAMS)
 (B: Irmin.Branch.S)
 (H: Irmin.Hash.S)
 = struct
+  module DB = DB_BUILDER(BC)(PA)
   module AO = AO_BUILDER(BC)(PA)
   module RW = RW_BUILDER(BC)(PA)(H)
   include Irmin.Make(AO)(RW)(M)(C)(P)(B)(H)
+  let flush = DB.flush
 end
 
 (* XXX Stable chunking or not? *)
@@ -413,9 +418,11 @@ module Make_chunked (BC: BLOCK_CON) (PA: Wodan.PARAMS)
 (B: Irmin.Branch.S)
 (H: Irmin.Hash.S)
 = struct
+  module DB = DB_BUILDER(BC)(PA)
   module AO = Irmin_chunk.AO(AO_BUILDER(BC)(PA))
   module RW = RW_BUILDER(BC)(PA)(H)
   include Irmin.Make(AO)(RW)(M)(C)(P)(B)(H)
+  let flush = DB.flush
 end
 
 module KV (BC: BLOCK_CON) (PA: Wodan.PARAMS) (C: Irmin.Contents.S)
