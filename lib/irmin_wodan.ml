@@ -27,9 +27,14 @@ module Conf = struct
       ~doc:"A special key used to store metadata for listing other keys"
       "list_key"
       Irmin.Private.Conf.string "meta:keys-list:00000"
+
+  let autoflush = Irmin.Private.Conf.key
+      ~doc:"Whether to flush automatically when necessary for writes to go through"
+      "autoflush"
+      Irmin.Private.Conf.bool false
 end
 
-let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size ?list_key () =
+let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size ?list_key ?autoflush () =
   let module C = Irmin.Private.Conf in
   let lru_size = match lru_size with
   |None -> C.default Conf.lru_size
@@ -39,8 +44,16 @@ let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size ?list_key 
   |None -> C.default Conf.list_key
   |Some list_key -> list_key
   in
-  C.add (C.add (C.add (C.add config Conf.list_key list_key)
-    Conf.lru_size lru_size) Conf.path path) Conf.create create
+  let autoflush = match autoflush with
+  |None -> C.default Conf.autoflush
+  |Some autoflush -> autoflush
+  in
+  (C.add (C.add (C.add (C.add (C.add config
+    Conf.autoflush autoflush)
+    Conf.list_key list_key)
+    Conf.lru_size lru_size)
+    Conf.path path)
+    Conf.create create)
 
 module type BLOCK_CON = sig
   include Mirage_types_lwt.BLOCK
@@ -54,16 +67,18 @@ module type DB = sig
   module Stor : Wodan.S
   type t
   val db_root : t -> Stor.root
-  val make : path:string -> create:bool -> lru_size:int -> t Lwt.t
+  val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
+  val make : path:string -> create:bool -> lru_size:int -> autoflush:bool -> t Lwt.t
   val v : Irmin.config -> t Lwt.t
-  val with_autoflush : Stor.root -> (unit -> 'a Lwt.t) -> 'a Lwt.t
   val flush : t -> int64 Lwt.t
 end
 
 module Cache (X: sig
     type config
     type t
+    type key
     val v: config -> t Lwt.t
+    val key: config -> key
   end): sig
   val read : X.config -> (X.config * X.t) Lwt.t
   val clear: unit -> unit
@@ -75,8 +90,8 @@ end = struct
 
   module WeakTbl = Weak.Make(struct
       type t = key
-      let hash t = Hashtbl.hash t.config
-      let equal t1 t2 = t1.config = t2.config
+      let hash t = Hashtbl.hash @@ X.key t.config
+      let equal t1 t2 = X.key t1.config = X.key t2.config
     end)
 
   let cache = WeakTbl.create 10
@@ -114,30 +129,36 @@ struct
 
   type t = {
     root: Stor.root;
+    autoflush: bool;
   }
 
   let db_root db = db.root
 
-  let make ~path ~create ~lru_size =
-    B.connect path >>= function disk ->
-    B.get_info disk >>= function info ->
-    let open_arg = if create then
-      Wodan.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)
-    else Wodan.OpenExistingDevice in
-    Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
-    Lwt.return { root }
-
-  let with_autoflush root op =
+  let do_autoflush root op =
     try%lwt
       op ()
     with Wodan.NeedsFlush ->
       Stor.flush root >>= function _gen ->
       op ()
 
+  let may_autoflush db op =
+    if db.autoflush then do_autoflush db.root op else op ()
+
+  let make ~path ~create ~lru_size ~autoflush =
+    B.connect path >>= function disk ->
+    B.get_info disk >>= function info ->
+    let open_arg = if create then
+      Wodan.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)
+    else Wodan.OpenExistingDevice in
+    Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
+    Lwt.return { root; autoflush }
+
   module Cache = Cache(struct
       type nonrec t = t
-      type config = string * bool * int
-      let v (path, create, lru_size) = make ~path ~create ~lru_size
+      type config = string * bool * int * bool
+      type key = string
+      let key (path, _, _, _) = path
+      let v (path, create, lru_size, autoflush) = make ~path ~create ~lru_size ~autoflush
     end)
 
   let v config =
@@ -145,9 +166,11 @@ struct
     let path = C.get config Conf.path in
     let create = C.get config Conf.create in
     let lru_size = C.get config Conf.lru_size in
-    Cache.read (path, create, lru_size) >|= fun ((_, _, lru_size'), t) ->
-    (* FIXME: handle 'create' *)
+    let autoflush = C.get config Conf.autoflush in
+    Cache.read (path, create, lru_size, autoflush) >|= fun ((_, create', lru_size', autoflush'), t) ->
+    assert (create=create');
     assert (lru_size=lru_size');
+    assert (autoflush=autoflush');
     t
 
   let flush db =
@@ -193,7 +216,7 @@ struct
     Logs.debug (fun m -> m "add -> %a" K.pp k);
     let raw_k = K.to_raw k in
     let root = db_root db in
-    with_autoflush root (fun () ->
+    may_autoflush db (fun () ->
         Stor.insert root (Stor.key_of_cstruct raw_k)
         @@ Stor.value_of_cstruct raw_v) >>=
       function () -> Lwt.return k
@@ -209,7 +232,7 @@ struct
     let raw_v = K.to_raw va in
     let raw_k = K.to_raw k in
     let root = db_root db in
-    with_autoflush root (fun () ->
+    may_autoflush db (fun () ->
         Stor.insert root (Stor.key_of_cstruct raw_k)
         @@ Stor.value_of_cstruct raw_v)
 end
@@ -221,21 +244,21 @@ module RW_BUILDER
 struct
   module BUILDER = DB_BUILDER(B)(P)
   module Stor = BUILDER.Stor
-  let with_autoflush = BUILDER.with_autoflush
 
   module KeyHashtbl = Hashtbl.Make(Stor.Key)
   module W = Irmin.Private.Watch.Make(K)(V)
   module L = Irmin.Private.Lock.Make(K)
 
   type t = {
-    root: Stor.root;
+    nested: BUILDER.t;
     keydata: Stor.key KeyHashtbl.t;
     mutable magic_key: Stor.key;
     watches: W.t;
     lock: L.t;
   }
 
-  let db_root db = db.root
+  let db_root db = BUILDER.db_root db.nested
+  let may_autoflush db = BUILDER.may_autoflush db.nested
 
   let () = assert (H.digest_size = P.key_size)
   let () = assert P.has_tombstone
@@ -261,11 +284,11 @@ struct
     Stor.key_of_cstruct @@ H.to_raw @@ H.digest Irmin.Type.cstruct
     @@ Stor.cstruct_of_value va
 
-  let make ~path ~create ~lru_size ~list_key =
-    BUILDER.make ~path ~create ~lru_size >>= function db ->
+  let make ~path ~create ~lru_size ~list_key ~autoflush =
+    BUILDER.make ~path ~create ~lru_size ~autoflush >>= function db ->
       let root = BUILDER.db_root db in
       let db = {
-        root;
+        nested = db;
         keydata = KeyHashtbl.create 10;
         magic_key = Stor.key_of_string list_key;
         watches = W.v ();
@@ -288,9 +311,11 @@ struct
 
   module Cache = Cache(struct
       type nonrec t = t
-      type config = string * bool * int * string
-      let v (path, create, lru_size, list_key) =
-        make ~path ~create ~lru_size ~list_key
+      type config = string * bool * int * string * bool
+      type key = string
+      let key (path, _, _, _, _) = path
+      let v (path, create, lru_size, list_key, autoflush) =
+        make ~path ~create ~lru_size ~list_key ~autoflush
     end)
 
   let v config =
@@ -299,11 +324,13 @@ struct
     let create = C.get config Conf.create in
     let lru_size = C.get config Conf.lru_size in
     let list_key = C.get config Conf.list_key in
-    Cache.read (path, create, lru_size, list_key) >|=
-    fun ((_, _, lru_size', list_key'), t) ->
-    (* FIXME: handle 'create' *)
+    let autoflush = C.get config Conf.autoflush in
+    Cache.read (path, create, lru_size, list_key, autoflush) >|=
+    fun ((_, create', lru_size', list_key', autoflush'), t) ->
+    assert (create=create');
     assert (lru_size=lru_size');
     assert (list_key=list_key');
+    assert (autoflush=autoflush');
     t
 
 
@@ -311,8 +338,8 @@ struct
     assert (not @@ Stor.is_tombstone iv);
     begin if not @@ KeyHashtbl.mem db.keydata ik then begin
       KeyHashtbl.add db.keydata ik db.magic_key;
-      with_autoflush db.root
-      (fun () -> Stor.insert db.root db.magic_key ikv)
+      may_autoflush db
+      (fun () -> Stor.insert (db_root db) db.magic_key ikv)
       >>= fun () -> begin
         db.magic_key <- Stor.next_key db.magic_key;
         Lwt.return_unit
@@ -320,8 +347,8 @@ struct
     end
     else Lwt.return_unit end
     >>= fun () ->
-    with_autoflush db.root
-      (fun () -> Stor.insert db.root ik iv)
+    may_autoflush db
+      (fun () -> Stor.insert (db_root db) ik iv)
 
   let set db k va =
     let ik = key_to_inner_key k in
@@ -355,7 +382,7 @@ struct
         |Some va ->
             set_and_list db ik (val_to_inner_val va) @@ key_to_inner_val k
         |None ->
-            with_autoflush root (fun () ->
+            may_autoflush db (fun () ->
               Stor.insert root ik @@ Stor.value_of_string "")
       end >>= fun () -> Lwt.return_true
       else Lwt.return_false
@@ -369,17 +396,18 @@ struct
     let va = Stor.value_of_string "" in
     let root = db_root db in
     L.with_lock db.lock k (fun () ->
-        with_autoflush root (fun () ->
+        may_autoflush db (fun () ->
             Stor.insert root ik va)) >>= fun () ->
     W.notify db.watches k None
 
   let list db =
     Log.debug (fun l -> l "list");
+    let root = db_root db in
     KeyHashtbl.fold (fun ik mk io ->
       io >>= function l ->
-        Stor.mem db.root ik >>= function
+        Stor.mem root ik >>= function
           |true -> begin
-            Stor.lookup db.root mk >>= function
+            Stor.lookup root mk >>= function
               |None -> Lwt.fail @@ Failure "Missing metadata key"
               |Some iv -> Lwt.return @@ (key_of_inner_val iv) :: l
           end
