@@ -1,7 +1,7 @@
 (jbuild_version 1)
 
 (executable
-  ((name wodan)
+  ((name wodanc)
   (libraries (base64 csv cmdliner wodan io-page-unix mirage-block-unix nocrypto.lwt))
   (preprocess (pps (lwt.ppx)))
   ))

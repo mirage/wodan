@@ -4,7 +4,7 @@ let src = Logs.Src.create "irmin.wodan"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 module StandardParams = struct
-  include Storage.StandardParams
+  include Wodan.StandardParams
   let has_tombstone = true
 end
 
@@ -51,7 +51,7 @@ module type BLOCK_CON = sig
 end
 
 module type DB = sig
-  module Stor : Storage.S
+  module Stor : Wodan.S
   type t
   val db_root : t -> Stor.root
   val make : path:string -> create:bool -> lru_size:int -> t Lwt.t
@@ -106,10 +106,10 @@ end = struct
 end
 
 module DB_BUILDER
-: BLOCK_CON -> Storage.PARAMS -> DB
-= functor (B: BLOCK_CON) (P: Storage.PARAMS) ->
+: BLOCK_CON -> Wodan.PARAMS -> DB
+= functor (B: BLOCK_CON) (P: Wodan.PARAMS) ->
 struct
-  module Stor = Storage.Make(B)(P)
+  module Stor = Wodan.Make(B)(P)
 
   type t = {
     root: Stor.root;
@@ -121,15 +121,15 @@ struct
     B.connect path >>= function disk ->
     B.get_info disk >>= function info ->
     let open_arg = if create then
-      Storage.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Storage.StandardParams.block_size)
-    else Storage.OpenExistingDevice in
+      Wodan.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)
+    else Wodan.OpenExistingDevice in
     Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
     Lwt.return { root }
 
   let with_autoflush root op =
     try%lwt
       op ()
-    with Storage.NeedsFlush ->
+    with Wodan.NeedsFlush ->
       Stor.flush root >>= function _gen ->
       op ()
 
@@ -152,11 +152,11 @@ struct
 end
 
 module RO_BUILDER
-: BLOCK_CON -> Storage.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Contents.Conv) -> sig
+: BLOCK_CON -> Wodan.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Contents.Conv) -> sig
   include Irmin.RO
   include DB with type t := t
 end with type key = K.t and type value = V.t
-= functor (B: BLOCK_CON) (P: Storage.PARAMS)
+= functor (B: BLOCK_CON) (P: Wodan.PARAMS)
 (K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
 struct
   include DB_BUILDER(B)(P)
@@ -178,8 +178,8 @@ struct
 end
 
 module AO_BUILDER
-: BLOCK_CON -> Storage.PARAMS -> Irmin.AO_MAKER
-= functor (B: BLOCK_CON) (P: Storage.PARAMS)
+: BLOCK_CON -> Wodan.PARAMS -> Irmin.AO_MAKER
+= functor (B: BLOCK_CON) (P: Wodan.PARAMS)
 (K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
 struct
   include RO_BUILDER(B)(P)(K)(V)
@@ -197,8 +197,8 @@ struct
 end
 
 module LINK_BUILDER
-: BLOCK_CON -> Storage.PARAMS -> Irmin.LINK_MAKER
-= functor (B: BLOCK_CON) (P: Storage.PARAMS) (K: Irmin.Hash.S) ->
+: BLOCK_CON -> Wodan.PARAMS -> Irmin.LINK_MAKER
+= functor (B: BLOCK_CON) (P: Wodan.PARAMS) (K: Irmin.Hash.S) ->
 struct
   include RO_BUILDER(B)(P)(K)(K)
 
@@ -212,8 +212,8 @@ struct
 end
 
 module RW_BUILDER
-: BLOCK_CON -> Storage.PARAMS -> Irmin.Hash.S -> Irmin.RW_MAKER
-= functor (B: BLOCK_CON) (P: Storage.PARAMS) (H: Irmin.Hash.S)
+: BLOCK_CON -> Wodan.PARAMS -> Irmin.Hash.S -> Irmin.RW_MAKER
+= functor (B: BLOCK_CON) (P: Wodan.PARAMS) (H: Irmin.Hash.S)
 (K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) ->
 struct
   module BUILDER = DB_BUILDER(B)(P)
@@ -393,7 +393,7 @@ struct
     Stor.mem (db_root db) @@ key_to_inner_key k
 end
 
-module Make (BC: BLOCK_CON) (PA: Storage.PARAMS)
+module Make (BC: BLOCK_CON) (PA: Wodan.PARAMS)
 (M: Irmin.Metadata.S)
 (C: Irmin.Contents.S)
 (P: Irmin.Path.S)
@@ -406,7 +406,7 @@ module Make (BC: BLOCK_CON) (PA: Storage.PARAMS)
 end
 
 (* XXX Stable chunking or not? *)
-module Make_chunked (BC: BLOCK_CON) (PA: Storage.PARAMS)
+module Make_chunked (BC: BLOCK_CON) (PA: Wodan.PARAMS)
 (M: Irmin.Metadata.S)
 (C: Irmin.Contents.S)
 (P: Irmin.Path.S)
@@ -418,7 +418,7 @@ module Make_chunked (BC: BLOCK_CON) (PA: Storage.PARAMS)
   include Irmin.Make(AO)(RW)(M)(C)(P)(B)(H)
 end
 
-module KV (BC: BLOCK_CON) (PA: Storage.PARAMS) (C: Irmin.Contents.S)
+module KV (BC: BLOCK_CON) (PA: Wodan.PARAMS) (C: Irmin.Contents.S)
 = Make(BC)(PA)
   (Irmin.Metadata.None)
   (C)
@@ -426,7 +426,7 @@ module KV (BC: BLOCK_CON) (PA: Storage.PARAMS) (C: Irmin.Contents.S)
   (Irmin.Branch.String)
   (Irmin.Hash.SHA1)
 
-module KV_chunked (BC: BLOCK_CON) (PA: Storage.PARAMS) (C: Irmin.Contents.S)
+module KV_chunked (BC: BLOCK_CON) (PA: Wodan.PARAMS) (C: Irmin.Contents.S)
 = Make_chunked(BC)(PA)
   (Irmin.Metadata.None)
   (C)

@@ -20,14 +20,14 @@ opam switch 4.04.1+fp+flambda
 ```
 opam install -y jbuilder mirage ctypes-foreign
 (cd runner; mirage configure --target unix)
-jbuilder external-lib-deps --missing @install runner/main.exe cli/wodan.exe # Follow the opam instructions
+jbuilder external-lib-deps --missing @install runner/main.exe cli/wodanc.exe # Follow the opam instructions
 make
 ```
 
 ## CLI usage
 
 ```
-_build/default/cli/wodan.exe --help
+_build/default/cli/wodanc.exe --help
 ```
 
 At the moment the CLI supports creating filesystems, dumping and restoring data into them.
