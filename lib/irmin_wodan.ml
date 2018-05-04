@@ -230,7 +230,7 @@ struct
   let add db va =
     let raw_v = Irmin.Type.encode_cstruct V.t va in
     let k = K.digest V.t va in
-    Logs.debug (fun m -> m "add -> %a" K.pp k);
+    Log.debug (fun m -> m "AO.add -> %a (%d)" K.pp k K.digest_size);
     let raw_k = K.to_raw k in
     let root = db_root db in
     may_autoflush db (fun () ->
@@ -249,6 +249,7 @@ struct
     let raw_v = K.to_raw va in
     let raw_k = K.to_raw k in
     let root = db_root db in
+    Log.debug (fun m -> m "LINK.add -> %a" K.pp k);
     may_autoflush db (fun () ->
         Stor.insert root (Stor.key_of_cstruct raw_k)
         @@ Stor.value_of_cstruct raw_v)
@@ -368,6 +369,7 @@ struct
       (fun () -> Stor.insert (db_root db) ik iv)
 
   let set db k va =
+    Log.debug (fun m -> m "RW.set -> %a" K.pp k);
     let ik = key_to_inner_key k in
     let iv = val_to_inner_val va in
     L.with_lock db.lock k (fun () ->
@@ -387,6 +389,7 @@ struct
 
   (* XXX With autoflush, this might flush some data without finishing the insert *)
   let test_and_set db k ~test ~set =
+    Log.debug (fun m -> m "RW.test_and_set -> %a" K.pp k);
     let ik = key_to_inner_key k in
     let root = db_root db in
     let test = match test with
@@ -408,7 +411,7 @@ struct
     end >>= fun () -> Lwt.return updated
 
   let remove db k =
-    Log.debug (fun l -> l "remove %a" K.pp k);
+    Log.debug (fun l -> l "RW.remove %a" K.pp k);
     let ik = key_to_inner_key k in
     let va = Stor.value_of_string "" in
     let root = db_root db in
@@ -418,7 +421,7 @@ struct
     W.notify db.watches k None
 
   let list db =
-    Log.debug (fun l -> l "list");
+    Log.debug (fun l -> l "RW.list");
     let root = db_root db in
     KeyHashtbl.fold (fun ik mk io ->
       io >>= function l ->
@@ -432,7 +435,7 @@ struct
     ) db.keydata @@ Lwt.return []
 
   let find db k =
-    Log.debug (fun l -> l "find %a" K.pp k);
+    Log.debug (fun l -> l "RW.find %a" K.pp k);
     Stor.lookup (db_root db) @@ key_to_inner_key k >>= function
     |None -> Lwt.return_none
     |Some va -> Lwt.return_some @@ val_of_inner_val va
