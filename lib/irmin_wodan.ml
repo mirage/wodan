@@ -305,10 +305,12 @@ struct
   let make ~path ~create ~lru_size ~list_key ~autoflush =
     BUILDER.make ~path ~create ~lru_size ~autoflush >>= function db ->
       let root = BUILDER.db_root db in
+      let magic_key = Bytes.make H.digest_size '\000' in
+      Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
       let db = {
         nested = db;
         keydata = KeyHashtbl.create 10;
-        magic_key = Stor.key_of_string list_key;
+        magic_key = Stor.key_of_string (Bytes.unsafe_to_string magic_key) ;
         watches = W.v ();
         lock = L.v ();
       } in
