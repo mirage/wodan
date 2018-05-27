@@ -5,6 +5,12 @@ filesystem library for Mirage OS.
 
 Currently the basic disk format is implemented.
 
+## Paper
+
+This explains some of the design choices behind Wodan.
+
+[ICFP 2017](https://icfp17.sigplan.org/event/ocaml-2017-papers-wodan-a-pure-ocaml-flash-aware-filesystem-library)
+
 ## Building, installing and running
 
 Wodan requires Opam, Mirage 3, and OCaml 4.04.
