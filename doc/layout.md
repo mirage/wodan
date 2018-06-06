@@ -31,8 +31,13 @@ The major version must be 1.
 Compat flags is currently empty, but may be added to without the
 current implementation refusing to mount.
 
-Incompat flags is currently empty, and adding to it will prevent
+Incompat flags is currently set to at least sb_incompat_rdepth, indicating
+rdepth support, optionally combined with sb_incompat_linear,
+indicating a linear (as opposed to circular) layout.
+Adding anything else to the incompat flags will prevent
 the current implementation from mounting.
+This is to prevent reading or writing newer formats that
+are not compatible.
 
 The block size must match what is given to the parameters module.
 
