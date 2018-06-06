@@ -44,3 +44,21 @@ We also track recently freed blocks so that they can be trimmed
 in a batch operation.  Instead of using a bit vector (that
 can't grow), we use a HashMap or similar.
 
+## Changes to the mount operation
+
+The newest root is found by scanning from the end of the device.
+This is instead of bisecting the device for the highest generation
+number.
+
+## Growth and initialisation
+
+Depending on the backend, growing the device will either provide
+zero-initialised data (regular file backend) or uninitialised data
+(LVM, although this needs to be confirmed).
+We will assume zero-initialised data for now.
+If we have to deal with uninitialised data, we'll have two options:
+discarding the new data (which will have a performance impact),
+and extending the format to carry uuids on every node.
+The latter change would be useful on its own for making filesystem
+initialisation more fool-proof.
+
