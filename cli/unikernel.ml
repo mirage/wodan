@@ -21,6 +21,10 @@ open Lwt.Infix
 module Client (B: BLOCK) = struct
   module Stor = Wodan.Make(B)(Wodan.StandardParams)
 
+  let trim disk =
+    let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+    Stor.fstrim root
+
   let format disk =
     let%lwt info = B.get_info disk in
     let%lwt _root, _gen = Stor.prepare_io (Wodan.FormatEmptyDevice

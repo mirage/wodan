@@ -468,6 +468,7 @@ module type S = sig
   val lookup : root -> key -> value option Lwt.t
   val mem : root -> key -> bool Lwt.t
   val flush : root -> int64 Lwt.t
+  val fstrim : root -> int64 Lwt.t
   val log_statistics : root -> unit
   val search_range : root
     -> (key -> bool)
@@ -754,6 +755,40 @@ module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = s
       ) in
     cache.flush_root <- None;
     r >>= fun () -> Lwt.return @@ Int64.pred cache.next_generation
+
+  let _discard_block_range _open_fs _start _range_block_count =
+    Lwt.return_unit
+
+  let fstrim root =
+    let open_fs = root.open_fs in
+    let cache = open_fs.node_cache in
+    let discard_count = ref 0L in
+    let unused_start = ref None in
+    let to_discard = ref [] in
+    Bitv.iteri (fun i used ->
+        match !unused_start, used with
+        |None, false ->
+          unused_start := Some(i)
+        |Some(start), true -> begin
+            let range_block_count = Int64.of_int @@ i - start in
+            to_discard := (start, range_block_count) :: !to_discard;
+            discard_count := Int64.add !discard_count range_block_count;
+            unused_start := None
+          end
+        |_ -> ()
+      ) cache.space_map;
+    begin
+      match !unused_start with
+      |Some(start) ->
+        let range_block_count = Int64.sub
+            cache.logical_size @@ Int64.of_int start in
+        to_discard := (start, range_block_count) :: !to_discard
+      |_ -> ()
+    end;
+    Lwt_list.iter_s (fun (start, range_block_count) ->
+        _discard_block_range open_fs start range_block_count
+      ) !to_discard
+    >|= fun () -> !discard_count
 
   let _new_node open_fs tycode parent_key highest_key rdepth =
     let cache = open_fs.node_cache in

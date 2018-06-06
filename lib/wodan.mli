@@ -53,6 +53,7 @@ module type S =
     val lookup : root -> key -> value option Lwt.t
     val mem : root -> key -> bool Lwt.t
     val flush : root -> int64 Lwt.t
+    val fstrim : root -> int64 Lwt.t
     val log_statistics : root -> unit
     val search_range :
       root ->
