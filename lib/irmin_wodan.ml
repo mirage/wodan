@@ -73,7 +73,7 @@ let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size ?list_key 
     Conf.create create)
 
 module type BLOCK_CON = sig
-  include Mirage_types_lwt.BLOCK
+  include Wodan.EXTBLOCK
   (* XXX mirage-block-unix and mirage-block-ramdisk don't have the
    * exact same signature *)
   (*val connect : name:string -> t io*)

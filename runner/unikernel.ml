@@ -18,7 +18,7 @@
 open Mirage_types_lwt
 open Lwt.Infix
 
-module Client (C: CONSOLE) (B: BLOCK) = struct
+module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
   module Stor = Wodan.Make(B)(Wodan.StandardParams)
 
   let start _con disk _crypto =

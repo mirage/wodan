@@ -12,6 +12,11 @@ exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
 
+module type EXTBLOCK = sig
+  include Mirage_types_lwt.BLOCK
+  val discard: t -> int64 -> int64 -> (unit, write_error) result io
+end
+
 type insertable =
   |InsValue of Cstruct.t
   |InsChild of int64 * int64 option (* loc, alloc_id *)
@@ -61,4 +66,4 @@ module type S =
     val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
   end
 module Make :
-  functor (B : Mirage_types_lwt.BLOCK) (P : PARAMS) -> (S with type disk = B.t)
+  functor (B : EXTBLOCK) (P : PARAMS) -> (S with type disk = B.t)

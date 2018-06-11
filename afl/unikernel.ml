@@ -26,7 +26,7 @@ let cstr_cond_reset str =
   if Cstruct.equal crc magiccrc then
   Crc32c.cstruct_reset str
 
-module Client (C: CONSOLE) (B: BLOCK) = struct
+module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
 module Stor = Storage.Make(B)(struct
   include Storage.StandardParams
   let block_size = 512

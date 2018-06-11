@@ -38,6 +38,11 @@ exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
 
+module type EXTBLOCK = sig
+  include Mirage_types_lwt.BLOCK
+  val discard: t -> int64 -> int64 -> (unit, write_error) result io
+end
+
 let sb_incompat_rdepth = 1l
 
 [@@@warning "-32"]
@@ -478,7 +483,7 @@ module type S = sig
   val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
 end
 
-module Make(B: Mirage_types_lwt.BLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
+module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
   type key = string
   type value = Cstruct.t
   type disk = B.t

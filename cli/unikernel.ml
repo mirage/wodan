@@ -15,10 +15,9 @@
 (*                                                                                   *)
 (*************************************************************************************)
 
-open Mirage_types_lwt
 open Lwt.Infix
 
-module Client (B: BLOCK) = struct
+module Client (B: Wodan.EXTBLOCK) = struct
   module Stor = Wodan.Make(B)(Wodan.StandardParams)
 
   let trim disk =

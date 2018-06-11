@@ -23,6 +23,8 @@ end*)
 module BC = struct
   include Ramdisk
   let connect name = Ramdisk.connect ~name
+  let discard _ _ _ =
+    Lwt.return @@ Rresult.R.return ()
 end
 
 module S = Irmin_wodan.KV(BC)(Irmin_wodan.StandardParams)(Irmin.Contents.String)
