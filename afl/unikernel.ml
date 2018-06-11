@@ -23,8 +23,11 @@ let magiccrc = Cstruct.of_string "\xff\xff\xff\xff"
 let cstr_cond_reset str =
   let crcoffset = (Cstruct.len str) - 4 in
   let crc = Cstruct.sub str crcoffset 4 in
-  if Cstruct.equal crc magiccrc then
-  Crc32c.cstruct_reset str
+  if Cstruct.equal crc magiccrc then begin
+    Crc32c.cstruct_reset str;
+    true
+  end else
+    false
 
 module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
 module Stor = Storage.Make(B)(struct
@@ -38,11 +41,14 @@ end)
     let logical_size = Int64.(to_int @@ div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size) in
     let cstr = Stor._get_block_io () in
     let%lwt res = B.read disk 0L [cstr] in
-    cstr_cond_reset @@ Cstruct.sub cstr 0 Storage.sizeof_superblock;
+    if%lwt Lwt.return @@ cstr_cond_reset @@ Cstruct.sub cstr 0 Storage.sizeof_superblock then
+      B.write disk 0L [cstr]
+    ;%lwt
     for%lwt i = 1 to logical_size - 1 do
-      let%lwt res = B.read disk Int64.(mul (of_int i) @@ of_int Stor.P.block_size) [cstr] in
-      cstr_cond_reset cstr;
-      Lwt.return ()
+      let doffset = Int64.(mul (of_int i) @@ of_int Stor.P.block_size) in
+      let%lwt res = B.read disk doffset [cstr] in
+      if%lwt Lwt.return cstr_cond_reset cstr then
+        B.write disk doffset [cstr]
     done >>= fun () ->
     let%lwt roots = Stor.prepare_io Storage.OpenExistingDevice disk 1024 in
     let root = ref @@ Storage.RootMap.find 1l roots in
