@@ -161,6 +161,12 @@ let string_dump key =
 let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
 module Logs = (val Logs.src_log src : Logs.LOG)
 
+module BlockIntervals = Diet.Make(struct
+  include Int64
+  let t_of_sexp = int64_of_sexp
+  let sexp_of_t = sexp_of_int64
+end)
+
 module KeyedMap = Map_pr869.Make(String)
 module KeyedSet = Set.Make(String)
 
@@ -259,6 +265,7 @@ type node_cache = {
   (* Logical -> bit.  Zero iff free. *)
   space_map: Bitv.t;
   scan_map: Bitv.t option;
+  mutable freed_intervals: BlockIntervals.t;
   statistics: statistics;
 }
 
@@ -474,6 +481,7 @@ module type S = sig
   val mem : root -> key -> bool Lwt.t
   val flush : root -> int64 Lwt.t
   val fstrim : root -> int64 Lwt.t
+  val live_trim : root -> int64 Lwt.t
   val log_statistics : root -> unit
   val search_range : root
     -> (key -> bool)
@@ -704,6 +712,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         begin
           cache.dirty_count <- int64_pred_nowrap cache.dirty_count;
           bitv_set64 cache.space_map plog false;
+          cache.freed_intervals <- BlockIntervals.add (BlockIntervals.Interval.make plog plog) cache.freed_intervals;
         end
     |None ->
         begin
@@ -712,6 +721,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         end;
       end;
     bitv_set64 cache.space_map logical true;
+    cache.freed_intervals <- BlockIntervals.remove (BlockIntervals.Interval.make logical logical) cache.freed_intervals;
     entry.prev_logical <- Some logical;
     B.write open_fs.filesystem.disk
         Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size) entry.io_data >>= function
@@ -761,8 +771,12 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     cache.flush_root <- None;
     r >>= fun () -> Lwt.return @@ Int64.pred cache.next_generation
 
-  let _discard_block_range _open_fs _start _range_block_count =
-    Lwt.return_unit
+  let _discard_block_range open_fs logical n =
+    B.discard open_fs.filesystem.disk
+      Int64.(div (mul logical @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size)
+      Int64.(div (mul n @@ of_int P.block_size) @@ of_int open_fs.filesystem.other_sector_size)
+    >|= function res ->
+      Rresult.R.get_ok res
 
   let fstrim root =
     let open_fs = root.open_fs in
@@ -791,7 +805,25 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       |_ -> ()
     end;
     Lwt_list.iter_s (fun (start, range_block_count) ->
-        _discard_block_range open_fs start range_block_count
+        _discard_block_range open_fs (Int64.of_int start) range_block_count
+      ) !to_discard
+    >|= fun () -> !discard_count
+
+(* Discard blocks that have been unused since mounting
+   or since the last live_trim call *)
+  let live_trim root =
+    let discard_count = ref 0L in
+    let to_discard = ref [] in
+    BlockIntervals.iter (
+      fun iv ->
+        let start = BlockIntervals.Interval.x iv in
+        let exclend = Int64.succ @@ BlockIntervals.Interval.y iv in
+        let range_block_count = Int64.sub exclend start in
+        discard_count := Int64.add !discard_count range_block_count;
+        to_discard := (start, range_block_count) :: !to_discard
+    ) root.open_fs.node_cache.freed_intervals;
+    Lwt_list.iter_s (fun (start, range_block_count) ->
+        _discard_block_range root.open_fs start range_block_count
       ) !to_discard
     >|= fun () -> !discard_count
 
@@ -1536,6 +1568,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
             let scan_map = if P.fast_scan then Some (bitv_create64 logical_size false) else None in
+            let freed_intervals = BlockIntervals.empty in
             let free_count = Int64.pred logical_size in
             let node_cache = {
               lru=lru_create cache_size;
@@ -1545,6 +1578,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
               logical_size;
               space_map;
               scan_map;
+              freed_intervals;
               free_count;
               new_count=0L;
               dirty_count=0L;
@@ -1562,6 +1596,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             assert (logical_size >= 2L);
             let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
+            let freed_intervals = BlockIntervals.empty in
             let free_count = Int64.pred logical_size in
             let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
             let node_cache = {
@@ -1572,6 +1607,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
               logical_size;
               space_map;
               scan_map=None;
+              freed_intervals;
               free_count;
               new_count=0L;
               dirty_count=0L;
