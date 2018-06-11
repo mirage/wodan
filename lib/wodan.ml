@@ -570,7 +570,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
      * Even larger powers of two won't work *)
     (* 4096 with unbuffered target=unix, 512 with virtualisation *)
     sector_size: int;
-    (* the sector size that's used for the write offset *)
+    (* the sector size that's used for read/write offsets *)
     other_sector_size: int;
   }
 
