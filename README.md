@@ -13,12 +13,12 @@ This explains some of the design choices behind Wodan.
 
 ## Building, installing and running
 
-Wodan requires Opam, Mirage 3, and OCaml 4.04.
+Wodan requires Opam, Mirage 3, and OCaml 4.06.
 
 An opam switch with flambda is recommended for performance reasons.
 
 ```
-opam switch 4.04.1+fp+flambda
+opam switch 4.06.1+fp+flambda
 ```
 
 ### Building the library
@@ -61,11 +61,11 @@ until we get discard support, requires a clear disk.
 
 ### Running American Fuzzy Lop (AFL)
 
-This requires OCaml 4.05 and pinned versions of several dependencies.
+This requires OCaml compiled with AFL support.
 
 ```
-opam switch 4.05.0+trunk+afl
-opam pin add ppx_deriving https://github.com/whitequark/ppx_deriving.git
-opam pin add nocrypto https://github.com/vbmithr/ocaml-nocrypto.git#no-sexp
+opam switch 4.06.1+afl
+afl-fuzz -i afl/input -o afl/output -- \
+  _build/default/cli/wodanc.exe fuzz @@
 ```
 

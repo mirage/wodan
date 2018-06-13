@@ -51,4 +51,55 @@ module Client (B: Wodan.EXTBLOCK) = struct
       Csv.output_record out_csv [B64.encode @@ Stor.string_of_key k; B64.encode @@ Stor.string_of_value v]) >>= fun () ->
     begin Csv.close_out out_csv;
     Lwt.return_unit end
+
+  let fuzz disk =
+    let module Stor = Wodan.Make(B)(struct
+      include Wodan.StandardParams
+      let block_size = 512
+    end) in
+
+    assert (Stor.P.block_size = 512);
+    let magiccrc = Cstruct.of_string "\xff\xff\xff\xff" in
+
+    let cstr_cond_reset str =
+      let crcoffset = (Cstruct.len str) - 4 in
+      let crc = Cstruct.sub str crcoffset 4 in
+      if Cstruct.equal crc magiccrc then begin
+        Crc32c.cstruct_reset str;
+        true
+      end else
+        false
+    in
+
+    let%lwt info = B.get_info disk in
+    let logical_size = Int64.(to_int @@ div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size) in
+    let cstr = Cstruct.create Stor.P.block_size in
+    let%lwt _res = B.read disk 0L [cstr] in
+    if%lwt Lwt.return @@ cstr_cond_reset @@ Cstruct.sub cstr 0 Wodan.sizeof_superblock then
+      B.write disk 0L [cstr] >|= ignore
+    >>= fun _ ->
+    for%lwt i = 1 to logical_size - 1 do
+      let doffset = Int64.(mul (of_int i) @@ of_int Stor.P.block_size) in
+      let%lwt _res = B.read disk doffset [cstr] in
+      if%lwt Lwt.return @@ cstr_cond_reset cstr then
+        B.write disk doffset [cstr]
+      >|= ignore
+    done >>= fun _ ->
+    let%lwt root, _rgen =
+    Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+    let key = Stor.key_of_string "abcdefghijklmnopqrst" in
+    let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
+    Stor.insert root key cval >>= fun () ->
+    Stor.flush root >>= fun _gen ->
+    let%lwt Some cval1 = Stor.lookup root key in
+    assert (Cstruct.equal
+      (Stor.cstruct_of_value cval)
+      (Stor.cstruct_of_value cval1));
+    let%lwt root, _rgen =
+      Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+    let%lwt Some cval2 = Stor.lookup root key in
+    assert (Cstruct.equal
+      (Stor.cstruct_of_value cval)
+      (Stor.cstruct_of_value cval2));
+    Lwt.return ()
 end

@@ -2,6 +2,6 @@
 
 (executable
   ((name wodanc)
-  (libraries (base64 csv cmdliner wodan io-page-unix mirage-block-unix nocrypto.lwt))
+  (libraries (base64 csv cmdliner wodan io-page-unix mirage-block-unix nocrypto.lwt afl-persistent))
   (preprocess (pps (lwt.ppx)))
   ))

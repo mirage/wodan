@@ -21,6 +21,8 @@ let _ = Printexc.record_backtrace true
 
 module Unikernel1 = Unikernel.Client(Block)
 
+let () = Logs.set_reporter (Logs.format_reporter ())
+
 (* Implementations *)
 
 type copts = { disk : string; }
@@ -57,6 +59,15 @@ let trim copts =
     >>= fun _nc ->
     Unikernel1.trim bl
     >|= ignore)
+
+let fuzz copts =
+(* Persistent mode disabled, results are not stable,
+   maybe due to CRC munging. *)
+(*AflPersistent.run (fun () ->*)
+  Lwt_main.run (
+    Block.connect copts.disk
+    >>= fun bl ->
+    Unikernel1.fuzz bl)
 
 let help _copts man_format cmds topic = match topic with
 | None -> `Help (`Pager, None) (* help about the program. *)
@@ -135,6 +146,17 @@ let trim_cmd =
   Term.(const trim $ copts_t),
   Term.info "trim" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let fuzz_cmd =
+  let doc = "Fuzz a filesystem" in
+  let exits = Term.default_exits in
+  let man =
+    [`S Manpage.s_description;
+     `P "Runs a few operations on a fuzzer-generated filesystem.";
+    ]
+  in
+  Term.(const fuzz $ copts_t),
+  Term.info "fuzz" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let help_cmd =
   let topic =
     let doc = "The topic to get help on. `topics' lists the topics." in
@@ -157,7 +179,8 @@ let default_cmd =
   Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "wodan" ~doc ~sdocs ~exits
 
-let cmds = [restore_cmd; dump_cmd; format_cmd; trim_cmd; help_cmd]
+let cmds = [restore_cmd; dump_cmd; format_cmd;
+            trim_cmd; fuzz_cmd; help_cmd]
 
 let () =
   Term.(exit @@ eval_choice default_cmd cmds)
