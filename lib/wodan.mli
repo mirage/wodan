@@ -21,6 +21,8 @@ type insertable =
   |InsValue of Cstruct.t
   |InsChild of int64 * int64 option (* loc, alloc_id *)
 
+val sizeof_superblock : int
+
 module type PARAMS =
   sig
     val block_size : int
@@ -43,6 +45,7 @@ module type S =
         val hash : t -> int
         val compare : t -> t -> int
       end
+    module P : PARAMS
     val key_of_cstruct : Cstruct.t -> key
     val key_of_string : string -> key
     val cstruct_of_key : key -> Cstruct.t

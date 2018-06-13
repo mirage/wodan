@@ -464,6 +464,8 @@ module type S = sig
     include Map.OrderedType with type t := key
   end
 
+  module P : PARAMS
+
   val key_of_cstruct : Cstruct.t -> key
   val key_of_string : string -> key
   val cstruct_of_key : key -> Cstruct.t
