@@ -1460,7 +1460,10 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       else if not @@ Crc32c.cstruct_valid sb
       then raise @@ BadCRC 0L
       else if get_superblock_block_size sb <> Int32.of_int P.block_size
-      then raise BadParams
+      then begin
+        Logs.err (fun m -> m "Bad superblock size %ld %d" (get_superblock_block_size sb) P.block_size);
+        raise BadParams
+      end
       else if get_superblock_key_size sb <> P.key_size
       then raise BadParams
       else get_superblock_first_block_written sb, get_superblock_logical_size sb
