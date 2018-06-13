@@ -17,6 +17,10 @@
 
 open Lwt.Infix
 
+let unwrap_opt = function
+|None -> failwith "Expected Some"
+|Some x -> x
+
 module Client (B: Wodan.EXTBLOCK) = struct
   module Stor = Wodan.Make(B)(Wodan.StandardParams)
 
@@ -91,13 +95,13 @@ module Client (B: Wodan.EXTBLOCK) = struct
     let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert root key cval >>= fun () ->
     Stor.flush root >>= fun _gen ->
-    let%lwt Some cval1 = Stor.lookup root key in
+    let%lwt cval1 = Stor.lookup root key >|= unwrap_opt in
     assert (Cstruct.equal
       (Stor.cstruct_of_value cval)
       (Stor.cstruct_of_value cval1));
     let%lwt root, _rgen =
       Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
-    let%lwt Some cval2 = Stor.lookup root key in
+    let%lwt cval2 = Stor.lookup root key >|= unwrap_opt in
     assert (Cstruct.equal
       (Stor.cstruct_of_value cval)
       (Stor.cstruct_of_value cval2));
