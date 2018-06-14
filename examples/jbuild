@@ -2,8 +2,5 @@
 
 (executables
   ((names (irmin_example irmin_cli))
-  (libraries (wodan io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt
-  cmdliner irmin-mem irmin-unix
-  logs.fmt logs.cli fmt.cli fmt.tty
-  ))
+  (libraries (wodan io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix))
   ))
