@@ -19,14 +19,16 @@ open Mirage_types_lwt
 open Lwt.Infix
 
 module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
-  module Stor = Wodan.Make(B)(Wodan.StandardParams)
+  module Stor = Wodan.Make(B)(struct include Wodan.StandardParams let block_size=512 end)
 
   let start _con disk _crypto =
     let ios = ref 0 in
     let time0 = ref 0. in
     let%lwt info = B.get_info disk in
+    (*Logs.info (fun m ->
+        m "Sectors %Ld %d" info.size_sectors info.sector_size);*)
     let%lwt rootval, _gen0 = Stor.prepare_io (Wodan.FormatEmptyDevice
-      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)) disk 1024 in
+      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size)) disk 1024 in
     (
     let root = ref rootval in
     let key = Stor.key_of_cstruct @@ Cstruct.of_string "abcdefghijklmnopqrst" in
