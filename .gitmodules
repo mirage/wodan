@@ -1,0 +1,3 @@
+[submodule "afl/input"]
+	path = afl/input
+	url = https://github.com/g2p/wodan-fuzz-corpus.git
