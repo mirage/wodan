@@ -51,7 +51,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
   let dump disk =
     let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
     let out_csv = Csv.to_channel ~separator:'\t' stdout in
-    Stor.search_range root (fun _k -> true) (fun _k -> false) (fun k v ->
+    Stor.iter root (fun k v ->
       Csv.output_record out_csv [B64.encode @@ Stor.string_of_key k; B64.encode @@ Stor.string_of_value v]) >>= fun () ->
     begin Csv.close_out out_csv;
     Lwt.return_unit end

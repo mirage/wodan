@@ -65,8 +65,9 @@ module type S =
     val live_trim : root -> int64 Lwt.t
     val log_statistics : root -> unit
     val search_range :
-      root ->
-      (key -> bool) -> (key -> bool) -> (key -> value -> unit) -> unit Lwt.t
+      root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
+    val iter :
+      root -> (key -> value -> unit) -> unit Lwt.t
     val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
   end
 module Make :
