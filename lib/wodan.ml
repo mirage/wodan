@@ -143,7 +143,7 @@ type keydata_index = {
  * LRU to bump recently accessed nodes *)
 type childlink_entry = {
   offset: int; (* logical is at offset + P.key_size *)
-  mutable alloc_id: int64 option;
+  alloc_id: int64 option;
 } (*[@@deriving sexp]*)
 
 let sexp_of_childlink_entry { offset; _ } =
@@ -247,8 +247,8 @@ let lru_xset lru alloc_id value =
     |Some (_alloc_id, entry) ->
       begin match lookup_parent_link lru entry with
       |None -> failwith "Would discard a root key, LRU too small for tree depth"
-      |Some (_parent_key, _parent_entry, cl) ->
-        cl.alloc_id <- None
+      |Some (_parent_key, parent_entry, cl) ->
+        KeyedMap.update entry.highest_key { cl with alloc_id=None } (Lazy.force parent_entry.children)
       end
     |_ -> failwith "LRU capacity is too small"
   end;
@@ -610,7 +610,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       fun off ->
         let key = Cstruct.to_string @@ Cstruct.sub (
           entry.raw_node) off P.key_size in
-        KeyedMap.add key {offset=off; alloc_id=None} r)
+        KeyedMap.xadd key {offset=off; alloc_id=None} r)
       (_gen_childlink_offsets entry.childlinks.childlinks_offset);
     r
 
@@ -623,7 +623,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       fun off ->
         let key = Cstruct.to_string @@ Cstruct.sub
           entry.raw_node off P.key_size in
-        KeyedMap.add key (ref off) r)
+        KeyedMap.xadd key (ref off) r)
       kd.keydata_offsets;
     r
 
@@ -934,12 +934,12 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         >>= fun () ->
         let%lwt child_entry = _load_child_node_at open_fs logical cl_key entry_key rdepth in
         let alloc_id = next_alloc_id cache in
-        cl.alloc_id <- Some alloc_id;
+        KeyedMap.update cl_key {cl with alloc_id=Some alloc_id} (Lazy.force entry.children);
         lru_xset cache.lru alloc_id child_entry;
         Lwt.return (alloc_id, child_entry)
     |Some alloc_id ->
       match lru_get cache.lru alloc_id with
-      |None -> Lwt.fail @@ Failure (Printf.sprintf "Missing LRU entry for loaded child %s" (sexp_of_childlink_entry cl |> Sexplib.Sexp.to_string))
+      |None -> Lwt.fail @@ Failure (Printf.sprintf "Missing LRU entry for loaded child %s %Ld" (sexp_of_childlink_entry cl |> Sexplib.Sexp.to_string) alloc_id)
       |Some child_entry ->
         Lwt.return (alloc_id, child_entry)
 
@@ -1250,8 +1250,8 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         KeyedMap.iter (fun _k ce -> blit_cd_child ce entry1) children;
         KeyedMap.iter (fun _k ce -> blit_cd_child ce entry2) cl2;
         let fc = KeyedMap.create () in
-        KeyedMap.add median alloc1 fc;
-        KeyedMap.add entry.highest_key alloc2 fc;
+        KeyedMap.xadd median alloc1 fc;
+        KeyedMap.xadd entry.highest_key alloc2 fc;
         _reset_contents entry;
         entry.rdepth <- Int32.succ entry.rdepth;
         set_rootnode_hdr_depth entry.raw_node entry.rdepth;
