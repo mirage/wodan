@@ -19,7 +19,7 @@ open Mirage_types_lwt
 open Lwt.Infix
 
 module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
-  module Stor = Wodan.Make(B)(struct include Wodan.StandardParams let block_size=512 end)
+  module Stor = Wodan.Make(B)(struct include Wodan.StandardParams (*let block_size=512*) end)
 
   let start _con disk _crypto =
     let ios = ref 0 in
