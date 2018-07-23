@@ -199,7 +199,7 @@ type lru_entry = {
      A flushable node is either new or dirty, but not both. *)
   mutable flush_info: flush_info option;
   mutable children: childlink_entry KeyedMap.t Lazy.t;
-  mutable logindex: int ref KeyedMap.t Lazy.t;
+  mutable logindex: int KeyedMap.t Lazy.t;
   mutable highest_key: string;
   raw_node: Cstruct.t;
   io_data: Cstruct.t list;
@@ -623,7 +623,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       fun off ->
         let key = Cstruct.to_string @@ Cstruct.sub
           entry.raw_node off P.key_size in
-        KeyedMap.xadd key (ref off) r)
+        KeyedMap.xadd key off r)
       kd.keydata_offsets;
     r
 
@@ -979,7 +979,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
               let len1 = len + P.key_size + sizeof_datalen in
               Cstruct.blit cstr kdo cstr !kdo_out len1;
               let kdos = !kdo_out::kdos in
-              keyedmap_find key1 logindex := !kdo_out;
+              KeyedMap.update key1 !kdo_out logindex;
               kdo_out := !kdo_out + len1;
               kdos
             end
@@ -993,7 +993,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
             Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
             kd.keydata_offsets <- off::kd.keydata_offsets;
-            KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr off P.key_size) (ref off) logindex
+            KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr off P.key_size) off logindex
           end;
           ignore @@ _mark_dirty fs.node_cache alloc_id;
         |InsChild (loc, child_alloc_id) ->
@@ -1153,7 +1153,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
               |Some (sk, _cl) ->
                 scored_key := sk;
             end;
-            let len = Cstruct.LE.get_uint16 entry.raw_node (!off + P.key_size) in
+            let len = Cstruct.LE.get_uint16 entry.raw_node (off + P.key_size) in
             let len1 = P.key_size + sizeof_datalen + len in
             spill_score := !spill_score + len1;
           end) @@ Lazy.force entry.logindex;
@@ -1191,7 +1191,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let len1 = len + P.key_size + sizeof_datalen in
             Cstruct.blit entry.raw_node kdo entry.raw_node !kdo_out len1;
             let kdos = !kdo_out::kdos in
-            keyedmap_find key1 @@ Lazy.force entry.logindex := !kdo_out;
+            KeyedMap.update key1 !kdo_out @@ Lazy.force entry.logindex;
             kdo_out := !kdo_out + len1;
             kdos
           end
@@ -1230,13 +1230,13 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
           let cstr1 = centry.raw_node in
           let ckd = centry.keydata in
           let off1 = ckd.next_keydata_offset in
-          let len = Cstruct.LE.get_uint16 cstr0 (!off + P.key_size) in
+          let len = Cstruct.LE.get_uint16 cstr0 (off + P.key_size) in
           let len1 = P.key_size + sizeof_datalen + len in
-          Cstruct.blit cstr0 !off cstr1 off1 len1;
+          Cstruct.blit cstr0 off cstr1 off1 len1;
           ckd.keydata_offsets <- off1::ckd.keydata_offsets;
           ckd.next_keydata_offset <- ckd.next_keydata_offset + len1;
           assert (Lazy.is_val centry.logindex);
-          KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr1 off1 P.key_size) (ref off1) (Lazy.force centry.logindex);
+          KeyedMap.add (Cstruct.to_string @@ Cstruct.sub cstr1 off1 P.key_size) off1 (Lazy.force centry.logindex);
         in let blit_cd_child cle centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
@@ -1369,7 +1369,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         KeyedMap.find_opt key @@ Lazy.force entry.logindex
       with
         |Some kdo ->
-            Lwt.return @@ value_at entry !kdo
+            Lwt.return @@ value_at entry kdo
         |None ->
             Logs.debug (fun m -> m "_lookup");
             if not @@ _has_children entry then Lwt.return_none else
@@ -1385,7 +1385,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         KeyedMap.find_opt key @@ Lazy.force entry.logindex
       with
         |Some kdo ->
-            Lwt.return @@ has_value entry !kdo
+            Lwt.return @@ has_value entry kdo
         |None ->
             Logs.debug (fun m -> m "_mem");
             if not @@ _has_children entry then Lwt.return_false else
@@ -1410,7 +1410,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       let seen1 = ref seen in
       let lwt_queue = ref [] in
       (* The range from start inclusive to end_ exclusive *)
-      KeyedMap.iter_range start end_ (fun k kdo -> (match value_at entry !kdo with Some v -> callback k v|None ->() ); seen1 := KeyedSet.add k !seen1)
+      KeyedMap.iter_range start end_ (fun k kdo -> (match value_at entry kdo with Some v -> callback k v|None ->() ); seen1 := KeyedSet.add k !seen1)
       @@ Lazy.force entry.logindex;
       (* As above, but end at end_ inclusive *)
       KeyedMap.iter_inclusive_range start end_ (fun key1 cl ->
@@ -1434,7 +1434,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (iter)" alloc_id
     |Some entry ->
       let lwt_queue = ref [] in
-      KeyedMap.iter (fun k kdo -> (match value_at entry !kdo with Some v -> callback k v|None ->() ))
+      KeyedMap.iter (fun k kdo -> (match value_at entry kdo with Some v -> callback k v|None ->() ))
       @@ Lazy.force entry.logindex;
       KeyedMap.iter (fun key1 cl ->
         lwt_queue := (key1, cl)::!lwt_queue)
