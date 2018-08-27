@@ -37,6 +37,7 @@ exception NeedsFlush
 exception BadKey of Cstruct.t
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
+exception BadNodeFSID of string
 
 module type EXTBLOCK = sig
   include Mirage_types_lwt.BLOCK
@@ -44,6 +45,8 @@ module type EXTBLOCK = sig
 end
 
 let sb_incompat_rdepth = 1l
+let sb_incompat_fsid = 2l
+let sb_required_incompat = Int32.logor sb_incompat_rdepth sb_incompat_fsid
 
 [@@@warning "-32"]
 
@@ -59,7 +62,9 @@ let sb_incompat_rdepth = 1l
   key_size: uint8_t;
   first_block_written: uint64_t;
   logical_size: uint64_t;
-  reserved: uint8_t [@len 459];
+  (* FSID is a UUID (128 bits) *)
+  fsid: uint8_t [@len 16];
+  reserved: uint8_t [@len 443];
   crc: uint32_t;
 }[@@little_endian]]
 
@@ -71,6 +76,7 @@ let sizeof_crc = 4
 [%%cstruct type anynode_hdr = {
   nodetype: uint8_t;
   generation: uint64_t;
+  fsid: uint8_t [@len 16];
 }[@@little_endian]]
 let () = assert (sizeof_anynode_hdr = 9)
 
@@ -79,6 +85,7 @@ let () = assert (sizeof_anynode_hdr = 9)
   nodetype: uint8_t;
   (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
   generation: uint64_t;
+  fsid: uint8_t [@len 16];
   depth: uint32_t;
 }[@@little_endian]]
 (* Contents: logged data, and child node links *)
@@ -97,6 +104,7 @@ let () = assert (sizeof_anynode_hdr = 9)
   (* nodetype = 2 *)
   nodetype: uint8_t;
   generation: uint64_t;
+  fsid: uint8_t [@len 16];
 }[@@little_endian]]
 (* Contents: logged data, and child node links *)
 (* Layout: see above *)
@@ -264,6 +272,7 @@ type node_cache = {
   mutable free_count: int64;
   mutable new_count: int64;
   mutable dirty_count: int64;
+  fsid: string;
   logical_size: int64;
   (* Logical -> bit.  Zero iff free. *)
   space_map: Bitv.t;
@@ -819,6 +828,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     let cstr = _get_block_io () in
     assert (Cstruct.len cstr = P.block_size);
     set_anynode_hdr_nodetype cstr tycode;
+    set_anynode_hdr_fsid cache.fsid 0 cstr;
     let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
     let cached_node = match tycode with
     |1 -> `Root
@@ -878,6 +888,8 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       |2 (* inner *) when not expect_root -> sizeof_childnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
+    let fsid = Cstruct.to_string @@ get_anynode_hdr_fsid cstr in
+    if fsid <> cache.fsid then raise (BadNodeFSID fsid);
     let gen = get_anynode_hdr_generation cstr in
     (* prevents cycles *)
     if gen >= parent_gen then failwith "generation is not lower than for parent";
@@ -1467,7 +1479,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       then raise BadMagic
       else if get_superblock_version sb <> superblock_version
       then raise BadVersion
-      else if get_superblock_incompat_flags sb <> sb_incompat_rdepth
+      else if get_superblock_incompat_flags sb <> sb_required_incompat
       then raise BadFlags
       else if not @@ Crc32c.cstruct_valid sb
       then raise @@ BadCRC 0L
@@ -1478,12 +1490,12 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       end
       else if get_superblock_key_size sb <> P.key_size
       then raise BadParams
-      else get_superblock_first_block_written sb, get_superblock_logical_size sb
+      else get_superblock_first_block_written sb, get_superblock_logical_size sb, Cstruct.to_string @@ get_superblock_fsid sb
     end
 
   (* Requires the caller to discard the entire device first.
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
-  let _format open_fs logical_size first_block_written =
+  let _format open_fs logical_size first_block_written fsid =
     let block_io = _get_superblock_io () in
     let block_io_fanned = make_fanned_io_list open_fs.filesystem.sector_size block_io in
     let alloc_id, _root = _new_root open_fs in
@@ -1493,11 +1505,12 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     let sb = _sb_io block_io in
     set_superblock_magic superblock_magic 0 sb;
     set_superblock_version sb superblock_version;
-    set_superblock_incompat_flags sb sb_incompat_rdepth;
+    set_superblock_incompat_flags sb sb_required_incompat;
     set_superblock_block_size sb (Int32.of_int P.block_size);
     set_superblock_key_size sb P.key_size;
     set_superblock_first_block_written sb first_block_written;
     set_superblock_logical_size sb logical_size;
+    set_superblock_fsid fsid 0 sb;
     Crc32c.cstruct_reset sb;
     B.write open_fs.filesystem.disk 0L block_io_fanned >>= function
       |Result.Ok () -> Lwt.return ()
@@ -1514,7 +1527,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     let mid = if mid = 0L then 1L else mid in
     Some mid
 
-  let _scan_for_root fs start0 lsize =
+  let _scan_for_root fs start0 lsize fsid =
     Logs.debug (fun m -> m "_scan_for_root");
     let cstr = _get_block_io () in
     let io_data = make_fanned_io_list fs.sector_size cstr in
@@ -1531,6 +1544,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
 
     let is_valid_root () =
       get_anynode_hdr_nodetype cstr = 1
+      && Cstruct.to_string @@ get_anynode_hdr_fsid cstr = fsid
       && Crc32c.cstruct_valid cstr
     in
 
@@ -1575,8 +1589,8 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       } in
       match mode with
         |OpenExistingDevice ->
-            let%lwt fbw, logical_size = _read_superblock fs in
-            let%lwt lroot = _scan_for_root fs fbw logical_size in
+            let%lwt fbw, logical_size, fsid = _read_superblock fs in
+            let%lwt lroot = _scan_for_root fs fbw logical_size fsid in
             let%lwt cstr, _io_data = _load_data_at fs lroot in
             let typ = get_anynode_hdr_nodetype cstr in
             if typ <> 1 then raise @@ BadNodeType typ;
@@ -1599,6 +1613,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
               free_count;
               new_count=0L;
               dirty_count=0L;
+              fsid;
               next_logical_alloc=lroot; (* in use, but that's okay *)
               statistics=default_statistics;
             } in
@@ -1616,6 +1631,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let freed_intervals = BlockIntervals.empty in
             let free_count = Int64.pred logical_size in
             let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
+            let fsid = Cstruct.to_string @@ Nocrypto.Rng.generate 16 in
             let node_cache = {
               lru=lru_create cache_size;
               flush_root=None;
@@ -1628,11 +1644,12 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
               free_count;
               new_count=0L;
               dirty_count=0L;
+              fsid;
               next_logical_alloc=first_block_written;
               statistics=default_statistics;
             } in
             let open_fs = { filesystem=fs; node_cache; } in
-            _format open_fs logical_size first_block_written >>= fun () ->
+            _format open_fs logical_size first_block_written fsid >>= fun () ->
             let root_key = 1L in
             Lwt.return ({open_fs; root_key;}, 1L)
 end
