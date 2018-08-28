@@ -62,7 +62,7 @@ let sb_required_incompat = Int32.logor sb_incompat_rdepth sb_incompat_fsid
   key_size: uint8_t;
   first_block_written: uint64_t;
   logical_size: uint64_t;
-  (* FSID is a UUID (128 bits) *)
+  (* FSID is UUID-sized (128 bits) *)
   fsid: uint8_t [@len 16];
   reserved: uint8_t [@len 443];
   crc: uint32_t;
