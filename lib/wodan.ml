@@ -78,7 +78,7 @@ let sizeof_crc = 4
   generation: uint64_t;
   fsid: uint8_t [@len 16];
 }[@@little_endian]]
-let () = assert (sizeof_anynode_hdr = 9)
+let () = assert (sizeof_anynode_hdr = 25)
 
 [%%cstruct type rootnode_hdr = {
   (* nodetype = 1 *)
