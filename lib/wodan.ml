@@ -427,6 +427,8 @@ module type MOUNT_PARAMS = sig
   (* If enabled, instead of checking the entire filesystem when opening,
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
   val fast_scan: bool
+  (* How many blocks to keep in cache *)
+  val cache_size: int
 end
 
 (* All parameters that can be read from the superblock *)
@@ -445,6 +447,7 @@ end
 module StandardMountParams : MOUNT_PARAMS = struct
   let has_tombstone = false
   let fast_scan = true
+  let cache_size = 1024
 end
 
 module StandardSuperblockParams : SUPERBLOCK_PARAMS = struct
@@ -499,7 +502,7 @@ module type S = sig
     -> (key -> value -> unit)
     -> unit Lwt.t
   val iter : root -> (key -> value -> unit) -> unit Lwt.t
-  val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
+  val prepare_io : deviceOpenMode -> disk -> (root * int64) Lwt.t
 end
 
 let read_superblock_params (type disk) (module B: Mirage_types_lwt.BLOCK with type t = disk) disk =
@@ -526,7 +529,6 @@ let read_superblock_params (type disk) (module B: Mirage_types_lwt.BLOCK with ty
       end : SUPERBLOCK_PARAMS)
     end
   end
-
 
 module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
   type key = string
@@ -1616,7 +1618,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     let%lwt end0, gen0 = _scan_range start0
     in sfr_rec start0 end0 gen0
 
-  let prepare_io mode disk cache_size =
+  let prepare_io mode disk =
     B.get_info disk >>= fun info ->
       Logs.debug (fun m -> m "prepare_io sector_size %d" info.sector_size);
       let sector_size = if false then info.sector_size else 512 in
@@ -1646,7 +1648,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let freed_intervals = BlockIntervals.empty in
             let free_count = Int64.pred logical_size in
             let node_cache = {
-              lru=lru_create cache_size;
+              lru=lru_create P.cache_size;
               flush_root=None;
               next_alloc_id=1L;
               next_generation=Int64.succ root_generation;
@@ -1677,7 +1679,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
             let fsid = Cstruct.to_string @@ Nocrypto.Rng.generate 16 in
             let node_cache = {
-              lru=lru_create cache_size;
+              lru=lru_create P.cache_size;
               flush_root=None;
               next_alloc_id=1L;
               next_generation=1L;
@@ -1697,3 +1699,14 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let root_key = 1L in
             Lwt.return ({open_fs; root_key;}, 1L)
 end
+
+type open_ret = OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret
+
+let open_for_reading
+    (type disk) (module B: EXTBLOCK with type t = disk)
+    disk (module MP: MOUNT_PARAMS) =
+  read_superblock_params (module B) disk >>= function sp ->
+    let module Stor = Make(B)(struct include MP include (val sp) end) in
+    Stor.prepare_io OpenExistingDevice disk >>= function (root, gen) ->
+      Lwt.return (OPEN_RET ((module Stor), root, gen))
+

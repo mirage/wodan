@@ -167,7 +167,8 @@ struct
     let open_arg = if create then
       Wodan.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)
     else Wodan.OpenExistingDevice in
-    Stor.prepare_io open_arg disk lru_size >>= fun (root, _gen) ->
+    ignore lru_size;
+    Stor.prepare_io open_arg disk (*lru_size*) >>= fun (root, _gen) ->
     Lwt.return { root; autoflush }
 
   module Cache = Cache(struct

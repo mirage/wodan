@@ -23,24 +23,20 @@ let unwrap_opt = function
 
 module Client (B: Wodan.EXTBLOCK) = struct
   let trim disk =
-    Wodan.read_superblock_params (module B) disk >>= function sb_params ->
-      let module Stor = Wodan.Make(B)(struct
-          include Wodan.StandardMountParams include (val sb_params) end) in
-    let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+    Wodan.open_for_reading (module B) disk (module Wodan.StandardMountParams)
+    >>= function (Wodan.OPEN_RET ((module Stor), root, _gen)) ->
     Stor.fstrim root
 
   let format disk =
     let module Stor = Wodan.Make(B)(Wodan.StandardParams) in
     let%lwt info = B.get_info disk in
     let%lwt _root, _gen = Stor.prepare_io (Wodan.FormatEmptyDevice
-      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)) disk 1024 in
+      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)) disk in
     Lwt.return_unit
 
   let restore disk =
-    Wodan.read_superblock_params (module B) disk >>= function sb_params ->
-      let module Stor = Wodan.Make(B)(struct
-          include Wodan.StandardMountParams include (val sb_params) end) in
-    let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+    Wodan.open_for_reading (module B) disk (module Wodan.StandardMountParams)
+    >>= function (Wodan.OPEN_RET ((module Stor), root, _gen)) ->
     let csv_in = Csv.of_channel ~separator:'\t' stdin in
     let compl = ref [] in
     Csv.iter ~f:(fun l ->
@@ -54,10 +50,8 @@ module Client (B: Wodan.EXTBLOCK) = struct
     Lwt.return_unit
 
   let dump disk =
-    Wodan.read_superblock_params (module B) disk >>= function sb_params ->
-      let module Stor = Wodan.Make(B)(struct
-          include Wodan.StandardMountParams include (val sb_params) end) in
-    let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+    Wodan.open_for_reading (module B) disk (module Wodan.StandardMountParams)
+    >>= function (Wodan.OPEN_RET ((module Stor), root, _gen)) ->
     let out_csv = Csv.to_channel ~separator:'\t' stdout in
     Stor.iter root (fun k v ->
       Csv.output_record out_csv [B64.encode @@ Stor.string_of_key k; B64.encode @@ Stor.string_of_value v]) >>= fun () ->
@@ -96,7 +90,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
       >|= ignore
     done >>= fun _ ->
     let%lwt root, _rgen =
-    Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+    Stor.prepare_io Wodan.OpenExistingDevice disk in
     let key = Stor.key_of_string "abcdefghijklmnopqrst" in
     let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert root key cval >>= fun () ->
@@ -106,7 +100,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
       (Stor.cstruct_of_value cval)
       (Stor.cstruct_of_value cval1));
     let%lwt root, _rgen =
-      Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
+      Stor.prepare_io Wodan.OpenExistingDevice disk in
     let%lwt cval2 = Stor.lookup root key >|= unwrap_opt in
     assert (Cstruct.equal
       (Stor.cstruct_of_value cval)

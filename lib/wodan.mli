@@ -32,6 +32,8 @@ module type MOUNT_PARAMS = sig
   (* If enabled, instead of checking the entire filesystem when opening,
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
   val fast_scan: bool
+  (* How many blocks to keep in cache *)
+  val cache_size: int
 end
 
 (* All parameters that can be read from the superblock *)
@@ -90,7 +92,15 @@ module type S =
       root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
     val iter :
       root -> (key -> value -> unit) -> unit Lwt.t
-    val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
+    val prepare_io : deviceOpenMode -> disk -> (root * int64) Lwt.t
   end
 module Make :
   functor (B : EXTBLOCK) (P : PARAMS) -> (S with type disk = B.t)
+
+type open_ret =
+    OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret
+
+val open_for_reading :
+  (module EXTBLOCK with type t = 'a) ->
+  'a -> (module MOUNT_PARAMS) -> open_ret Lwt.t
+
