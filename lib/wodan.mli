@@ -23,14 +23,36 @@ type insertable =
 
 val sizeof_superblock : int
 
-module type PARAMS =
-  sig
-    val block_size : int
-    val key_size : int
-    val has_tombstone : bool
-    val fast_scan: bool
-  end
+(* All parameters that can't be read from the superblock *)
+module type MOUNT_PARAMS = sig
+  (* Whether the empty value should be considered a tombstone,
+   * meaning that `mem` will return no value when finding it *)
+  (* XXX Should this be a superblock flag? *)
+  val has_tombstone: bool
+  (* If enabled, instead of checking the entire filesystem when opening,
+   * leaf nodes won't be scanned.  They will be scanned on open instead. *)
+  val fast_scan: bool
+end
+
+(* All parameters that can be read from the superblock *)
+module type SUPERBLOCK_PARAMS = sig
+  (* Size of blocks, in bytes *)
+  val block_size: int
+  (* The exact size of all keys, in bytes *)
+  val key_size: int
+end
+
+module type PARAMS = sig
+  include MOUNT_PARAMS
+  include SUPERBLOCK_PARAMS
+end
+
+module StandardMountParams : MOUNT_PARAMS
+module StandardSuperblockParams : SUPERBLOCK_PARAMS
 module StandardParams : PARAMS
+
+val read_superblock_params : (module Mirage_types_lwt.BLOCK with type t = 'a) -> 'a -> (module SUPERBLOCK_PARAMS) Lwt.t
+
 type deviceOpenMode = OpenExistingDevice | FormatEmptyDevice of int64
 module type S =
   sig

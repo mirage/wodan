@@ -22,19 +22,24 @@ let unwrap_opt = function
 |Some x -> x
 
 module Client (B: Wodan.EXTBLOCK) = struct
-  module Stor = Wodan.Make(B)(Wodan.StandardParams)
-
   let trim disk =
+    Wodan.read_superblock_params (module B) disk >>= function sb_params ->
+      let module Stor = Wodan.Make(B)(struct
+          include Wodan.StandardMountParams include (val sb_params) end) in
     let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
     Stor.fstrim root
 
   let format disk =
+    let module Stor = Wodan.Make(B)(Wodan.StandardParams) in
     let%lwt info = B.get_info disk in
     let%lwt _root, _gen = Stor.prepare_io (Wodan.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)) disk 1024 in
     Lwt.return_unit
 
   let restore disk =
+    Wodan.read_superblock_params (module B) disk >>= function sb_params ->
+      let module Stor = Wodan.Make(B)(struct
+          include Wodan.StandardMountParams include (val sb_params) end) in
     let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
     let csv_in = Csv.of_channel ~separator:'\t' stdin in
     let compl = ref [] in
@@ -49,6 +54,9 @@ module Client (B: Wodan.EXTBLOCK) = struct
     Lwt.return_unit
 
   let dump disk =
+    Wodan.read_superblock_params (module B) disk >>= function sb_params ->
+      let module Stor = Wodan.Make(B)(struct
+          include Wodan.StandardMountParams include (val sb_params) end) in
     let%lwt root, _gen = Stor.prepare_io Wodan.OpenExistingDevice disk 1024 in
     let out_csv = Csv.to_channel ~separator:'\t' stdout in
     Stor.iter root (fun k v ->
@@ -57,12 +65,10 @@ module Client (B: Wodan.EXTBLOCK) = struct
     Lwt.return_unit end
 
   let fuzz disk =
-    let module Stor = Wodan.Make(B)(struct
-      include Wodan.StandardParams
-      let block_size = 512
-    end) in
+    Wodan.read_superblock_params (module B) disk >>= function sb_params ->
+      let module Stor = Wodan.Make(B)(struct
+          include Wodan.StandardMountParams include (val sb_params) end) in
 
-    assert (Stor.P.block_size = 512);
     let magiccrc = Cstruct.of_string "\xff\xff\xff\xff" in
 
     let cstr_cond_reset str =

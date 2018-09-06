@@ -120,6 +120,9 @@ let rec make_fanned_io_list size cstr =
   else let head, rest = Cstruct.split cstr size in
   head::make_fanned_io_list size rest
 
+let _sb_io block_io =
+  Cstruct.sub block_io 0 sizeof_superblock
+
 type statistics = {
   mutable inserts: int;
   mutable lookups: int;
@@ -416,11 +419,8 @@ let _get_superblock_io () =
   TODO figure out portability *)
     Cstruct.create 512
 
-module type PARAMS = sig
-  (* Size of blocks, in bytes *)
-  val block_size: int
-  (* The exact size of all keys, in bytes *)
-  val key_size: int
+(* All parameters that can't be read from the superblock *)
+module type MOUNT_PARAMS = sig
   (* Whether the empty value should be considered a tombstone,
    * meaning that `mem` will return no value when finding it *)
   val has_tombstone: bool
@@ -429,11 +429,32 @@ module type PARAMS = sig
   val fast_scan: bool
 end
 
-module StandardParams : PARAMS = struct
-  let block_size = 256*1024
-  let key_size = 20
+(* All parameters that can be read from the superblock *)
+module type SUPERBLOCK_PARAMS = sig
+  (* Size of blocks, in bytes *)
+  val block_size: int
+  (* The exact size of all keys, in bytes *)
+  val key_size: int
+end
+
+module type PARAMS = sig
+  include MOUNT_PARAMS
+  include SUPERBLOCK_PARAMS
+end
+
+module StandardMountParams : MOUNT_PARAMS = struct
   let has_tombstone = false
   let fast_scan = true
+end
+
+module StandardSuperblockParams : SUPERBLOCK_PARAMS = struct
+  let block_size = 256*1024
+  let key_size = 20
+end
+
+module StandardParams : PARAMS = struct
+  include StandardMountParams
+  include StandardSuperblockParams
 end
 
 type deviceOpenMode =
@@ -480,6 +501,32 @@ module type S = sig
   val iter : root -> (key -> value -> unit) -> unit Lwt.t
   val prepare_io : deviceOpenMode -> disk -> int -> (root * int64) Lwt.t
 end
+
+let read_superblock_params (type disk) (module B: Mirage_types_lwt.BLOCK with type t = disk) disk =
+  let block_io = _get_superblock_io () in
+  let block_io_fanned = [block_io] in
+  B.read disk 0L block_io_fanned >>= Lwt.wrap1 begin function
+    |Result.Error _ -> raise ReadError
+    |Result.Ok () ->
+        let sb = _sb_io block_io in
+    if copy_superblock_magic sb <> superblock_magic
+    then raise BadMagic
+    else if get_superblock_version sb <> superblock_version
+    then raise BadVersion
+    else if get_superblock_incompat_flags sb <> sb_required_incompat
+    then raise BadFlags
+    else if not @@ Crc32c.cstruct_valid sb
+    then raise @@ BadCRC 0L
+    else begin
+      let block_size = Int32.to_int @@ get_superblock_block_size sb in
+      let key_size = get_superblock_key_size sb in
+      (module struct
+        let block_size = block_size
+        let key_size = key_size
+      end : SUPERBLOCK_PARAMS)
+    end
+  end
+
 
 module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
   type key = string
@@ -1464,9 +1511,6 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     let stats = root.open_fs.node_cache.statistics in
     stats.iters <- succ stats.iters;
     _iter root.open_fs root.root_key callback
-
-  let _sb_io block_io =
-    Cstruct.sub block_io 0 sizeof_superblock
 
   let _read_superblock fs =
     let block_io = _get_superblock_io () in
