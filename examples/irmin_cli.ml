@@ -30,10 +30,10 @@ module FileBlockCon = struct
 end
 
 let wodan_mem_store (module C: Irmin.Contents.S) =
-  (module Irmin_wodan.KV(RamBlockCon)(Irmin_wodan.StandardParams)(C) : Irmin.S)
+  (module Irmin_wodan.KV(RamBlockCon)(Wodan.StandardSuperblockParams)(C) : Irmin.S)
 
 let wodan_file_store (module C: Irmin.Contents.S) =
-  (module Irmin_wodan.KV(FileBlockCon)(Irmin_wodan.StandardParams)(C) : Irmin.S)
+  (module Irmin_wodan.KV(FileBlockCon)(Wodan.StandardSuperblockParams)(C) : Irmin.S)
 
 let _ =
   Cli.add_store "wodan-mem" wodan_mem_store;

@@ -419,17 +419,16 @@ let _get_superblock_io () =
   TODO figure out portability *)
     Cstruct.create 512
 
-(* All parameters that can't be read from the superblock *)
-module type MOUNT_PARAMS = sig
+type mount_options = {
   (* Whether the empty value should be considered a tombstone,
    * meaning that `mem` will return no value when finding it *)
-  val has_tombstone: bool
+  has_tombstone: bool;
   (* If enabled, instead of checking the entire filesystem when opening,
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
-  val fast_scan: bool
+  fast_scan: bool;
   (* How many blocks to keep in cache *)
-  val cache_size: int
-end
+  cache_size: int;
+}
 
 (* All parameters that can be read from the superblock *)
 module type SUPERBLOCK_PARAMS = sig
@@ -440,24 +439,18 @@ module type SUPERBLOCK_PARAMS = sig
 end
 
 module type PARAMS = sig
-  include MOUNT_PARAMS
   include SUPERBLOCK_PARAMS
 end
 
-module StandardMountParams : MOUNT_PARAMS = struct
-  let has_tombstone = false
-  let fast_scan = true
-  let cache_size = 1024
-end
+let standard_mount_options = {
+  has_tombstone=false;
+  fast_scan=true;
+  cache_size=1024;
+}
 
 module StandardSuperblockParams : SUPERBLOCK_PARAMS = struct
   let block_size = 256*1024
   let key_size = 20
-end
-
-module StandardParams : PARAMS = struct
-  include StandardMountParams
-  include StandardSuperblockParams
 end
 
 type deviceOpenMode =
@@ -487,7 +480,7 @@ module type S = sig
   val cstruct_of_value : value -> Cstruct.t
   val string_of_value : value -> string
   val next_key : key -> key
-  val is_tombstone : value -> bool
+  val is_tombstone : root -> value -> bool
 
   val insert : root -> key -> value -> unit Lwt.t
   val lookup : root -> key -> value option Lwt.t
@@ -502,7 +495,7 @@ module type S = sig
     -> (key -> value -> unit)
     -> unit Lwt.t
   val iter : root -> (key -> value -> unit) -> unit Lwt.t
-  val prepare_io : deviceOpenMode -> disk -> (root * int64) Lwt.t
+  val prepare_io : deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
 end
 
 let read_superblock_params (type disk) (module B: Mirage_types_lwt.BLOCK with type t = disk) disk =
@@ -530,7 +523,7 @@ let read_superblock_params (type disk) (module B: Mirage_types_lwt.BLOCK with ty
     end
   end
 
-module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
+module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = struct
   type key = string
   type value = Cstruct.t
   type disk = B.t
@@ -599,9 +592,6 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     done;
     Bytes.to_string r
 
-  let is_tombstone value =
-    P.has_tombstone && Cstruct.len value = 0
-
   type filesystem = {
     (* Backing device *)
     disk: B.t;
@@ -611,12 +601,21 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     sector_size: int;
     (* the sector size that's used for read/write offsets *)
     other_sector_size: int;
+    mount_options: mount_options;
   }
 
   type open_fs = {
     filesystem: filesystem;
     node_cache: node_cache;
   }
+
+  type root = {
+    open_fs: open_fs;
+    root_key: LRUKey.t;
+  }
+
+  let is_tombstone root value =
+    root.open_fs.filesystem.mount_options.has_tombstone && Cstruct.len value = 0
 
   let _load_data_at filesystem logical =
     Logs.debug (fun m -> m "_load_data_at %Ld" logical);
@@ -724,11 +723,6 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
           block_end - redzone_size - entry.keydata.next_keydata_offset
         in
         refsize >= size
-
-  type root = {
-    open_fs: open_fs;
-    root_key: LRUKey.t;
-  }
 
   let _write_node open_fs alloc_id =
     let cache = open_fs.node_cache in
@@ -948,7 +942,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       begin if log1 <> 0L then begin
         (* Children here would mean the fast_scan free space map is borked *)
         if rdepth = 0l then failwith "Found children on a leaf node";
-        begin if rdepth = 1l && P.fast_scan then begin
+        begin if rdepth = 1l && open_fs.filesystem.mount_options.fast_scan then begin
           _update_space_map cache log1 false;
           Lwt.return_unit
         end else
@@ -981,7 +975,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     match KeyedMap.find_opt child_key entry.children_alloc_ids with
     |None ->
         let logical = _logical_of_offset cstr offset in
-        begin if%lwt Lwt.return P.fast_scan then match cache.scan_map with None -> assert false |Some scan_map ->
+        begin if%lwt Lwt.return open_fs.filesystem.mount_options.fast_scan then match cache.scan_map with None -> assert false |Some scan_map ->
           if%lwt Lwt.return (rdepth = 0l && not @@ bitv_get64 scan_map logical) then
             (* generation may not be fresh, but is always initialised in this branch,
                so this is not a problem *)
@@ -1165,13 +1159,13 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
           |Some centry -> centry.parent_key <- Some alloc_id
       ) entry.children_alloc_ids
 
-  let value_at entry kdo =
+  let _value_at fs entry kdo =
     let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
-    if P.has_tombstone && len = 0 then None else
+    if fs.mount_options.has_tombstone && len = 0 then None else
     Some (Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len)
 
-  let has_value entry kdo =
-    if not P.has_tombstone then true
+  let _has_value fs entry kdo =
+    if not fs.mount_options.has_tombstone then true
     else let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
       len <> 0
 
@@ -1434,7 +1428,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         KeyedMap.find_opt key @@ Lazy.force entry.logindex
       with
         |Some kdo ->
-            Lwt.return @@ value_at entry (Int64.to_int kdo)
+            Lwt.return @@ _value_at open_fs.filesystem entry (Int64.to_int kdo)
         |None ->
             Logs.debug (fun m -> m "_lookup");
             if not @@ _has_children entry then Lwt.return_none else
@@ -1450,7 +1444,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         KeyedMap.find_opt key @@ Lazy.force entry.logindex
       with
         |Some kdo ->
-            Lwt.return @@ has_value entry (Int64.to_int kdo)
+            Lwt.return @@ _has_value open_fs.filesystem entry (Int64.to_int kdo)
         |None ->
             Logs.debug (fun m -> m "_mem");
             if not @@ _has_children entry then Lwt.return_false else
@@ -1475,7 +1469,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
       let seen1 = ref seen in
       let lwt_queue = ref [] in
       (* The range from start inclusive to end_ exclusive *)
-      KeyedMap.iter_range start end_ (fun k kdo -> (match value_at entry @@ Int64.to_int kdo with Some v -> callback k v|None ->() ); seen1 := KeyedSet.add k !seen1)
+      KeyedMap.iter_range start end_ (fun k kdo -> (match _value_at open_fs.filesystem entry @@ Int64.to_int kdo with Some v -> callback k v|None ->() ); seen1 := KeyedSet.add k !seen1)
       @@ Lazy.force entry.logindex;
       (* As above, but end at end_ inclusive *)
       KeyedMap.iter_inclusive_range start end_ (fun key1 offset ->
@@ -1499,7 +1493,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (iter)" alloc_id
     |Some entry ->
       let lwt_queue = ref [] in
-      KeyedMap.iter (fun k kdo -> (match value_at entry @@ Int64.to_int kdo with Some v -> callback k v|None ->() ))
+      KeyedMap.iter (fun k kdo -> (match _value_at open_fs.filesystem entry @@ Int64.to_int kdo with Some v -> callback k v|None ->() ))
       @@ Lazy.force entry.logindex;
       KeyedMap.iter (fun key1 offset ->
         lwt_queue := (key1, offset)::!lwt_queue)
@@ -1618,7 +1612,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
     let%lwt end0, gen0 = _scan_range start0
     in sfr_rec start0 end0 gen0
 
-  let prepare_io mode disk =
+  let prepare_io mode disk mount_options =
     B.get_info disk >>= fun info ->
       Logs.debug (fun m -> m "prepare_io sector_size %d" info.sector_size);
       let sector_size = if false then info.sector_size else 512 in
@@ -1632,6 +1626,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
         disk;
         sector_size;
         other_sector_size = info.sector_size;
+        mount_options;
       } in
       match mode with
         |OpenExistingDevice ->
@@ -1644,11 +1639,11 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let rdepth = get_rootnode_hdr_depth cstr in
             let space_map = bitv_create64 logical_size false in
             Bitv.set space_map 0 true;
-            let scan_map = if P.fast_scan then Some (bitv_create64 logical_size false) else None in
+            let scan_map = if mount_options.fast_scan then Some (bitv_create64 logical_size false) else None in
             let freed_intervals = BlockIntervals.empty in
             let free_count = Int64.pred logical_size in
             let node_cache = {
-              lru=lru_create P.cache_size;
+              lru=lru_create mount_options.cache_size;
               flush_root=None;
               next_alloc_id=1L;
               next_generation=Int64.succ root_generation;
@@ -1679,7 +1674,7 @@ module Make(B: EXTBLOCK)(P: PARAMS) : (S with type disk = B.t) = struct
             let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
             let fsid = Cstruct.to_string @@ Nocrypto.Rng.generate 16 in
             let node_cache = {
-              lru=lru_create P.cache_size;
+              lru=lru_create mount_options.cache_size;
               flush_root=None;
               next_alloc_id=1L;
               next_generation=1L;
@@ -1704,9 +1699,9 @@ type open_ret = OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_r
 
 let open_for_reading
     (type disk) (module B: EXTBLOCK with type t = disk)
-    disk (module MP: MOUNT_PARAMS) =
+    disk mount_options =
   read_superblock_params (module B) disk >>= function sp ->
-    let module Stor = Make(B)(struct include MP include (val sp) end) in
-    Stor.prepare_io OpenExistingDevice disk >>= function (root, gen) ->
+    let module Stor = Make(B)(val sp) in
+    Stor.prepare_io OpenExistingDevice disk mount_options >>= function (root, gen) ->
       Lwt.return (OPEN_RET ((module Stor), root, gen))
 

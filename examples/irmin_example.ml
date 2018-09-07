@@ -27,7 +27,7 @@ module BC = struct
     Lwt.return @@ Rresult.R.return ()
 end
 
-module S = Irmin_wodan.KV(BC)(Irmin_wodan.StandardParams)(Irmin.Contents.String)
+module S = Irmin_wodan.KV(BC)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
 module Sync = Irmin.Sync(S)
 let config = Irmin_wodan.config ~path:"disk.img" ~create:true ()
 

@@ -24,17 +24,17 @@ type insertable =
 val sizeof_superblock : int
 
 (* All parameters that can't be read from the superblock *)
-module type MOUNT_PARAMS = sig
+type mount_options = {
   (* Whether the empty value should be considered a tombstone,
    * meaning that `mem` will return no value when finding it *)
   (* XXX Should this be a superblock flag? *)
-  val has_tombstone: bool
+  has_tombstone: bool;
   (* If enabled, instead of checking the entire filesystem when opening,
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
-  val fast_scan: bool
+  fast_scan: bool;
   (* How many blocks to keep in cache *)
-  val cache_size: int
-end
+  cache_size: int;
+}
 
 (* All parameters that can be read from the superblock *)
 module type SUPERBLOCK_PARAMS = sig
@@ -44,14 +44,9 @@ module type SUPERBLOCK_PARAMS = sig
   val key_size: int
 end
 
-module type PARAMS = sig
-  include MOUNT_PARAMS
-  include SUPERBLOCK_PARAMS
-end
-
-module StandardMountParams : MOUNT_PARAMS
 module StandardSuperblockParams : SUPERBLOCK_PARAMS
-module StandardParams : PARAMS
+
+val standard_mount_options : mount_options
 
 val read_superblock_params : (module Mirage_types_lwt.BLOCK with type t = 'a) -> 'a -> (module SUPERBLOCK_PARAMS) Lwt.t
 
@@ -69,7 +64,7 @@ module type S =
         val hash : t -> int
         val compare : t -> t -> int
       end
-    module P : PARAMS
+    module P : SUPERBLOCK_PARAMS
     val key_of_cstruct : Cstruct.t -> key
     val key_of_string : string -> key
     val cstruct_of_key : key -> Cstruct.t
@@ -80,7 +75,7 @@ module type S =
     val cstruct_of_value : value -> Cstruct.t
     val string_of_value : value -> string
     val next_key : key -> key
-    val is_tombstone : value -> bool
+    val is_tombstone : root -> value -> bool
     val insert : root -> key -> value -> unit Lwt.t
     val lookup : root -> key -> value option Lwt.t
     val mem : root -> key -> bool Lwt.t
@@ -92,15 +87,15 @@ module type S =
       root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
     val iter :
       root -> (key -> value -> unit) -> unit Lwt.t
-    val prepare_io : deviceOpenMode -> disk -> (root * int64) Lwt.t
+    val prepare_io : deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
   end
 module Make :
-  functor (B : EXTBLOCK) (P : PARAMS) -> (S with type disk = B.t)
+  functor (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) -> (S with type disk = B.t)
 
 type open_ret =
     OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret
 
 val open_for_reading :
   (module EXTBLOCK with type t = 'a) ->
-  'a -> (module MOUNT_PARAMS) -> open_ret Lwt.t
+  'a -> mount_options -> open_ret Lwt.t
 

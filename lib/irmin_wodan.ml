@@ -20,10 +20,7 @@ open Lwt.Infix
 let src = Logs.Src.create "irmin.wodan"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-module StandardParams = struct
-  include Wodan.StandardParams
-  let has_tombstone = true
-end
+let standard_mount_options = {Wodan.standard_mount_options with has_tombstone = true}
 
 module Conf = struct
   let path =
@@ -34,10 +31,15 @@ module Conf = struct
     Irmin.Private.Conf.key ~doc:"Whether to create a fresh filesystem" "create"
       Irmin.Private.Conf.bool false
 
-  let lru_size =
+  let cache_size =
     Irmin.Private.Conf.key ~doc:"How many cache items to keep in the LRU"
-      "lru_size"
+      "cache_size"
       Irmin.Private.Conf.int 1024
+
+  let fast_scan =
+    Irmin.Private.Conf.key ~doc:"Whether to mount without scanning the leaves"
+      "fast_scan"
+      Irmin.Private.Conf.bool true
 
   let list_key =
     Irmin.Private.Conf.key
@@ -51,11 +53,15 @@ module Conf = struct
       Irmin.Private.Conf.bool false
 end
 
-let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size ?list_key ?autoflush () =
+let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?cache_size ?fast_scan ?list_key ?autoflush () =
   let module C = Irmin.Private.Conf in
-  let lru_size = match lru_size with
-  |None -> C.default Conf.lru_size
-  |Some lru_size -> lru_size
+  let cache_size = match cache_size with
+  |None -> C.default Conf.cache_size
+  |Some cache_size -> cache_size
+  in
+  let fast_scan = match fast_scan with
+  |None -> C.default Conf.fast_scan
+  |Some fast_scan -> fast_scan
   in
   let list_key = match list_key with
   |None -> C.default Conf.list_key
@@ -65,10 +71,11 @@ let config ?(config=Irmin.Private.Conf.empty) ~path ~create ?lru_size ?list_key 
   |None -> C.default Conf.autoflush
   |Some autoflush -> autoflush
   in
-  (C.add (C.add (C.add (C.add (C.add config
+  (C.add (C.add (C.add (C.add (C.add (C.add config
     Conf.autoflush autoflush)
     Conf.list_key list_key)
-    Conf.lru_size lru_size)
+    Conf.fast_scan fast_scan)
+    Conf.cache_size cache_size)
     Conf.path path)
     Conf.create create)
 
@@ -85,7 +92,7 @@ module type DB = sig
   type t
   val db_root : t -> Stor.root
   val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-  val make : path:string -> create:bool -> lru_size:int -> autoflush:bool -> t Lwt.t
+  val make : path:string -> create:bool -> mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
   val v : Irmin.config -> t Lwt.t
   val flush : t -> int64 Lwt.t
 end
@@ -139,8 +146,8 @@ end = struct
 end
 
 module DB_BUILDER
-: BLOCK_CON -> Wodan.PARAMS -> DB
-= functor (B: BLOCK_CON) (P: Wodan.PARAMS) ->
+: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> DB
+= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS) ->
 struct
   module Stor = Wodan.Make(B)(P)
 
@@ -161,33 +168,34 @@ struct
   let may_autoflush db op =
     if db.autoflush then do_autoflush db.root op else op ()
 
-  let make ~path ~create ~lru_size ~autoflush =
+  let make ~path ~create ~mount_options ~autoflush =
     B.connect path >>= function disk ->
     B.get_info disk >>= function info ->
     let open_arg = if create then
-      Wodan.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)
+      Wodan.FormatEmptyDevice Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardSuperblockParams.block_size)
     else Wodan.OpenExistingDevice in
-    ignore lru_size;
-    Stor.prepare_io open_arg disk (*lru_size*) >>= fun (root, _gen) ->
+    Stor.prepare_io open_arg disk mount_options >>= fun (root, _gen) ->
     Lwt.return { root; autoflush }
 
   module Cache = Cache(struct
       type nonrec t = t
-      type config = string * bool * int * bool
+      type config = string * bool * Wodan.mount_options * bool
       type key = string
       let key (path, _, _, _) = path
-      let v (path, create, lru_size, autoflush) = make ~path ~create ~lru_size ~autoflush
+      let v (path, create, mount_options, autoflush) = make ~path ~create ~mount_options ~autoflush
     end)
 
   let v config =
     let module C = Irmin.Private.Conf in
     let path = C.get config Conf.path in
     let create = C.get config Conf.create in
-    let lru_size = C.get config Conf.lru_size in
+    let cache_size = C.get config Conf.cache_size in
+    let fast_scan = C.get config Conf.fast_scan in
     let autoflush = C.get config Conf.autoflush in
-    Cache.read (path, create, lru_size, autoflush) >|= fun ((_, create', lru_size', autoflush'), t) ->
+    let mount_options = {standard_mount_options with fast_scan = fast_scan; cache_size = cache_size} in
+    Cache.read (path, create, mount_options, autoflush) >|= fun ((_, create', mount_options', autoflush'), t) ->
     assert (create=create');
-    assert (lru_size=lru_size');
+    assert (mount_options=mount_options');
     assert (autoflush=autoflush');
     t
 
@@ -196,11 +204,11 @@ struct
 end
 
 module RO_BUILDER
-: BLOCK_CON -> Wodan.PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Contents.Conv) -> sig
+: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Contents.Conv) -> sig
   include Irmin.RO
   include DB with type t := t
 end with type key = K.t and type value = V.t
-= functor (B: BLOCK_CON) (P: Wodan.PARAMS)
+= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS)
 (K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
 struct
   include DB_BUILDER(B)(P)
@@ -222,8 +230,8 @@ struct
 end
 
 module AO_BUILDER
-: BLOCK_CON -> Wodan.PARAMS -> Irmin.AO_MAKER
-= functor (B: BLOCK_CON) (P: Wodan.PARAMS)
+: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.AO_MAKER
+= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS)
 (K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
 struct
   include RO_BUILDER(B)(P)(K)(V)
@@ -241,8 +249,8 @@ struct
 end
 
 module LINK_BUILDER
-: BLOCK_CON -> Wodan.PARAMS -> Irmin.LINK_MAKER
-= functor (B: BLOCK_CON) (P: Wodan.PARAMS) (K: Irmin.Hash.S) ->
+: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.LINK_MAKER
+= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS) (K: Irmin.Hash.S) ->
 struct
   include RO_BUILDER(B)(P)(K)(K)
 
@@ -257,8 +265,8 @@ struct
 end
 
 module RW_BUILDER
-: BLOCK_CON -> Wodan.PARAMS -> Irmin.Hash.S -> Irmin.RW_MAKER
-= functor (B: BLOCK_CON) (P: Wodan.PARAMS) (H: Irmin.Hash.S)
+: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.Hash.S -> Irmin.RW_MAKER
+= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS) (H: Irmin.Hash.S)
 (K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) ->
 struct
   module BUILDER = DB_BUILDER(B)(P)
@@ -280,7 +288,6 @@ struct
   let may_autoflush db = BUILDER.may_autoflush db.nested
 
   let () = assert (H.digest_size = P.key_size)
-  let () = assert P.has_tombstone
 
   type key = K.t
   type value = V.t
@@ -303,8 +310,8 @@ struct
     Stor.key_of_cstruct @@ H.to_raw @@ H.digest Irmin.Type.cstruct
     @@ Stor.cstruct_of_value va
 
-  let make ~path ~create ~lru_size ~list_key ~autoflush =
-    BUILDER.make ~path ~create ~lru_size ~autoflush >>= function db ->
+  let make ~path ~create ~mount_options ~list_key ~autoflush =
+    BUILDER.make ~path ~create ~mount_options ~autoflush >>= function db ->
       let root = BUILDER.db_root db in
       let magic_key = Bytes.make H.digest_size '\000' in
       Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
@@ -332,31 +339,33 @@ struct
 
   module Cache = Cache(struct
       type nonrec t = t
-      type config = string * bool * int * string * bool
+      type config = string * bool * Wodan.mount_options * string * bool
       type key = string
       let key (path, _, _, _, _) = path
-      let v (path, create, lru_size, list_key, autoflush) =
-        make ~path ~create ~lru_size ~list_key ~autoflush
+      let v (path, create, mount_options, list_key, autoflush) =
+        make ~path ~create ~mount_options ~list_key ~autoflush
     end)
 
   let v config =
     let module C = Irmin.Private.Conf in
     let path = C.get config Conf.path in
     let create = C.get config Conf.create in
-    let lru_size = C.get config Conf.lru_size in
+    let cache_size = C.get config Conf.cache_size in
+    let fast_scan = C.get config Conf.fast_scan in
     let list_key = C.get config Conf.list_key in
     let autoflush = C.get config Conf.autoflush in
-    Cache.read (path, create, lru_size, list_key, autoflush) >|=
-    fun ((_, create', lru_size', list_key', autoflush'), t) ->
+    let mount_options = {standard_mount_options with fast_scan = fast_scan; cache_size = cache_size} in
+    Cache.read (path, create, mount_options, list_key, autoflush) >|=
+    fun ((_, create', mount_options', list_key', autoflush'), t) ->
     assert (create=create');
-    assert (lru_size=lru_size');
+    assert (mount_options=mount_options');
     assert (list_key=list_key');
     assert (autoflush=autoflush');
     t
 
 
   let set_and_list db ik iv ikv =
-    assert (not @@ Stor.is_tombstone iv);
+    assert (not @@ Stor.is_tombstone (db_root db) iv);
     begin if not @@ KeyHashtbl.mem db.keydata ik then begin
       KeyHashtbl.add db.keydata ik db.magic_key;
       may_autoflush db
@@ -447,7 +456,7 @@ struct
     Stor.mem (db_root db) @@ key_to_inner_key k
 end
 
-module Make (BC: BLOCK_CON) (PA: Wodan.PARAMS)
+module Make (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS)
 (M: Irmin.Metadata.S)
 (C: Irmin.Contents.S)
 (P: Irmin.Path.S)
@@ -462,7 +471,7 @@ module Make (BC: BLOCK_CON) (PA: Wodan.PARAMS)
 end
 
 (* XXX Stable chunking or not? *)
-module Make_chunked (BC: BLOCK_CON) (PA: Wodan.PARAMS)
+module Make_chunked (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS)
 (M: Irmin.Metadata.S)
 (C: Irmin.Contents.S)
 (P: Irmin.Path.S)
@@ -476,7 +485,7 @@ module Make_chunked (BC: BLOCK_CON) (PA: Wodan.PARAMS)
   let flush = DB.flush
 end
 
-module KV (BC: BLOCK_CON) (PA: Wodan.PARAMS) (C: Irmin.Contents.S)
+module KV (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS) (C: Irmin.Contents.S)
 = Make(BC)(PA)
   (Irmin.Metadata.None)
   (C)
@@ -484,7 +493,7 @@ module KV (BC: BLOCK_CON) (PA: Wodan.PARAMS) (C: Irmin.Contents.S)
   (Irmin.Branch.String)
   (Irmin.Hash.SHA1)
 
-module KV_chunked (BC: BLOCK_CON) (PA: Wodan.PARAMS) (C: Irmin.Contents.S)
+module KV_chunked (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS) (C: Irmin.Contents.S)
 = Make_chunked(BC)(PA)
   (Irmin.Metadata.None)
   (C)

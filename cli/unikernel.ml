@@ -23,19 +23,19 @@ let unwrap_opt = function
 
 module Client (B: Wodan.EXTBLOCK) = struct
   let trim disk =
-    Wodan.open_for_reading (module B) disk (module Wodan.StandardMountParams)
+    Wodan.open_for_reading (module B) disk Wodan.standard_mount_options
     >>= function (Wodan.OPEN_RET ((module Stor), root, _gen)) ->
     Stor.fstrim root
 
   let format disk =
-    let module Stor = Wodan.Make(B)(Wodan.StandardParams) in
+    let module Stor = Wodan.Make(B)(Wodan.StandardSuperblockParams) in
     let%lwt info = B.get_info disk in
     let%lwt _root, _gen = Stor.prepare_io (Wodan.FormatEmptyDevice
-      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardParams.block_size)) disk in
+      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardSuperblockParams.block_size)) disk Wodan.standard_mount_options in
     Lwt.return_unit
 
   let restore disk =
-    Wodan.open_for_reading (module B) disk (module Wodan.StandardMountParams)
+    Wodan.open_for_reading (module B) disk Wodan.standard_mount_options
     >>= function (Wodan.OPEN_RET ((module Stor), root, _gen)) ->
     let csv_in = Csv.of_channel ~separator:'\t' stdin in
     let compl = ref [] in
@@ -50,7 +50,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
     Lwt.return_unit
 
   let dump disk =
-    Wodan.open_for_reading (module B) disk (module Wodan.StandardMountParams)
+    Wodan.open_for_reading (module B) disk Wodan.standard_mount_options
     >>= function (Wodan.OPEN_RET ((module Stor), root, _gen)) ->
     let out_csv = Csv.to_channel ~separator:'\t' stdout in
     Stor.iter root (fun k v ->
@@ -60,8 +60,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
 
   let fuzz disk =
     Wodan.read_superblock_params (module B) disk >>= function sb_params ->
-      let module Stor = Wodan.Make(B)(struct
-          include Wodan.StandardMountParams include (val sb_params) end) in
+      let module Stor = Wodan.Make(B)(val sb_params) in
 
     let magiccrc = Cstruct.of_string "\xff\xff\xff\xff" in
 
@@ -90,7 +89,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
       >|= ignore
     done >>= fun _ ->
     let%lwt root, _rgen =
-    Stor.prepare_io Wodan.OpenExistingDevice disk in
+    Stor.prepare_io Wodan.OpenExistingDevice disk Wodan.standard_mount_options in
     let key = Stor.key_of_string "abcdefghijklmnopqrst" in
     let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert root key cval >>= fun () ->
@@ -100,7 +99,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
       (Stor.cstruct_of_value cval)
       (Stor.cstruct_of_value cval1));
     let%lwt root, _rgen =
-      Stor.prepare_io Wodan.OpenExistingDevice disk in
+      Stor.prepare_io Wodan.OpenExistingDevice disk Wodan.standard_mount_options in
     let%lwt cval2 = Stor.lookup root key >|= unwrap_opt in
     assert (Cstruct.equal
       (Stor.cstruct_of_value cval)

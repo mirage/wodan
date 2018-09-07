@@ -19,7 +19,7 @@ open Mirage_types_lwt
 open Lwt.Infix
 
 module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
-  module Stor = Wodan.Make(B)(struct include Wodan.StandardParams (*let block_size=512*) end)
+  module Stor = Wodan.Make(B)(struct include Wodan.StandardSuperblockParams (*let block_size=512*) end)
 
   let start _con disk _crypto =
     let ios = ref 0 in
@@ -28,7 +28,7 @@ module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
     (*Logs.info (fun m ->
         m "Sectors %Ld %d" info.size_sectors info.sector_size);*)
     let%lwt rootval, _gen0 = Stor.prepare_io (Wodan.FormatEmptyDevice
-      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size)) disk in
+      Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size)) disk Wodan.standard_mount_options in
     (
     let root = ref rootval in
     let key = Stor.key_of_cstruct @@ Cstruct.of_string "abcdefghijklmnopqrst" in
@@ -38,7 +38,7 @@ module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
     let%lwt Some cval1 = Stor.lookup !root key in
     (*Cstruct.hexdump cval1;*)
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval1));
-    let%lwt rootval, gen2 = Stor.prepare_io Wodan.OpenExistingDevice disk in
+    let%lwt rootval, gen2 = Stor.prepare_io Wodan.OpenExistingDevice disk Wodan.standard_mount_options in
     root := rootval;
     let%lwt Some cval2 = Stor.lookup !root key in
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval2));
@@ -65,7 +65,7 @@ module Client (C: CONSOLE) (B: Wodan.EXTBLOCK) = struct
       >>= fun () ->
       if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then begin (* Infrequent re-opening *)
         Stor.flush !root >>= function gen3 ->
-        let%lwt rootval, gen4 = Stor.prepare_io Wodan.OpenExistingDevice disk in
+        let%lwt rootval, gen4 = Stor.prepare_io Wodan.OpenExistingDevice disk Wodan.standard_mount_options in
         root := rootval;
         assert (gen3 = gen4);
         Lwt.return ()
