@@ -46,7 +46,9 @@ end
 
 let sb_incompat_rdepth = 1l
 let sb_incompat_fsid = 2l
-let sb_required_incompat = Int32.logor sb_incompat_rdepth sb_incompat_fsid
+let sb_incompat_value_count = 4l
+let sb_required_incompat = Int32.logor sb_incompat_rdepth
+  @@ Int32.logor sb_incompat_fsid sb_incompat_value_count
 
 [@@@warning "-32"]
 
@@ -77,8 +79,9 @@ let sizeof_crc = 4
   nodetype: uint8_t;
   generation: uint64_t;
   fsid: uint8_t [@len 16];
+  value_count: uint32_t;
 }[@@little_endian]]
-let () = assert (sizeof_anynode_hdr = 25)
+let () = assert (sizeof_anynode_hdr = 29)
 
 [%%cstruct type rootnode_hdr = {
   (* nodetype = 1 *)
@@ -86,16 +89,14 @@ let () = assert (sizeof_anynode_hdr = 25)
   (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
   generation: uint64_t;
   fsid: uint8_t [@len 16];
+  value_count: uint32_t;
   depth: uint32_t;
 }[@@little_endian]]
+let () = assert (sizeof_rootnode_hdr = 33)
 (* Contents: logged data, and child node links *)
 (* All node types end with a CRC *)
 (* rootnode_hdr
  * logged data: (key, datalen, data)*, grow from the left end towards the right
- *
- * separation: at least at redzone_size (the largest of a key or a uint64_t) of all zeroes
- * disambiguates from a valid logical offset on the right,
- * disambiguates from a valid key on the left.
  *
  * child links: (key, logical offset)*, grow from the right end towards the left
  * crc *)
@@ -105,7 +106,9 @@ let () = assert (sizeof_anynode_hdr = 25)
   nodetype: uint8_t;
   generation: uint64_t;
   fsid: uint8_t [@len 16];
+  value_count: uint32_t;
 }[@@little_endian]]
+let () = assert (sizeof_childnode_hdr = 29)
 (* Contents: logged data, and child node links *)
 (* Layout: see above *)
 
@@ -731,6 +734,8 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     |Some entry ->
     let gen = next_generation open_fs.node_cache in
     set_anynode_hdr_generation entry.raw_node gen;
+    set_anynode_hdr_value_count entry.raw_node @@ Int32.of_int
+    @@ KeyedMap.length @@ Lazy.force entry.logindex;
     Crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
     Logs.debug (fun m -> m "_write_node logical:%Ld gen:%Ld" logical gen);
