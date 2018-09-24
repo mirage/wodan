@@ -580,8 +580,6 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
   let _is_zero_data cstr =
     Cstruct.equal cstr zero_data
 
-  let redzone_size = max P.key_size sizeof_logical
-
   let childlink_size = P.key_size + sizeof_logical
 
   let next_key key =
@@ -717,13 +715,13 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
   let has_free_space entry space =
     match space with
     |InsSpaceChild size ->
-        let refsize = entry.childlinks.childlinks_offset - redzone_size - P.block_size / 2 in
+        let refsize = entry.childlinks.childlinks_offset - P.block_size / 2 in
         refsize >= size
     |InsSpaceValue size ->
         let refsize = if _has_children entry then
           P.block_size / 2 - entry.keydata.next_keydata_offset
         else
-          block_end - redzone_size - entry.keydata.next_keydata_offset
+          block_end - entry.keydata.next_keydata_offset
         in
         refsize >= size
 
@@ -941,24 +939,41 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let gen = get_anynode_hdr_generation cstr in
     (* prevents cycles *)
     if gen >= parent_gen then failwith "generation is not lower than for parent";
-    let rec scan_key off =
-      if off < hdrsize + redzone_size - sizeof_logical then failwith "child link data bleeding into start of node";
-      let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-      begin if log1 <> 0L then begin
-        (* Children here would mean the fast_scan free space map is borked *)
-        if rdepth = 0l then failwith "Found children on a leaf node";
-        begin if rdepth = 1l && open_fs.filesystem.mount_options.fast_scan then begin
-          _update_space_map cache log1 false;
-          Lwt.return_unit
-        end else
-          _scan_all_nodes open_fs log1 false (Int32.pred rdepth) gen false
-      end >>= fun () -> scan_key (off - childlink_size)
+    let value_count = Int32.to_int @@ get_anynode_hdr_value_count cstr in
+    let rec scan_kd off value_count =
+      if value_count <= 0 then off else begin
+        let off1 = off + P.key_size + sizeof_datalen in
+        if off1 > block_end then failwith "data bleeding past end of node";
+        (* TODO check for key unicity in scan_kd and scan_cl *)
+        let _key = Cstruct.to_string @@ Cstruct.sub cstr off P.key_size in
+        let len = Cstruct.LE.get_uint16 cstr (off + P.key_size) in
+        let len1 = len + P.key_size + sizeof_datalen in
+        let off2 = off + len1 in
+        if off2 > block_end then failwith "data bleeding past end of node";
+        scan_kd off2 @@ pred value_count
       end
-      else if redzone_size > sizeof_logical && not @@ is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
-        Lwt.fail @@ Failure "partial redzone"
-      else Lwt.return () end
     in
-    scan_key (block_end - childlink_size) >>= fun () ->
+    let value_end = scan_kd hdrsize value_count in
+    let rec scan_cl off =
+      if off < hdrsize then failwith "child link data bleeding into start of node";
+      if off >= value_end then begin
+        let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
+        begin if log1 <> 0L then begin
+          (* Children here would mean the fast_scan free space map is borked *)
+          if rdepth = 0l then failwith "Found children on a leaf node";
+          begin if rdepth = 1l && open_fs.filesystem.mount_options.fast_scan then begin
+            _update_space_map cache log1 false;
+            Lwt.return_unit
+          end else
+            _scan_all_nodes open_fs log1 false (Int32.pred rdepth) gen false
+          end >>= fun () -> scan_cl (off - childlink_size)
+          end
+          else Lwt.return_unit
+        end
+      end
+      else Lwt.return_unit
+    in
+    scan_cl (block_end - childlink_size) >>= fun () ->
     begin
       if rdepth = 0l then begin
       match cache.scan_map with
