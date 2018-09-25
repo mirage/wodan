@@ -575,8 +575,6 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
   let zero_key = String.make P.key_size '\000'
   let top_key = String.make P.key_size '\255'
   let zero_data = Cstruct.create P.block_size
-  let is_zero_key cstr =
-    String.equal cstr zero_key
   let _is_zero_data cstr =
     Cstruct.equal cstr zero_data
 
@@ -629,8 +627,9 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           then raise @@ BadCRC logical
           else cstr, io_data end
 
-  let _find_childlinks_offset cstr =
+  let _find_childlinks_offset cstr value_end =
     let rec scan off poff =
+        if off < value_end then poff else
         let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
         if log1 <> 0L then scan (off - childlink_size) off else poff
     in scan (block_end - childlink_size) block_end
@@ -638,17 +637,18 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
   (* build a keydata_index *)
   let _index_keydata cstr hdrsize =
     Logs.debug (fun m -> m "_index_keydata");
+    let value_count = Int32.to_int @@ get_anynode_hdr_value_count cstr in
     let r = {
       keydata_offsets=[];
       next_keydata_offset=hdrsize;
     } in
-    let rec scan off =
-      if is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr off P.key_size then () else begin
+    let rec scan off value_count =
+      if value_count <= 0 then off else begin
         r.keydata_offsets <- off::r.keydata_offsets;
         r.next_keydata_offset <- off + P.key_size + sizeof_datalen + (Cstruct.LE.get_uint16 cstr (off + P.key_size));
-        scan r.next_keydata_offset;
+        scan r.next_keydata_offset @@ pred value_count;
       end
-    in scan hdrsize; r
+    in let value_end = scan hdrsize value_count in (r, value_end)
 
   let rec _gen_childlink_offsets start =
     if start >= block_end then []
@@ -683,14 +683,14 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     assert (Cstruct.len cstr = P.block_size);
-      let cached_node, keydata =
+      let cached_node, (keydata, value_end) =
       match get_anynode_hdr_nodetype cstr with
       |1 -> `Root, _index_keydata cstr sizeof_rootnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
     let alloc_id = next_alloc_id cache in
     let rdepth = get_rootnode_hdr_depth cstr in
-    let rec entry = {parent_key=None; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); children_alloc_ids=KeyedMap.create (); logindex=lazy (_compute_keydata entry); highest_key=top_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
+    let rec entry = {parent_key=None; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); children_alloc_ids=KeyedMap.create (); logindex=lazy (_compute_keydata entry); highest_key=top_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr value_end;}} in
       lru_xset cache.lru alloc_id entry;
       Lwt.return (alloc_id, entry)
 
@@ -699,13 +699,13 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let%lwt cstr, io_data = _load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     assert (Cstruct.len cstr = P.block_size);
-      let cached_node, keydata =
+      let cached_node, (keydata, value_end) =
       match get_anynode_hdr_nodetype cstr with
       |2 -> `Child, _index_keydata cstr sizeof_childnode_hdr
       |ty -> raise @@ BadNodeType ty
     in
       let alloc_id = next_alloc_id cache in
-    let rec entry = {parent_key=Some parent_key; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); children_alloc_ids=KeyedMap.create (); logindex=lazy (_compute_keydata entry); highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr;}} in
+    let rec entry = {parent_key=Some parent_key; cached_node; raw_node=cstr; rdepth; io_data; keydata; flush_info=None; children=lazy (_compute_children entry); children_alloc_ids=KeyedMap.create (); logindex=lazy (_compute_keydata entry); highest_key; prev_logical=Some logical; childlinks={childlinks_offset=_find_childlinks_offset cstr value_end;}} in
       lru_xset cache.lru alloc_id entry;
       Lwt.return entry
 
