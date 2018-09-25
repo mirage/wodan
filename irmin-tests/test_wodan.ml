@@ -26,10 +26,9 @@ end
 
 
 (*let store = store (module Irmin_wodan.Make) (module Irmin.Metadata.None)*)
-let store = (module struct
-  include Irmin_wodan.KV_chunked(BlockCon)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
-  let author _t _id = failwith "Only used for testing Git stores"
-end : Irmin_test.S)
+let store = (module
+  Irmin_wodan.KV_chunked(BlockCon)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
+: Irmin_test.S)
 
 (*
 module Link = struct
