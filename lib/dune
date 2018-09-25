@@ -1,0 +1,12 @@
+
+(library
+  (name        wodan)
+  (public_name wodan)
+  (flags :standard -safe-string)
+  (ocamlopt_flags :standard -O3)
+  (preprocess (pps lwt.ppx ppx_cstruct))
+  (c_library_flags :standard -rdynamic)
+  (libraries rresult irmin irmin-chunk ctypes ctypes.foreign cstruct sexplib mirage-types mirage-logs lwt io-page lru logs nocrypto bitv mirage-types-lwt diet checkseum btreemap)
+  (wrapped false)
+  )
+

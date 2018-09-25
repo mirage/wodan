@@ -1,0 +1,5 @@
+
+(executables
+  (names irmin_example irmin_cli)
+  (libraries checkseum.c wodan io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix)
+  )
