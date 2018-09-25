@@ -21,6 +21,6 @@ let misc = [
 ]
 
 let () =
-  Test_store.run "irmin" ~misc [
+  Irmin_test.Store.run "irmin" ~misc [
     `Quick , Test_wodan.suite;
   ]

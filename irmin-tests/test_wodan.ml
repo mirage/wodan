@@ -15,19 +15,21 @@
  *)
 
 open Lwt.Infix
-open Test_common
+open Irmin_test
 
 module BlockCon = struct
   include Ramdisk
   let connect name = Ramdisk.connect ~name
+  let discard _ _ _ =
+    Lwt.return @@ Rresult.R.return ()
 end
 
 
 (*let store = store (module Irmin_wodan.Make) (module Irmin.Metadata.None)*)
 let store = (module struct
-  include Irmin_wodan.KV_chunked(BlockCon)(Irmin_wodan.StandardParams)(Irmin.Contents.String)
+  include Irmin_wodan.KV_chunked(BlockCon)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
   let author _t _id = failwith "Only used for testing Git stores"
-end : Test_common.Test_S)
+end : Irmin_test.S)
 
 (*
 module Link = struct
@@ -40,10 +42,10 @@ let link = (module Link: Test_link.S)
 let config = Irmin_wodan.config ~path:"disk.img" ~create:true ()
 
 let clean () =
-  let (module S: Test_S) = store in
+  let (module S: Irmin_test.S) = store in
   S.Repo.v config >>= fun repo ->
   S.Repo.branches repo >>= Lwt_list.iter_p (S.Branch.remove repo)
 
 let init () = Nocrypto_entropy_lwt.initialize ()
 let stats = None
-let suite = { name = "WODAN"; kind = `Core; init; clean; config; store; stats }
+let suite = { name = "WODAN"; init; clean; config; store; stats }
