@@ -363,13 +363,13 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
         end;
   end
 
-let _reserve_dirty cache alloc_id new_count =
+let _reserve_dirty cache alloc_id new_count depth =
   (*Logs.debug (fun m -> m "_reserve_dirty %Ld" alloc_id);*)
   let new_count = ref new_count in
   let dirty_count = ref 0L in
   _reserve_dirty_rec cache alloc_id new_count dirty_count;
   if Int64.(compare cache.free_count @@ add cache.dirty_count @@ add !dirty_count @@ add cache.new_count !new_count) < 0 then begin
-    if Int64.(compare cache.free_count @@ add !dirty_count @@ add cache.new_count !new_count) >= 0 then
+    if Int64.(compare cache.free_count @@ add !dirty_count @@ add cache.new_count @@ add !new_count @@ succ depth) >= 0 then
       raise NeedsFlush (* flush and retry, it will succeed *)
     else
       raise OutOfSpace (* flush if you like, but retrying will not succeed *)
@@ -1191,18 +1191,18 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
 
   (* lwt because it might load from disk *)
   let rec _reserve_insert fs alloc_id space split_path depth =
-    (*Logs.debug (fun m -> m "_reserve_insert %d" depth);*)
+    (*Logs.debug (fun m -> m "_reserve_insert %Ld" depth);*)
     _check_live_integrity fs alloc_id depth;
     match lru_get fs.node_cache.lru alloc_id with
     |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
     |Some entry ->
       if has_free_space entry space then begin
-        _reserve_dirty fs.node_cache alloc_id 0L;
+        _reserve_dirty fs.node_cache alloc_id 0L depth;
         Lwt.return ()
       end
       else if not split_path && _has_children entry && _has_logdata entry then begin
         (* log spilling *)
-        Logs.debug (fun m -> m "log spilling %d" depth);
+        Logs.debug (fun m -> m "log spilling %Ld" depth);
         let children = Lazy.force entry.children in
         let find_victim () =
           let spill_score = ref 0 in
@@ -1238,11 +1238,11 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         let clo = entry.childlinks.childlinks_offset in
         let nko = entry.keydata.next_keydata_offset in
         Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);
-        _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ depth + 1 >>= fun () -> begin
+        _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ Int64.succ depth >>= fun () -> begin
         Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
         if clo = entry.childlinks.childlinks_offset && nko = entry.keydata.next_keydata_offset then begin
         (* _reserve_insert didn't split the child or the root *)
-          _reserve_dirty fs.node_cache child_alloc_id 0L;
+          _reserve_dirty fs.node_cache child_alloc_id 0L @@ Int64.succ depth;
         let before_bsk = KeyedMap.find_last_opt best_spill_key children in
         (* loop across log data, shifting/blitting towards the start if preserved,
          * sending towards victim child if not *)
@@ -1253,7 +1253,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           let len = Cstruct.LE.get_uint16 entry.raw_node (kdo + P.key_size) in
           if String.compare key1 best_spill_key <= 0 && match before_bsk with None -> true |Some (bbsk, _cl1) -> String.compare bbsk key1 < 0 then begin
             let value1 = Cstruct.sub entry.raw_node (kdo + P.key_size + sizeof_datalen) len in
-            _fast_insert fs child_alloc_id key1 (InsValue value1) @@ depth + 1;
+            _fast_insert fs child_alloc_id key1 (InsValue value1) @@ Int64.succ depth;
             KeyedMap.remove key1 @@ Lazy.force entry.logindex;
             kdos
           end else begin
@@ -1282,11 +1282,11 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
       end
       else match entry.parent_key with
       |None -> begin (* Node splitting (root) *)
-        assert (depth = 0);
-        Logs.debug (fun m -> m "node splitting %d %Ld" depth alloc_id);
+        assert (depth = 0L);
+        Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
         let logindex = Lazy.force entry.logindex in
         let children = Lazy.force entry.children in
-        _reserve_dirty fs.node_cache alloc_id 2L;
+        _reserve_dirty fs.node_cache alloc_id 2L depth;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median entry.rdepth in
@@ -1339,13 +1339,13 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         Lwt.return ()
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
-        assert (depth > 0);
-        Logs.debug (fun m -> m "node splitting %d %Ld" depth alloc_id);
+        assert (Int64.compare depth 0L > 0);
+        Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
         (* Set split_path to prevent spill/split recursion; will split towards the root *)
-        _reserve_insert fs parent_key (InsSpaceChild childlink_size) true @@ depth - 1 >>= fun () ->
+        _reserve_insert fs parent_key (InsSpaceChild childlink_size) true @@ Int64.pred depth >>= fun () ->
         let _logindex = Lazy.force entry.logindex in
         let _children = Lazy.force entry.children in
-        _reserve_dirty fs.node_cache alloc_id 1L;
+        _reserve_dirty fs.node_cache alloc_id 1L depth;
         let di = _mark_dirty fs.node_cache alloc_id in
         let median = _split_point entry in
         let alloc1, entry1 = _new_node fs 2 (Some parent_key) median entry.rdepth in
@@ -1432,7 +1432,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
     _check_live_integrity root.open_fs root.root_key 0;
-    _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false 0 >>= fun () ->
+    _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false 0L >>= fun () ->
     begin
       _check_live_integrity root.open_fs root.root_key 0;
       _fast_insert root.open_fs root.root_key key (InsValue value) 0;
