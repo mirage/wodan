@@ -65,6 +65,8 @@ This requires OCaml compiled with AFL support.
 
 ```
 opam switch 4.06.1+afl
+sudo sysctl kernel.core_pattern=core
+echo performance |sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 afl-fuzz -i afl/input -o afl/output -- \
   _build/default/cli/wodanc.exe fuzz @@
 ```
