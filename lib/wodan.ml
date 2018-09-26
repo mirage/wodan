@@ -1315,6 +1315,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           Cstruct.blit cstr0 (Int64.to_int offset) cstr1 offset1 childlink_size;
           assert (Lazy.is_val centry.children);
           let key1 = Cstruct.to_string @@ Cstruct.sub cstr1 (Int64.to_int offset) P.key_size in
+          (* XXX This xadd seems to fail *)
           KeyedMap.xadd key1 (Int64.of_int offset1) (Lazy.force centry.children);
         in
         KeyedMap.iter (fun _k off -> blit_kd_child off entry1) logindex;
