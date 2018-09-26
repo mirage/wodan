@@ -28,8 +28,8 @@
        struct
          type t = int * int
          let compare (x0,y0) (x1,y1) =
-           match Pervasives.compare x0 x1 with
-               0 -> Pervasives.compare y0 y1
+           match Stdlib.compare x0 x1 with
+               0 -> Stdlib.compare y0 y1
              | c -> c
        end
 
@@ -55,7 +55,7 @@ module type OrderedType =
           [f e1 e2] is strictly negative if [e1] is smaller than [e2],
           and [f e1 e2] is strictly positive if [e1] is greater than [e2].
           Example: a suitable ordering function is the generic structural
-          comparison function {!Pervasives.compare}. *)
+          comparison function {!Stdlib.compare}. *)
   end
 (** Input signature of the functor {!Map.Make}. *)
 
@@ -86,6 +86,19 @@ module type S =
        of [x] in [m] disappears.
        @before 4.03 Physical equality was not ensured. *)
 
+    val update: key -> ('a option -> 'a option) -> 'a t -> 'a t
+    (** [update x f m] returns a map containing the same bindings as
+        [m], except for the binding of [x]. Depending on the value of
+        [y] where [y] is [f (find_opt x m)], the binding of [x] is
+        added, removed or updated. If [y] is [None], the binding is
+        removed if it exists; otherwise, if [y] is [Some z] then [x]
+        is associated to [z] in the resulting map.  If [x] was already
+        bound in [m] to a value that is physically equal to [z], [m]
+        is returned unchanged (the result of the function is then
+        physically equal to [m]).
+        @since 4.06.0
+    *)
+
     val singleton: key -> 'a -> 'a t
     (** [singleton x y] returns the one-element map that contains a binding [y]
         for [x].
@@ -104,6 +117,9 @@ module type S =
     (** [merge f m1 m2] computes a map whose keys is a subset of keys of [m1]
         and of [m2]. The presence of each such binding, and the corresponding
         value, is determined with the function [f].
+        In terms of the [find_opt] operation, we have
+        [find_opt x (merge f m1 m2) = f (find_opt x m1) (find_opt x m2)]
+        for any key [x], provided that [f None None = None].
         @since 3.12.0
      *)
 
@@ -111,6 +127,13 @@ module type S =
     (** [union f m1 m2] computes a map whose keys is the union of keys
         of [m1] and of [m2].  When the same binding is defined in both
         arguments, the function [f] is used to combine them.
+        This is a special case of [merge]: [union f m1 m2] is equivalent
+        to [merge f' m1 m2], where
+        - [f' None None = None]
+        - [f' (Some v) None = Some v]
+        - [f' None (Some v) = Some v]
+        - [f' (Some v1) (Some v2) = f v1 v2]
+
         @since 4.03.0
     *)
 
@@ -143,7 +166,7 @@ module type S =
 
     val exists: (key -> 'a -> bool) -> 'a t -> bool
     (** [exists p m] checks if at least one binding of the map
-        satisfy the predicate [p].
+        satisfies the predicate [p].
         @since 3.12.0
      *)
 
@@ -233,8 +256,8 @@ module type S =
        or raises [Not_found] if no such binding exists. *)
 
     val find_opt: key -> 'a t -> 'a option
-    (** [find_opt x m] returns the current binding of [x] in [m],
-       or raises [Not_found] if no such binding exists.
+    (** [find_opt x m] returns [Some v] if the current binding of [x]
+        in [m] is [v], or [None] if no such binding exists.
         @since 4.05
     *)
 
@@ -272,17 +295,6 @@ module type S =
         @since 4.05
        *)
 
-    val iter_from_first: (key -> bool) -> (key -> 'a -> unit) -> 'a t -> unit
-    (** [iter_from_first f g m], where [f] is a monotonically increasing
-        function, calls back [g k v] with every item [(k, v)] of [m]
-        satisfying predicate [f k] in ascending order of [k].
-
-        For example, [iter_from_first (fun k -> Ord.compare k x >= 0) g m]
-        will call [g] with every item such that, informally, [k >= x].
-
-        @since 4.05
-        *)
-
     val map: ('a -> 'b) -> 'a t -> 'b t
     (** [map f m] returns a map with same domain as [m], where the
        associated value [a] of all bindings of [m] has been
@@ -294,7 +306,24 @@ module type S =
     (** Same as {!Map.S.map}, but the function receives as arguments both the
        key and the associated value for each binding of the map. *)
 
+    (** {6 Iterators} *)
 
+    val to_seq : 'a t -> (key * 'a) Seq.t
+    (** Iterate on the whole map, in ascending order
+        @since 4.07 *)
+
+    val to_seq_from : key -> 'a t -> (key * 'a) Seq.t
+    (** [to_seq_from k m] iterates on a subset of the bindings of [m],
+        in ascending order, from key [k] or above.
+        @since 4.07 *)
+
+    val add_seq : (key * 'a) Seq.t -> 'a t -> 'a t
+    (** Add the given bindings to the map, in order.
+        @since 4.07 *)
+
+    val of_seq : (key * 'a) Seq.t -> 'a t
+    (** Build a map from the given bindings
+        @since 4.07 *)
   end
 (** Output signature of the functor {!Map.Make}. *)
 

@@ -176,7 +176,7 @@ let unwrap_opt = function
   |None -> raise Not_found
   |Some v -> v
 
-module KeyedMap = Btreemap
+module KeyedMap = Btreemap_front
 let keyedmap_find k map =
   unwrap_opt @@ KeyedMap.find_opt k map
 let keyedmap_keys map =
