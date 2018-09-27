@@ -1108,7 +1108,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         if _has_children entry && not (String.equal entry.highest_key @@ fst @@ unwrap_opt @@ KeyedMap.max_binding @@ Lazy.force entry.children) then begin
           string_dump @@ entry.highest_key;
           string_dump @@ fst @@ unwrap_opt @@ KeyedMap.max_binding @@ Lazy.force entry.children;
-          Logs.info (fun m -> m "_check_live_integrity %d invariant broken: highest_key" depth);
+          Logs.info (fun m -> m "_check_live_integrity %Ld invariant broken: highest_key" depth);
           fail := true;
         end;
         match entry.parent_key with
@@ -1120,7 +1120,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
               let children = Lazy.force parent_entry.children in
               match KeyedMap.find_opt entry.highest_key children with
               |None ->
-                Logs.info (fun m -> m "_check_live_integrity %d invariant broken: lookup_parent_link" depth);
+                Logs.info (fun m -> m "_check_live_integrity %Ld invariant broken: lookup_parent_link" depth);
                 fail := true;
               |Some _offset ->
                 assert (KeyedMap.find_opt entry.highest_key parent_entry.children_alloc_ids = Some alloc_id);
@@ -1148,10 +1148,10 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                 |None -> failwith "Missing parent_entry.flush_info"
                 |Some di -> let n = KeyedMap.fold (fun _k el acc -> if el = alloc_id then acc + 1 else acc) di.flush_children 0 in
                 if n = 0 then begin
-                  Logs.info (fun m -> m "Dirty but not registered in parent_entry.flush_info %d" depth);
+                  Logs.info (fun m -> m "Dirty but not registered in parent_entry.flush_info %Ld" depth);
                   fail := true;
                 end else if n > 1 then begin
-                  Logs.info (fun m -> m "Dirty, registered %d times in parent_entry.flush_info %d" n depth);
+                  Logs.info (fun m -> m "Dirty, registered %d times in parent_entry.flush_info %Ld" n depth);
                   fail := true;
                 end
       end else begin
@@ -1164,12 +1164,12 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                 match parent_entry.flush_info with
                 |None -> ()
                 |Some di -> if KeyedMap.exists (fun _k el -> el = alloc_id) di.flush_children then begin
-                  Logs.info (fun m -> m "Not dirty but registered in parent_entry.flush_info %d" depth);
+                  Logs.info (fun m -> m "Not dirty but registered in parent_entry.flush_info %Ld" depth);
                   fail := true;
                 end
       end;
       KeyedMap.iter (fun _k alloc_id ->
-          _check_live_integrity fs alloc_id @@ depth + 1
+          _check_live_integrity fs alloc_id @@ Int64.succ depth
         ) entry.children_alloc_ids;
       if !fail then failwith "Integrity errors"
 
@@ -1435,12 +1435,12 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let _len = Cstruct.len value in
     let stats = root.open_fs.node_cache.statistics in
     stats.inserts <- succ stats.inserts;
-    _check_live_integrity root.open_fs root.root_key 0;
+    _check_live_integrity root.open_fs root.root_key 0L;
     _reserve_insert root.open_fs root.root_key (_ins_req_space @@ InsValue value) false 0L >>= fun () ->
     begin
-      _check_live_integrity root.open_fs root.root_key 0;
+      _check_live_integrity root.open_fs root.root_key 0L;
       _fast_insert root.open_fs root.root_key key (InsValue value) 0;
-      _check_live_integrity root.open_fs root.root_key 0;
+      _check_live_integrity root.open_fs root.root_key 0L;
       Lwt.return ()
     end
 
