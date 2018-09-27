@@ -368,6 +368,8 @@ let _reserve_dirty cache alloc_id new_count depth =
   let new_count = ref new_count in
   let dirty_count = ref 0L in
   _reserve_dirty_rec cache alloc_id new_count dirty_count;
+  Logs.debug (fun m -> m "_reserve_dirty %Ld free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld depth %Ld"
+             alloc_id cache.free_count cache.new_count cache.dirty_count !new_count !dirty_count depth);
   if Int64.(compare cache.free_count @@ add cache.dirty_count @@ add !dirty_count @@ add cache.new_count !new_count) < 0 then begin
     if Int64.(compare cache.free_count @@ add !dirty_count @@ add cache.new_count @@ add !new_count @@ succ depth) >= 0 then
       raise NeedsFlush (* flush and retry, it will succeed *)
