@@ -1141,7 +1141,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           begin Logs.err (fun m -> m "partial redzone"); fail := true end
         in
       scan_key (block_end - childlink_size);*)
-      match entry.flush_info with
+      begin match entry.flush_info with
       |Some flush_info -> begin
           if KeyedMap.exists
               (fun _k child_alloc_id -> child_alloc_id = alloc_id)
@@ -1179,6 +1179,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                   Logs.err (fun m -> m "Not dirty but registered in parent_entry.flush_info %Ld" depth);
                   fail := true;
                 end
+      end;
       end;
       KeyedMap.iter (fun _k child_alloc_id ->
           if child_alloc_id = alloc_id then begin
