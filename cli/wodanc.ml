@@ -60,6 +60,15 @@ let trim copts =
     Unikernel1.trim bl
     >|= ignore)
 
+let exercise copts block_size =
+  Lwt_main.run (
+    Block.connect copts.disk
+    >>= fun bl ->
+    Nocrypto_entropy_lwt.initialize ()
+    >>= fun _nc ->
+    Unikernel1.exercise bl block_size
+    >|= ignore)
+
 let fuzz copts =
 (* Persistent mode disabled, results are not stable,
    maybe due to CRC munging. *)
@@ -86,6 +95,7 @@ open Cmdliner
 
 (* Options common to all commands *)
 
+(* TODO: support ramdisks *)
 let copts disk = { disk; }
 let copts_t =
   let docs = Manpage.s_common_options in
@@ -146,6 +156,19 @@ let trim_cmd =
   Term.(const trim $ copts_t),
   Term.info "trim" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let exercise_cmd =
+  let block_size = Arg.(value & pos 1 (some int) None & info [] ~docv:"block_size") in
+  let doc = "Create a fresh filesystem, exercise and fill it" in
+  let man =
+    [`S Manpage.s_description;
+     `P "Create a fresh filesystem, exercise and fill it.
+         This creates a filesystem, runs a few pre-defined operations
+         and fills it with random data.";
+    ]
+  in
+  Term.(const exercise $ copts_t $ block_size),
+  Term.info "exercise" ~doc ~man
+
 let fuzz_cmd =
   let doc = "Fuzz a filesystem" in
   let exits = Term.default_exits in
@@ -180,7 +203,7 @@ let default_cmd =
   Term.info "wodan" ~doc ~sdocs ~exits
 
 let cmds = [restore_cmd; dump_cmd; format_cmd;
-            trim_cmd; fuzz_cmd; help_cmd]
+            trim_cmd; exercise_cmd; fuzz_cmd; help_cmd]
 
 let () =
   Term.(exit @@ eval_choice default_cmd cmds)

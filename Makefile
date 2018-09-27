@@ -1,24 +1,23 @@
 
 .PHONY: build clean test install uninstall
 
-JBUILDER_TARGETS := @install runner/main.exe cli/wodanc.exe examples/irmin_example.exe examples/irmin_cli.exe
+DUNE_TARGETS := @install cli/wodanc.exe examples/irmin_example.exe examples/irmin_cli.exe
 
 build:
-	jbuilder build --dev $(JBUILDER_TARGETS)
+	dune build $(DUNE_TARGETS)
 
 deps:
-	opam install -y jbuilder mirage ctypes-foreign
-	jbuilder external-lib-deps --missing $(JBUILDER_TARGETS)
-
+	opam install -y dune ctypes-foreign
+	dune external-lib-deps --missing $(DUNE_TARGETS)
 
 test:
-	jbuilder runtest
+	dune runtest
 
 install:
-	jbuilder install
+	dune install
 
 uninstall:
-	jbuilder uninstall
+	dune uninstall
 
 clean:
 	rm -rf _build

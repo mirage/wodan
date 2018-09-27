@@ -7,13 +7,13 @@ bug-reports: "https://github.com/g2p/wodan/issues"
 
 
 build: [
-  [ "jbuilder" "subst"] {pinned}
-  [ "jbuilder" "build" "-p" name "-j" jobs ]
+  [ "dune" "subst"] {pinned}
+  [ "dune" "build" "-p" name "-j" jobs ]
 ]
 
 depends: [
   "ocamlfind" {build}
-  "jbuilder"  {build}
+  "dune"  {build}
   "cstruct"
   "ppx_cstruct"
   "sexplib"
