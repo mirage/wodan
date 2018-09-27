@@ -1168,8 +1168,12 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                   fail := true;
                 end
       end;
-      KeyedMap.iter (fun _k alloc_id ->
-          _check_live_integrity fs alloc_id @@ Int64.succ depth
+      KeyedMap.iter (fun _k child_alloc_id ->
+          if child_alloc_id = alloc_id then begin
+            Logs.info (fun m -> m "Self-pointing node %Ld" depth);
+            fail := true;
+          end else
+            _check_live_integrity fs child_alloc_id @@ Int64.succ depth
         ) entry.children_alloc_ids;
       if !fail then failwith "Integrity errors"
 
