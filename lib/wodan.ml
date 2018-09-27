@@ -794,6 +794,10 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     _log_statistics cache;
     if Int64.(compare cache.free_count @@ add cache.new_count cache.dirty_count) < 0 then failwith "Out of space";
     let rec flush_rec parent_key _key alloc_id (completion_list : unit Lwt.t list) = begin
+      if alloc_id = parent_key then begin
+        Logs.err (fun m -> m "Reference loop in flush_children at %Ld" alloc_id);
+        failwith "Reference loop";
+      end;
       match lru_get cache.lru alloc_id with
       |None -> failwith "missing alloc_id"
       |Some entry ->
