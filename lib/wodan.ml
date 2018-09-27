@@ -1137,7 +1137,14 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           begin Logs.info (fun m -> m "partial redzone"); fail := true end
         in
       scan_key (block_end - childlink_size);*)
-      if entry.flush_info <> None then begin
+      match entry.flush_info with
+      |Some flush_info -> begin
+          if KeyedMap.exists
+              (fun _k child_alloc_id -> child_alloc_id = alloc_id)
+              flush_info.flush_children then begin
+          Logs.info (fun m -> m "Self-pointing flush reference %Ld" depth);
+          fail := true;
+        end;
         match entry.parent_key with
         |None -> ()
         |Some parent_key ->
@@ -1146,7 +1153,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
             |Some parent_entry ->
                 match parent_entry.flush_info with
                 |None -> failwith "Missing parent_entry.flush_info"
-                |Some di -> let n = KeyedMap.fold (fun _k el acc -> if el = alloc_id then acc + 1 else acc) di.flush_children 0 in
+                |Some di -> let n = KeyedMap.fold (fun _k el acc -> if el = alloc_id then succ acc else acc) di.flush_children 0 in
                 if n = 0 then begin
                   Logs.info (fun m -> m "Dirty but not registered in parent_entry.flush_info %Ld" depth);
                   fail := true;
@@ -1154,7 +1161,8 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                   Logs.info (fun m -> m "Dirty, registered %d times in parent_entry.flush_info %Ld" n depth);
                   fail := true;
                 end
-      end else begin
+      end
+      |None -> begin
         match entry.parent_key with
         |None -> ()
         |Some parent_key ->
