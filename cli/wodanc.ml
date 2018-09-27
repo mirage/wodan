@@ -22,6 +22,7 @@ let _ = Printexc.record_backtrace true
 module Unikernel1 = Unikernel.Client(Block)
 
 let () = Logs.set_reporter (Logs.format_reporter ())
+(*let () = Logs.set_level (Some Logs.Info)*)
 
 (* Implementations *)
 

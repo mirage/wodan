@@ -92,7 +92,8 @@ module Client (B: Wodan.EXTBLOCK) = struct
     assert (Cstruct.equal (Stor.cstruct_of_value cval) (Stor.cstruct_of_value cval2));
     if gen1 <> gen2 then begin Logs.err (fun m -> m "Generation fail %Ld %Ld" gen1 gen2); assert false; end;
     time0 := Unix.gettimeofday ();
-    while%lwt true do
+    let should_continue = ref true in
+    while%lwt !should_continue do
       let key = Stor.key_of_cstruct @@ Nocrypto.Rng.generate 20 and
         cval = Stor.value_of_cstruct @@ Nocrypto.Rng.generate 40 in
       begin try%lwt
@@ -104,10 +105,11 @@ module Client (B: Wodan.EXTBLOCK) = struct
         Stor.flush !root >>= function _gen ->
         Stor.insert !root key cval
       end
-      |Wodan.OutOfSpace as e -> begin
+      |Wodan.OutOfSpace -> begin
         Logs.info (fun m -> m "Final flush");
         Stor.flush !root >|= ignore >>= fun () ->
-        raise e
+        should_continue := false;
+        Lwt.return_unit
       end
       end
       >>= fun () ->
