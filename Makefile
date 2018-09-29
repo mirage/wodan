@@ -7,7 +7,7 @@ build:
 	dune build $(DUNE_TARGETS)
 
 deps:
-	opam install -y dune ctypes-foreign
+	opam install -y dune ctypes-foreign lwt_ppx
 	dune external-lib-deps --missing $(DUNE_TARGETS)
 
 test:

@@ -26,7 +26,9 @@ depends: [
   "nocrypto"
   "bitv"
   "lwt" {>= "3.1.0"}
+  "lwt_ppx"
   "mirage-types-lwt" {>= "3.0.5"}
+  "ocaml-migrate-parsetree"
   "ctypes"
   "ctypes-foreign"
   "csv" {>= "2.0"}
