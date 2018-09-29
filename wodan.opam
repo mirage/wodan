@@ -29,6 +29,7 @@ depends: [
   "lwt_ppx"
   "mirage-types-lwt" {>= "3.0.5"}
   "ocaml-migrate-parsetree"
+  "stdcompat"
   "ctypes"
   "ctypes-foreign"
   "csv" {>= "2.0"}
