@@ -191,7 +191,7 @@ module LRUKey = struct
 end
 
 type flush_info = {
-  mutable flush_children: KeyedMap.t;
+  mutable flush_children: int64 KeyedMap.t;
 }
 
 type lru_entry = {
@@ -203,11 +203,11 @@ type lru_entry = {
      A flushable node is either new or dirty, but not both. *)
   mutable flush_info: flush_info option;
 (* Use offsets so that data isn't duplicated *)
-  mutable children: KeyedMap.t Lazy.t;
+  mutable children: (int64 KeyedMap.t) Lazy.t;
 (* Don't reference nodes directly, always go through the
  * LRU to bump recently accessed nodes *)
-  mutable children_alloc_ids: KeyedMap.t;
-  mutable logindex: KeyedMap.t Lazy.t;
+  mutable children_alloc_ids: int64 KeyedMap.t;
+  mutable logindex: (int64 KeyedMap.t) Lazy.t;
   mutable highest_key: string;
   raw_node: Cstruct.t;
   io_data: Cstruct.t list;

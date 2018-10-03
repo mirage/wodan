@@ -4,7 +4,7 @@
 (* a functional map, which we wrap in imperative style *)
 module FMap = Map_407.Make(String)
 
-type t = (int64 FMap.t) ref
+type 'a t = ('a FMap.t) ref
 exception AlreadyExists
 
 let create () = ref FMap.empty
