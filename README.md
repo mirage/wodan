@@ -13,7 +13,7 @@ This explains some of the design choices behind Wodan.
 
 ## Building, installing and running
 
-Wodan requires Opam, Mirage 3, and OCaml 4.06.
+Wodan requires Opam, Dune, Mirage 3, and OCaml 4.06.
 
 An opam switch with flambda is recommended for performance reasons.
 
@@ -24,6 +24,7 @@ opam switch 4.06.1+fp+flambda
 ### Building the library
 
 ```
+git submodule update --init
 make deps
 # Follow the opam instructions
 make
