@@ -4,3 +4,4 @@
 .merlin
 _build/
 disk.img
+/afl/output/
