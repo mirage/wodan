@@ -5,3 +5,4 @@
 _build/
 disk.img
 /afl/output/
+/_opam/
