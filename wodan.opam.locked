@@ -37,7 +37,6 @@ depends: [
   "conf-which" {= "1"}
   "ppxlib" {= "0.3.1"}
   "sexplib" {= "v0.11.0"}
-  "seq" {= "0.1"}
   "fmt" {= "0.8.5"}
   "cppo" {= "1.6.5"}
   "astring" {= "0.8.3"}
