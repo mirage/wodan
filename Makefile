@@ -8,18 +8,16 @@ build:
 
 deps:
 	git submodule update --init
-	opam install -y dune ctypes-foreign lwt_ppx
+	opam install -y dune ctypes-foreign lwt_ppx opam-lock
 	dune external-lib-deps --missing $(DUNE_TARGETS)
 
 locked:
 	git submodule update --init
-	opam install -y opam-lock
 	opam switch create --switch=.
 	opam install -y --switch=. ./wodan.opam.locked
 
 locked-travis:
 	git submodule update --init
-	opam install -y opam-lock
 	opam install -y ./wodan.opam.locked
 
 update-lock:
