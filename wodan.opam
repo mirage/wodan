@@ -4,6 +4,8 @@ authors: [ "Gabriel de Perthuis"]
 homepage: "https://github.com/g2p/wodan"
 dev-repo: "https://github.com/g2p/wodan.git"
 bug-reports: "https://github.com/g2p/wodan/issues"
+name: "wodan"
+version: "dev"
 
 
 build: [
