@@ -1,3 +1,4 @@
+open Stdcompat
 
 (* include Btreemap *)
 
@@ -21,7 +22,7 @@ let xadd k v m =
 let remove k m =
   m := FMap.remove k !m
 let iter f m = 
-  FMap.iter f !m |> ignore
+  FMap.iter f !m
 let iter_range start end_excl f m =
   try
     FMap.to_seq_from start !m |>

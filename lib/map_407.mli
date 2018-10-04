@@ -43,6 +43,8 @@
    values so its type is [string PairsMap.t].
 *)
 
+open Stdcompat
+
 module type OrderedType =
   sig
     type t
