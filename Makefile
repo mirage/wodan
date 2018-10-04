@@ -15,14 +15,14 @@ locked:
 	git submodule update --init
 	opam install -y opam-lock
 	opam switch create --switch=.
-	opam install --switch=. ./wodan.opam.locked
+	opam install -y --switch=. ./wodan.opam.locked
 
 locked-travis:
 	git submodule update --init
 	opam install -y opam-lock
-	#opam install ./wodan.opam.locked
+	#opam install -y ./wodan.opam.locked
 	# XXX WORKAROUND
-	opam install ./wodan.opam
+	opam install -y ./wodan.opam
 
 update-lock:
 	opam lock wodan.opam
