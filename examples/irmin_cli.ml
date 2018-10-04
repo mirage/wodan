@@ -29,14 +29,8 @@ module FileBlockCon = struct
   let connect name = Block.connect name
 end
 
-let wodan_mem_store (module C: Irmin.Contents.S) =
-  (module Irmin_wodan.KV(RamBlockCon)(Wodan.StandardSuperblockParams)(C) : Irmin.S)
-
-let wodan_file_store (module C: Irmin.Contents.S) =
-  (module Irmin_wodan.KV(FileBlockCon)(Wodan.StandardSuperblockParams)(C) : Irmin.S)
-
 let _ =
-  Cli.add_store "wodan-mem" wodan_mem_store;
-  Cli.add_store "wodan" ~default:true wodan_file_store
+  Resolver.Store.add "wodan-mem" (fun contents -> Resolver.Store.v ?remote:None (module Irmin_wodan.KV(RamBlockCon)(Wodan.StandardSuperblockParams)(val contents) : Irmin.S));
+  Resolver.Store.add "wodan" ~default:true (fun contents -> Resolver.Store.v ?remote:None (module Irmin_wodan.KV(FileBlockCon)(Wodan.StandardSuperblockParams)(val contents) : Irmin.S))
 
 let () = Cli.(run ~default commands)
