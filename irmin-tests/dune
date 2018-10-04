@@ -2,7 +2,7 @@
 (library
   (name      test_wodan)
   (modules   test_wodan)
-  (libraries irmin-test irmin-mem io-page-unix nocrypto.lwt mirage-block-ramdisk checkseum.c wodan))
+  (libraries checkseum.c digestif.c irmin-test irmin-mem io-page-unix nocrypto.lwt mirage-block-ramdisk wodan))
 
 (executable
   (name      test)
