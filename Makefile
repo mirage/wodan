@@ -17,6 +17,11 @@ locked:
 	opam switch create ./
 	opam install --switch=. ./wodan.opam.locked
 
+locked-travis:
+	git submodule update --init
+	opam install -y opam-lock
+	opam install ./wodan.opam.locked
+
 update-lock:
 	opam lock wodan.opam
 
@@ -37,4 +42,4 @@ uninstall:
 clean:
 	rm -rf _build
 
-.PHONY: build deps locked update-lock fuzz test install uninstall clean
+.PHONY: build deps locked locked-travis update-lock fuzz test install uninstall clean

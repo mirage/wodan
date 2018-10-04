@@ -2,8 +2,7 @@ language: c
 sudo: required
 script:
   - bash -ex .travis-ocaml.sh
-  - make locked
-  - eval $(opam env)
+  - make locked-travis
   - make test
 env:
   - OCAML_VERSION=4.06 PACKAGE=wodan
