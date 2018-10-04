@@ -22,6 +22,8 @@ locked-travis:
 
 update-lock:
 	opam lock wodan.opam
+	# Workaround https://github.com/AltGr/opam-lock/issues/2
+	sed -i '/"ocaml"/d' wodan.opam.locked
 
 fuzz:
 	dune build cli/wodanc.exe
