@@ -14,6 +14,7 @@ deps:
 locked:
 	git submodule update --init
 	opam install -y opam-lock
+	opam switch create ./
 	opam install --switch=. ./wodan.opam.locked
 
 update-lock:
