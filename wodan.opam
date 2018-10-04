@@ -33,7 +33,7 @@ depends: [
   "cmdliner"
   "mirage-block-unix"
   "nocrypto"
-  "nocrypto.lwt"
+  "nocrypto-lwt"
   "mirage-block-ramdisk"
   "irmin-unix"
   "irmin-test"
