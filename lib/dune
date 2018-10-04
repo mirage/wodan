@@ -6,7 +6,7 @@
   (ocamlopt_flags :standard -O3)
   (preprocess (pps lwt_ppx ppx_cstruct))
   (c_library_flags :standard -rdynamic)
-  (libraries rresult stdcompat irmin irmin-chunk ctypes ctypes.foreign cstruct sexplib mirage-types mirage-logs lwt io-page lru logs nocrypto bitv mirage-types-lwt diet checkseum btreemap)
+  (libraries rresult stdcompat irmin irmin-chunk ctypes ctypes.foreign cstruct sexplib mirage-types mirage-logs lwt io-page lru logs nocrypto bitv mirage-types-lwt diet checkseum)
   (wrapped false)
   )
 
