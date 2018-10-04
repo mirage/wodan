@@ -13,7 +13,8 @@ This explains some of the design choices behind Wodan.
 
 ## Building, installing and running
 
-Wodan requires Opam, Dune, Mirage 3, and OCaml 4.06.
+Wodan requires [Opam][opam], [Dune][dune], [Mirage 3][mirage],
+and [OCaml 4.06][ocaml].
 
 An opam switch with flambda is recommended for performance reasons.
 
@@ -24,11 +25,17 @@ opam switch 4.06.1+fp+flambda
 ### Building the library
 
 ```
-git submodule update --init
 make deps
 # Follow the opam instructions
 make
 ```
+
+Alternatively, you can do:
+```
+make locked
+```
+to build a local Opam switch with known good versions of all
+dependencies.
 
 ## CLI usage
 
@@ -36,7 +43,8 @@ make
 dune exec cli/wodanc.exe --help
 ```
 
-At the moment the CLI supports creating filesystems, dumping and restoring data into them.
+At the moment the CLI supports creating filesystems, dumping and
+restoring data into them.
 
 ### Running tests
 
@@ -53,7 +61,11 @@ This requires OCaml compiled with AFL support.
 opam switch 4.06.1+afl
 sudo sysctl kernel.core_pattern=core
 echo performance |sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-afl-fuzz -i afl/input -o afl/output -- \
-  _build/default/cli/wodanc.exe fuzz @@
+make fuzz
 ```
+
+[opam]: https://opam.ocaml.org/
+[dune]: https://github.com/ocaml/dune#installation
+[mirage]: https://mirage.io/
+[ocaml]: https://ocaml.org/
 
