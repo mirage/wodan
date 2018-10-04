@@ -8,7 +8,7 @@ exception ReadError
 exception WriteError
 exception OutOfSpace
 exception NeedsFlush
-exception BadKey of Cstruct.t
+exception BadKey of string
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
 

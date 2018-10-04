@@ -34,7 +34,7 @@ exception WriteError
 exception OutOfSpace
 exception NeedsFlush
 
-exception BadKey of Cstruct.t
+exception BadKey of string
 exception ValueTooLarge of Cstruct.t
 exception BadNodeType of int
 exception BadNodeFSID of string
@@ -542,10 +542,13 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
 
   let key_of_cstruct key =
     if Cstruct.len key <> P.key_size
-    then raise @@ BadKey key
+    then raise @@ BadKey (Cstruct.to_string key)
     else Cstruct.to_string key
 
-  let key_of_string key = key
+  let key_of_string key =
+    if String.length key <> P.key_size
+    then raise @@ BadKey key
+    else key
 
   let cstruct_of_key key =
     Cstruct.of_string key
