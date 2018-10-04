@@ -292,7 +292,7 @@ struct
   type key = K.t
   type value = V.t
 
-  let key_to_inner_key k = Stor.key_of_string @@ Irmin.Type.encode_bin K.t k
+  let key_to_inner_key k = Stor.key_of_string @@ Irmin.Type.encode_bin H.t @@ H.digest @@ Irmin.Type.encode_bin K.t k
   let val_to_inner_val va = Stor.value_of_string @@ Irmin.Type.encode_bin V.t va
   let key_to_inner_val k = Stor.value_of_string @@ Irmin.Type.encode_bin K.t k
   let key_of_inner_val va =
