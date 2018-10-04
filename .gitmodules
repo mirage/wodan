@@ -12,7 +12,8 @@
 	url = https://github.com/mirage/digestif.git
 [submodule "vendor/irmin"]
 	path = vendor/irmin
-	url = https://github.com/mirage/irmin.git
+	url = https://github.com/g2p/irmin.git
+  branch = debugging
 [submodule "vendor/decompress"]
 	path = vendor/decompress
 	url = https://github.com/mirage/decompress.git
