@@ -1348,13 +1348,13 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         _reset_contents entry;
         entry.rdepth <- Int32.succ entry.rdepth;
         set_rootnode_hdr_depth entry.raw_node entry.rdepth;
-        _add_child entry entry1 alloc1 fs.node_cache alloc_id;
-        _add_child entry entry2 alloc2 fs.node_cache alloc_id;
         entry1.flush_info <- Some { flush_children=di.flush_children };
         entry2.flush_info <- Some { flush_children=fc2 };
         entry.flush_info <- Some { flush_children=fc };
         _fixup_parent_links fs.node_cache alloc1 entry1;
         _fixup_parent_links fs.node_cache alloc2 entry2;
+        _add_child entry entry1 alloc1 fs.node_cache alloc_id;
+        _add_child entry entry2 alloc2 fs.node_cache alloc_id;
         Lwt.return ()
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
