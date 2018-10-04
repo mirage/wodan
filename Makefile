@@ -20,7 +20,9 @@ locked:
 locked-travis:
 	git submodule update --init
 	opam install -y opam-lock
-	opam install ./wodan.opam.locked
+	#opam install ./wodan.opam.locked
+	# XXX WORKAROUND
+	opam install ./wodan.opam
 
 update-lock:
 	opam lock wodan.opam
