@@ -1,3 +1,21 @@
 [submodule "afl/input"]
 	path = afl/input
 	url = https://github.com/g2p/wodan-fuzz-corpus.git
+[submodule "vendor/checkseum"]
+	path = vendor/checkseum
+	url = https://github.com/dinosaure/checkseum.git
+[submodule "vendor/ocaml-git"]
+	path = vendor/ocaml-git
+	url = https://github.com/mirage/ocaml-git.git
+[submodule "vendor/digestif"]
+	path = vendor/digestif
+	url = https://github.com/mirage/digestif.git
+[submodule "vendor/irmin"]
+	path = vendor/irmin
+	url = https://github.com/mirage/irmin.git
+[submodule "vendor/decompress"]
+	path = vendor/decompress
+	url = https://github.com/mirage/decompress.git
+[submodule "vendor/ocaml-diet"]
+	path = vendor/ocaml-diet
+	url = https://github.com/djs55/ocaml-diet.git
