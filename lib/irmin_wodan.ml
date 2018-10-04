@@ -204,12 +204,12 @@ struct
 end
 
 module RO_BUILDER
-: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Contents.Conv) -> sig
+: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Type.S) -> sig
   include Irmin.RO
   include DB with type t := t
 end with type key = K.t and type value = V.t
 = functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS)
-(K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
+(K: Irmin.Hash.S) (V: Irmin.Type.S) ->
 struct
   include DB_BUILDER(B)(P)
   type key = K.t
@@ -218,33 +218,33 @@ struct
   let () = assert (K.digest_size = P.key_size)
 
   let find db k =
-    Log.debug (fun l -> l "find %a" K.pp k);
-    Stor.lookup (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k >>= function
+    Log.debug (fun l -> l "find %a" (Irmin.Type.pp K.t) k);
+    Stor.lookup (db_root db) @@ Stor.key_of_string @@ Irmin.Type.encode_bin K.t k >>= function
     |None -> Lwt.return_none
     |Some v -> Lwt.return_some
-      @@ Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t @@ Stor.cstruct_of_value v
+      @@ Rresult.R.get_ok @@ Irmin.Type.decode_bin V.t @@ Stor.string_of_value v
 
   let mem db k =
-    Log.debug (fun l -> l "mem %a" K.pp k);
-    Stor.mem (db_root db) @@ Stor.key_of_cstruct @@ K.to_raw k
+    Log.debug (fun l -> l "mem %a" (Irmin.Type.pp K.t) k);
+    Stor.mem (db_root db) @@ Stor.key_of_string @@ Irmin.Type.encode_bin K.t k
 end
 
 module AO_BUILDER
 : BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.AO_MAKER
 = functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS)
-(K: Irmin.Hash.S) (V: Irmin.Contents.Conv) ->
+(K: Irmin.Hash.S) (V: Irmin.Type.S) ->
 struct
   include RO_BUILDER(B)(P)(K)(V)
 
   let add db va =
-    let raw_v = Irmin.Type.encode_cstruct V.t va in
-    let k = K.digest V.t va in
-    Log.debug (fun m -> m "AO.add -> %a (%d)" K.pp k K.digest_size);
-    let raw_k = K.to_raw k in
+    let raw_v = Irmin.Type.encode_bin V.t va in
+    let k = K.digest raw_v in
+    Log.debug (fun m -> m "AO.add -> %a (%d)" (Irmin.Type.pp K.t) k K.digest_size);
+    let raw_k = Irmin.Type.encode_bin K.t k in
     let root = db_root db in
     may_autoflush db (fun () ->
-        Stor.insert root (Stor.key_of_cstruct raw_k)
-        @@ Stor.value_of_cstruct raw_v) >>=
+        Stor.insert root (Stor.key_of_string raw_k)
+        @@ Stor.value_of_string raw_v) >>=
       function () -> Lwt.return k
 end
 
@@ -255,19 +255,19 @@ struct
   include RO_BUILDER(B)(P)(K)(K)
 
   let add db k va =
-    let raw_v = K.to_raw va in
-    let raw_k = K.to_raw k in
+    let raw_v = Irmin.Type.encode_bin K.t va in
+    let raw_k = Irmin.Type.encode_bin K.t k in
     let root = db_root db in
-    Log.debug (fun m -> m "LINK.add -> %a" K.pp k);
+    Log.debug (fun m -> m "LINK.add -> %a" (Irmin.Type.pp K.t) k);
     may_autoflush db (fun () ->
-        Stor.insert root (Stor.key_of_cstruct raw_k)
-        @@ Stor.value_of_cstruct raw_v)
+        Stor.insert root (Stor.key_of_string raw_k)
+        @@ Stor.value_of_string raw_v)
 end
 
 module RW_BUILDER
 : BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.Hash.S -> Irmin.RW_MAKER
 = functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS) (H: Irmin.Hash.S)
-(K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) ->
+(K: Irmin.Type.S) (V: Irmin.Type.S) ->
 struct
   module BUILDER = DB_BUILDER(B)(P)
   module Stor = BUILDER.Stor
@@ -292,23 +292,17 @@ struct
   type key = K.t
   type value = V.t
 
-  let copy_cstruct x =
-    let len = Cstruct.len x in
-    let dst = Cstruct.create_unsafe len in
-    Cstruct.blit x 0 dst 0 len;
-    dst
-
-  let key_to_inner_key k = Stor.key_of_cstruct @@ H.to_raw @@ H.digest K.t k
-  let val_to_inner_val va = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct V.t va
-  let key_to_inner_val k = Stor.value_of_cstruct @@ Irmin.Type.encode_cstruct K.t k
+  let key_to_inner_key k = Stor.key_of_string @@ Irmin.Type.encode_bin K.t k
+  let val_to_inner_val va = Stor.value_of_string @@ Irmin.Type.encode_bin V.t va
+  let key_to_inner_val k = Stor.value_of_string @@ Irmin.Type.encode_bin K.t k
   let key_of_inner_val va =
-    Rresult.R.get_ok @@ Irmin.Type.decode_cstruct K.t @@ Stor.cstruct_of_value va
+    Rresult.R.get_ok @@ Irmin.Type.decode_bin K.t @@ Stor.string_of_value va
   let val_of_inner_val va =
-    Rresult.R.get_ok @@ Irmin.Type.decode_cstruct V.t
-    @@ copy_cstruct @@ Stor.cstruct_of_value va
+    Rresult.R.get_ok @@ Irmin.Type.decode_bin V.t
+    @@ Stor.string_of_value va
   let inner_val_to_inner_key va =
-    Stor.key_of_cstruct @@ H.to_raw @@ H.digest Irmin.Type.cstruct
-    @@ Stor.cstruct_of_value va
+    Stor.key_of_string @@ (Irmin.Type.encode_bin H.t) @@ H.digest
+    @@ Stor.string_of_value va
 
   let make ~path ~create ~mount_options ~list_key ~autoflush =
     BUILDER.make ~path ~create ~mount_options ~autoflush >>= function db ->
@@ -381,7 +375,7 @@ struct
       (fun () -> Stor.insert (db_root db) ik iv)
 
   let set db k va =
-    Log.debug (fun m -> m "RW.set -> %a" K.pp k);
+    Log.debug (fun m -> m "RW.set -> %a" (Irmin.Type.pp K.t) k);
     let ik = key_to_inner_key k in
     let iv = val_to_inner_val va in
     L.with_lock db.lock k (fun () ->
@@ -401,7 +395,7 @@ struct
 
   (* XXX With autoflush, this might flush some data without finishing the insert *)
   let test_and_set db k ~test ~set =
-    Log.debug (fun m -> m "RW.test_and_set -> %a" K.pp k);
+    Log.debug (fun m -> m "RW.test_and_set -> %a" (Irmin.Type.pp K.t) k);
     let ik = key_to_inner_key k in
     let root = db_root db in
     let test = match test with
@@ -423,7 +417,7 @@ struct
     end >>= fun () -> Lwt.return updated
 
   let remove db k =
-    Log.debug (fun l -> l "RW.remove %a" K.pp k);
+    Log.debug (fun l -> l "RW.remove %a" (Irmin.Type.pp K.t) k);
     let ik = key_to_inner_key k in
     let va = Stor.value_of_string "" in
     let root = db_root db in
@@ -447,7 +441,7 @@ struct
     ) db.keydata @@ Lwt.return []
 
   let find db k =
-    Log.debug (fun l -> l "RW.find %a" K.pp k);
+    Log.debug (fun l -> l "RW.find %a" (Irmin.Type.pp K.t) k);
     Stor.lookup (db_root db) @@ key_to_inner_key k >>= function
     |None -> Lwt.return_none
     |Some va -> Lwt.return_some @@ val_of_inner_val va
