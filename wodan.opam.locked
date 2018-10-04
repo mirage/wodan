@@ -9,7 +9,7 @@ version: "dev"
 
 
 build: [
-  [ "dune" "build" "-p" name "-j" jobs ]
+  [ "dune" "build" "-j" jobs ]
 ]
 
 depends: [
@@ -103,15 +103,12 @@ depends: [
   "ctypes-foreign" {= "0.4.0"}
   "integers" {= "0.2.2"}
   "mirage-types-lwt" {= "3.2.0"}
-  "irmin" {= "1.4.0"}
   "psq" {= "0.1.0"}
   "io-page-unix" {= "2.0.1"}
   "ctypes" {= "0.14.0"}
   "afl-persistent" {= "1.2"}
   "bitv" {= "1.3"}
   "csv" {= "2.1"}
-  "irmin-chunk" {= "1.3.0"}
-  "irmin-mem" {= "1.3.0"}
   "lru" {= "0.2.0"}
   "lwt_ppx" {= "1.2.1"}
   "mirage-block-ramdisk" {= "0.3"}

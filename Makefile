@@ -23,7 +23,11 @@ locked-travis:
 update-lock:
 	opam lock wodan.opam
 	# Workaround https://github.com/AltGr/opam-lock/issues/2
-	sed -i '/"ocaml"/d; /"seq"/d;' wodan.opam.locked
+	sed -i '/"ocaml"/d; /"seq"/d; /"diet"/d; /"irmin"/d; /"irmin-chunk"/d; /"irmin-mem"/d;' wodan.opam.locked
+	# We want Dune to find dependencies recursively inside submodules, but -p would inhibit that
+	# There is an impedance mismatch between using Opam files for installing a package
+	# and using them only for installing development dependencies.
+	sed -i 's/"dune" "build" "-p" name "-j" jobs/"dune" "build" "-j" jobs/' wodan.opam.locked
 
 fuzz:
 	dune build cli/wodanc.exe
