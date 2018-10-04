@@ -1,7 +1,7 @@
 
 .PHONY: build clean test install uninstall
 
-DUNE_TARGETS := cli/wodanc.exe examples/irmin_example.exe examples/irmin_cli.exe
+DUNE_TARGETS := cli/wodanc.exe examples/irmin_cli.exe
 
 build:
 	dune build $(DUNE_TARGETS)
