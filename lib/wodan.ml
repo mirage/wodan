@@ -1065,6 +1065,10 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
 
           let off = !kdo_out in begin
             kd.next_keydata_offset <- kd.next_keydata_offset + len1;
+            if String.length key <> P.key_size then begin
+              Logs.err (fun m -> m "Key len %d should be %d" (String.length key) P.key_size);
+              failwith "Bad key"
+            end;
             Cstruct.blit (Cstruct.of_string key) 0 cstr off P.key_size;
             Cstruct.LE.set_uint16 cstr (off + P.key_size) len;
             Cstruct.blit value 0 cstr (off + P.key_size + sizeof_datalen) len;
