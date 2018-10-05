@@ -14,11 +14,11 @@ deps:
 locked:
 	git submodule update --init
 	opam switch create --switch=.
-	opam install -y --switch=. ./wodan.opam.locked
+	opam install -y --deps-only --switch=. ./wodan.opam.locked
 
 locked-travis:
 	git submodule update --init
-	opam install -y ./wodan.opam.locked
+	opam install -y --deps-only ./wodan.opam.locked
 
 update-lock:
 	opam lock wodan.opam
