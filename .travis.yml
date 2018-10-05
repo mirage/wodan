@@ -3,6 +3,7 @@ sudo: required
 script:
   - bash -ex .travis-ocaml.sh
   - make locked-travis
+  - eval $(opam env)
   - opam install dune
   - dune external-lib-deps @@default
   - dune external-lib-deps --missing @@default
