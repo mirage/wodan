@@ -1,0 +1,34 @@
+
+git clone https://github.com/g2p/wodan
+
+in wodan/:
+
+    apply changes in wodan.patch
+    git submodule init
+    opam pin add diet.dev vendor/ocaml-diet
+    opam pin add -k path wodan.dev .
+
+    edit $(opam config var prefix)/lib/wodan/META and:
+        remove all ctypes
+        add checkseum.ocaml
+
+to build the solo5 hvt unikernel:
+
+mirage configure -t hvt --http=80
+mirage build
+
+to run:
+
+(once)
+
+    ip tuntap add tap100 mode tap
+    ip addr add 10.0.0.1/24 dev tap100
+    ip link set dev tap100 up
+
+(once to format image)
+    
+    rm disk.img; touch disk.img ; fallocate -z -l $((256*1024*3)) disk.img
+    dune exec -- wodan/cli/wodanc.exe format disk.img; echo $?
+
+ ./solo5-hvt --net=tap100 --disk=disk.img  ./http.hvt --logs=\*:debug
+
