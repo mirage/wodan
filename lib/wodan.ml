@@ -1270,9 +1270,9 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         let%lwt child_alloc_id, _ce = _preload_child fs alloc_id entry best_spill_key offset in begin
         let clo = entry.childlinks.childlinks_offset in
         let nko = entry.keydata.next_keydata_offset in
-        Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);
+        (*Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.keydata.next_keydata_offset);*)
         _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ Int64.succ depth >>= fun () -> begin
-        Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);
+        (*Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.keydata.next_keydata_offset);*)
         if clo = entry.childlinks.childlinks_offset && nko = entry.keydata.next_keydata_offset then begin
         (* _reserve_insert didn't split the child or the root *)
           _reserve_dirty fs.node_cache child_alloc_id 0L @@ Int64.succ depth;
