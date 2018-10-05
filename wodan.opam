@@ -54,7 +54,7 @@ depends: [
   "rresult"
   "irmin"
   "irmin-chunk"
-  "diet"
+  "diet" {>= "0.2"}
   "mirage-types-lwt" {>= "3.0.5"}
   "ocaml-migrate-parsetree"
   "stdcompat"

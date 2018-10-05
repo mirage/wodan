@@ -17,9 +17,6 @@
 [submodule "vendor/decompress"]
 	path = vendor/decompress
 	url = https://github.com/mirage/decompress.git
-[submodule "vendor/ocaml-diet"]
-	path = vendor/ocaml-diet
-	url = https://github.com/djs55/ocaml-diet.git
 [submodule "vendor/ocaml-ci-scripts"]
 	path = vendor/ocaml-ci-scripts
 	url = https://github.com/ocaml/ocaml-ci-scripts.git
