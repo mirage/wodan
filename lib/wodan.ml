@@ -1354,22 +1354,19 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         KeyedMap.iter (fun _k off -> blit_kd_child off entry2) logi2;
         KeyedMap.iter (fun _k off -> blit_cd_child off entry1) children;
         KeyedMap.iter (fun _k off -> blit_cd_child off entry2) cl2;
-        let fc = KeyedMap.create () in
-        KeyedMap.xadd median alloc1 fc;
-        KeyedMap.xadd entry.highest_key alloc2 fc;
         entry1.children_alloc_ids <- entry.children_alloc_ids;
         entry2.children_alloc_ids <- ca2;
         _reset_contents entry;
         entry.rdepth <- Int32.succ entry.rdepth;
         set_rootnode_hdr_depth entry.raw_node entry.rdepth;
-        entry1.flush_info <- Some { flush_children=di.flush_children };
-        entry2.flush_info <- Some { flush_children=fc2 };
-        entry.flush_info <- Some { flush_children=fc };
+        entry.flush_info <- Some { flush_children=KeyedMap.create () };
         _fixup_parent_links fs.node_cache alloc1 entry1;
         _fixup_parent_links fs.node_cache alloc2 entry2;
         _add_child entry entry1 alloc1 fs.node_cache alloc_id;
         _add_child entry entry2 alloc2 fs.node_cache alloc_id;
-        Lwt.return ()
+        entry1.flush_info <- Some { flush_children=di.flush_children };
+        entry2.flush_info <- Some { flush_children=fc2 };
+        Lwt.return_unit
       end
       |Some parent_key -> begin (* Node splitting (non root) *)
         assert (Int64.compare depth 0L > 0);
