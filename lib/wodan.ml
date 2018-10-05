@@ -822,6 +822,8 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
             flush_rec 0L zero_key alloc_id []
       ) in
     cache.flush_root <- None;
+    assert (cache.new_count = 0L);
+    assert (cache.dirty_count = 0L);
     r >>= fun () -> Lwt.return @@ Int64.pred cache.next_generation
 
   let _discard_block_range open_fs logical n =
