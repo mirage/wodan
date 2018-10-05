@@ -2,7 +2,9 @@ language: c
 sudo: required
 script:
   - bash -ex .travis-ocaml.sh
+  - dune external-lib-deps @@default
   - make locked-travis
+  - dune external-lib-deps --missing @@default
   - make test
 env:
   - OCAML_VERSION=4.06 PACKAGE=wodan
