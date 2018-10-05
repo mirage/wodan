@@ -40,6 +40,6 @@ uninstall:
 	dune uninstall
 
 clean:
-	rm -rf _build
+	rm -rf _build _opam
 
 .PHONY: build deps locked locked-travis update-lock fuzz test install uninstall clean
