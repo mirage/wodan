@@ -92,6 +92,7 @@ depends: [
   "mirage-time-lwt" {= "1.1.0"}
   "mirage-types" {= "3.2.0"}
   "mirage-types-lwt" {= "3.2.0"}
+  "mtime" {= "1.1.0"}
   "nocrypto" {= "0.5.4-1"}
   "num" {= "1.1"}
   "ocaml-compiler-libs" {= "v0.11.0"}
