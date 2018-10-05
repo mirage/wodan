@@ -324,7 +324,7 @@ let next_generation cache =
   r
 
 let int64_pred_nowrap va =
-  if Int64.compare va 0L <= 0 then failwith "Wrapped"
+  if Int64.compare va 0L <= 0 then failwith "Int64 wrapping down to negative"
   else Int64.pred va
 
 type insertable =
