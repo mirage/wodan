@@ -1172,7 +1172,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                 |None -> failwith "Missing parent_entry.flush_info"
                 |Some di -> let n = KeyedMap.fold (fun _k el acc -> if el = alloc_id then succ acc else acc) di.flush_children 0 in
                 if n = 0 then begin
-                  Logs.err (fun m -> m "Dirty but not registered in parent_entry.flush_info %Ld" depth);
+                  Logs.err (fun m -> m "Dirty but not registered in parent_entry.flush_info %Ld %Ld" depth alloc_id);
                   fail := true;
                 end else if n > 1 then begin
                   Logs.err (fun m -> m "Dirty, registered %d times in parent_entry.flush_info %Ld" n depth);
