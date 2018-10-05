@@ -2,8 +2,9 @@ language: c
 sudo: required
 script:
   - bash -ex .travis-ocaml.sh
-  - dune external-lib-deps @@default
   - make locked-travis
+  - opam install dune
+  - dune external-lib-deps @@default
   - dune external-lib-deps --missing @@default
   - make test
 env:
