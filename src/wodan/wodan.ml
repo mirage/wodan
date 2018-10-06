@@ -595,7 +595,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let r = Bytes.make P.key_size '\000' in
     let state = ref 1 in
     for i = P.key_size - 1 downto 0 do
-      let code = (Char.code key.[i]) + 1 mod 256 in
+      let code = (!state + Char.code key.[i]) mod 256 in
       Bytes.set r i @@ Char.chr code;
       state := if code = 0 then 1 else 0;
     done;
@@ -1231,7 +1231,6 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
       end
       else if not split_path && _has_children entry && _has_logdata entry then begin
         (* log spilling *)
-        Logs.debug (fun m -> m "log spilling %Ld" depth);
         let children = Lazy.force entry.children in
         let find_victim () =
           let spill_score = ref 0 in
@@ -1262,6 +1261,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           !best_spill_score, !best_spill_key
         in
         let best_spill_score, best_spill_key = find_victim () in
+        Logs.debug (fun m -> m "log spilling %Ld %Ld %d" depth alloc_id best_spill_score);
         let offset = keyedmap_find best_spill_key children in
         let%lwt child_alloc_id, _ce = _preload_child fs alloc_id entry best_spill_key offset in begin
         let clo = entry.childlinks.childlinks_offset in
