@@ -2,7 +2,7 @@
 (library
   (name      test_wodan)
   (modules   test_wodan)
-  (libraries checkseum.c digestif.c irmin-test irmin-mem io-page-unix nocrypto.lwt mirage-block-ramdisk wodan))
+  (libraries checkseum.c digestif.c irmin-test irmin-mem io-page-unix nocrypto.lwt mirage-block-ramdisk wodan wodan-irmin))
 
 (executable
   (name      test)
@@ -11,6 +11,6 @@
 
 (alias
   (name runtest)
-  (package wodan)
+  (package wodan-irmin)
   (deps test.exe)
   (action (run %{dep:test.exe} -q --color=always)))
