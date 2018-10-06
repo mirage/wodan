@@ -25,20 +25,20 @@ module BlockCon = struct
 end
 
 
-(*let store = store (module Irmin_wodan.Make) (module Irmin.Metadata.None)*)
+(*let store = store (module Wodan_irmin.Make) (module Irmin.Metadata.None)*)
 let store = (module
-  Irmin_wodan.KV_chunked(BlockCon)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
+  Wodan_irmin.KV_chunked(BlockCon)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
 : Irmin_test.S)
 
 (*
 module Link = struct
-  include Irmin_wodan.Link(Irmin.Hash.SHA1)
-  let v () = v (Irmin_wodan.config ())
+  include Wodan_irmin.Link(Irmin.Hash.SHA1)
+  let v () = v (Wodan_irmin.config ())
 end
 
 let link = (module Link: Test_link.S)
 *)
-let config = Irmin_wodan.config ~path:"disk.img" ~create:true ()
+let config = Wodan_irmin.config ~path:"disk.img" ~create:true ()
 
 let clean () =
   let (module S: Irmin_test.S) = store in
