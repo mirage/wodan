@@ -44,7 +44,7 @@ let max_binding m = FMap.max_binding_opt !m
 let find_first_opt k m = FMap.find_first_opt (fun k' -> String.compare k k' <= 0) !m
 let find_last_opt k m = FMap.find_last_opt (fun k' -> String.compare k' k < 0) !m
 let split_off_after k m =
-  let m1, m2 = FMap.partition (fun k' _v -> String.compare k k' <= 0) !m in
+  let m1, m2 = FMap.partition (fun k' _v -> String.compare k k' >= 0) !m in
   m := m1; ref m2
 let swap m1 m2 =
   let m = !m1 in
