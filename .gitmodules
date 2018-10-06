@@ -1,9 +1,6 @@
 [submodule "afl/input"]
 	path = afl/input
 	url = https://github.com/g2p/wodan-fuzz-corpus.git
-[submodule "vendor/checkseum"]
-	path = vendor/checkseum
-	url = https://github.com/dinosaure/checkseum.git
 [submodule "vendor/ocaml-git"]
 	path = vendor/ocaml-git
 	url = https://github.com/mirage/ocaml-git.git

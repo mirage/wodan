@@ -16,7 +16,7 @@ depends: [
   "ocamlfind" {build}
   "dune"  {build}
   "cstruct"
-  "checkseum"
+  "checkseum" {>= "0.0.2"}
   "cohttp-lwt-unix"
   "mtime"
   "alcotest"
