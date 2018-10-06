@@ -16,6 +16,7 @@
 (*************************************************************************************)
 
 open Lwt.Infix
+open Mirage_block
 
 let unwrap_opt = function
 |None -> failwith "Expected Some"
@@ -132,6 +133,55 @@ module Client (B: Wodan.EXTBLOCK) = struct
         Logs.info (fun m -> m "IOPS %f" iops);
         Lwt.return_unit
       end]
+
+  let bench () =
+    (* Ignore original disk, build a ramdisk instead *)
+    (* A tempfile would also work, to match the Rust version *)
+    (* Constants matching Rust and the RocksDB benchmark suite *)
+    (* Next line obscures the create function *)
+    (*let module Ramdisk = Wodan.BlockCompat(Ramdisk) in*)
+    let module Ramdisk = struct
+      include Ramdisk
+      let discard _ _ _ = Lwt.return @@ Ok ()
+    end in
+    let module Stor = Wodan.Make(Ramdisk)(struct
+        include Wodan.StandardSuperblockParams
+        let key_size = 20
+        let block_size = 256*1024
+      end) in
+    let count = 10_000 in
+    let value_size = 400 in
+    let disk_size = 32*1024*1024 in
+    let init () =
+      let%lwt disk_res =
+        Ramdisk.create ~name:"bench" ~size_sectors:Int64.(div (of_int disk_size) 512L) ~sector_size:512 in
+      let disk = Rresult.R.get_ok disk_res in
+      let%lwt info = Ramdisk.get_info disk in
+      Lwt.return (disk, info)
+    in
+    Nocrypto_entropy_unix.initialize ();
+    let (disk, info) = Lwt_main.run @@ init () in
+    let data =
+      let rec gen count =
+        if count = 0 then []
+        else (Stor.key_of_cstruct @@ Nocrypto.Rng.generate Stor.P.key_size,
+              Stor.value_of_cstruct @@ Cstruct.create value_size)
+             ::(gen @@ pred count)
+      in gen count
+    in
+    let iter () =
+      let%lwt root, _gen =
+        Stor.prepare_io (Wodan.FormatEmptyDevice
+                           Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size))
+          disk Wodan.standard_mount_options
+      in
+      (* Sequential, otherwise expect bugs *)
+      Lwt_list.iter_s (fun (k, v) -> Stor.insert root k v) data
+    in
+    let _samples = Benchmark.latency1 10L ~name:"10k inserts" (
+        fun () -> Lwt_main.run (iter ()))
+        () in
+    ()
 
   let fuzz disk =
     Wodan.read_superblock_params (module B) disk >>= function sb_params ->

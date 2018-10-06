@@ -3,6 +3,6 @@
   (name wodanc)
   (public_name wodanc)
   (package wodan-unix)
-  (libraries base64 csv cmdliner checkseum.c wodan io-page-unix mirage-block-unix nocrypto.lwt afl-persistent)
+  (libraries base64 benchmark csv cmdliner checkseum.c wodan io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt afl-persistent)
   (preprocess (pps lwt_ppx))
   )

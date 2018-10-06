@@ -70,6 +70,11 @@ let exercise copts block_size =
     Unikernel1.exercise bl block_size
     >|= ignore)
 
+let bench _copts =
+  (* Unlike the other functions, don't run within Lwt
+     Also ignore the disk in copts to use our own ramdisk *)
+    Unikernel1.bench ()
+
 let fuzz copts =
 (* Persistent mode disabled, results are not stable,
    maybe due to CRC munging. *)
@@ -170,6 +175,16 @@ let exercise_cmd =
   Term.(const exercise $ copts_t $ block_size),
   Term.info "exercise" ~doc ~man
 
+let bench_cmd =
+  let doc = "Run a standardised micro-benchmark" in
+  let man =
+    [`S Manpage.s_description;
+     `P "Run a micro-benchmark that does bulk insertions without flushing.";
+    ]
+  in
+  Term.(const bench $ copts_t),
+  Term.info "bench" ~doc ~man
+
 let fuzz_cmd =
   let doc = "Fuzz a filesystem" in
   let exits = Term.default_exits in
@@ -204,7 +219,7 @@ let default_cmd =
   Term.info "wodan" ~doc ~sdocs ~exits
 
 let cmds = [restore_cmd; dump_cmd; format_cmd;
-            trim_cmd; exercise_cmd; fuzz_cmd; help_cmd]
+            trim_cmd; exercise_cmd; bench_cmd; fuzz_cmd; help_cmd]
 
 let () =
   Term.(exit @@ eval_choice default_cmd cmds)

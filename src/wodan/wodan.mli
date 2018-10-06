@@ -17,6 +17,8 @@ module type EXTBLOCK = sig
   val discard: t -> int64 -> int64 -> (unit, write_error) result io
 end
 
+module BlockCompat : functor (B: Mirage_types_lwt.BLOCK) -> EXTBLOCK
+
 type insertable =
   |InsValue of Cstruct.t
   |InsChild of int64 * int64 option (* loc, alloc_id *)

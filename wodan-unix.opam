@@ -17,8 +17,10 @@ depends: [
   "dune"  {build}
   "wodan"
   "afl-persistent"
+  "benchmark"
   "base64"
   "cmdliner"
+  "mirage-block-ramdisk"
 ]
 
 available: [ocaml-version >= "4.06.0"]

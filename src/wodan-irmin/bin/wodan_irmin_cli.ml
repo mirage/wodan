@@ -21,7 +21,7 @@ module RamBlockCon = struct
   include Ramdisk
   let connect name = Ramdisk.connect ~name
   let discard _ _ _  =
-    Lwt.return @@ Rresult.R.return ()
+    Lwt.return @@ Ok ()
 end
 
 module FileBlockCon = struct

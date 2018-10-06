@@ -44,6 +44,11 @@ module type EXTBLOCK = sig
   val discard: t -> int64 -> int64 -> (unit, write_error) result io
 end
 
+module BlockCompat (B: Mirage_types_lwt.BLOCK) : EXTBLOCK = struct
+  include B
+  let discard _ _ _ = Lwt.return @@ Ok ()
+end
+
 let sb_incompat_rdepth = 1l
 let sb_incompat_fsid = 2l
 let sb_incompat_value_count = 4l
