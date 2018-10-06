@@ -9,7 +9,7 @@ exception WriteError
 exception OutOfSpace
 exception NeedsFlush
 exception BadKey of string
-exception ValueTooLarge of Cstruct.t
+exception ValueTooLarge of string
 exception BadNodeType of int
 
 module type EXTBLOCK = sig
@@ -20,7 +20,7 @@ end
 module BlockCompat : functor (B: Mirage_types_lwt.BLOCK) -> EXTBLOCK
 
 type insertable =
-  |InsValue of Cstruct.t
+  |InsValue of string
   |InsChild of int64 * int64 option (* loc, alloc_id *)
 
 val sizeof_superblock : int

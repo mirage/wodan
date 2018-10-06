@@ -165,7 +165,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
       let rec gen count =
         if count = 0 then []
         else (Stor.key_of_cstruct @@ Nocrypto.Rng.generate Stor.P.key_size,
-              Stor.value_of_cstruct @@ Cstruct.create value_size)
+              Stor.value_of_string @@ String.make value_size '\x00')
              ::(gen @@ pred count)
       in gen count
     in
