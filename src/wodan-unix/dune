@@ -1,7 +1,7 @@
 
 (executable
   (name wodanc)
-  (public_name wodan)
+  (public_name wodanc)
   (package wodan-unix)
   (libraries base64 csv cmdliner checkseum.c wodan io-page-unix mirage-block-unix nocrypto.lwt afl-persistent)
   (preprocess (pps lwt_ppx))
