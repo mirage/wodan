@@ -1638,15 +1638,17 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
       && Crc32c.cstruct_valid cstr
     in
 
-    let rec _scan_range start =
-      (* Placeholder.
-         TODO _scan_range start end
-         TODO use _is_zero_data, type checks, crc checks, and loop *)
+    let rec _scan_range start end_opt =
+      if Some start = end_opt then
+        Lwt.fail @@ Failure "Didn't find a valid root"
+      else begin
+        let end_opt = if end_opt = None then Some start else end_opt in
       read start >>= fun () ->
       if is_valid_root () then
         Lwt.return (start, get_anynode_hdr_generation cstr)
       else
-        _scan_range @@ next_logical start
+        _scan_range (next_logical start) end_opt
+    end
     in
 
     let rec sfr_rec start0 end0 gen0 =
@@ -1654,12 +1656,12 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
       match _mid_range end0 start0 lsize with
       | None -> Lwt.return end0
       | Some start1 ->
-      let%lwt end1, gen1 = _scan_range start1 in
+      let%lwt end1, gen1 = _scan_range start1 None in
       if gen0 < gen1
       then sfr_rec start0 end1 gen1
       else sfr_rec start1 end0 gen0 in
 
-    let%lwt end0, gen0 = _scan_range start0
+    let%lwt end0, gen0 = _scan_range start0 None
     in sfr_rec start0 end0 gen0
 
   let prepare_io mode disk mount_options =
