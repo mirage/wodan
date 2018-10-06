@@ -4,7 +4,7 @@ authors: [ "Gabriel de Perthuis"]
 homepage: "https://github.com/g2p/wodan"
 dev-repo: "https://github.com/g2p/wodan.git"
 bug-reports: "https://github.com/g2p/wodan/issues"
-name: "wodan"
+name: "wodan-unix"
 version: "dev"
 
 
@@ -15,25 +15,10 @@ build: [
 depends: [
   "ocamlfind" {build}
   "dune"  {build}
-  "cstruct"
-  "checkseum" {>= "0.0.2"}
-  "ppx_cstruct"
-  "sexplib"
-  "mirage-types"
-  "mirage-logs"
-  "io-page"
-  "lru"
-  "logs"
-  "bitv"
-  "lwt" {>= "3.1.0"}
-  "lwt_ppx"
-  "io-page-unix"
-  "nocrypto"
-  "rresult"
-  "diet" {>= "0.2"}
-  "mirage-types-lwt" {>= "3.0.5"}
-  "stdcompat"
-  "csv" {>= "2.0"}
+  "wodan"
+  "afl-persistent"
+  "base64"
+  "cmdliner"
 ]
 
 available: [ocaml-version >= "4.06.0"]

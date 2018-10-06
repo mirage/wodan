@@ -4,7 +4,7 @@ authors: [ "Gabriel de Perthuis"]
 homepage: "https://github.com/g2p/wodan"
 dev-repo: "https://github.com/g2p/wodan.git"
 bug-reports: "https://github.com/g2p/wodan/issues"
-name: "wodan"
+name: "wodan-irmin"
 version: "dev"
 
 
@@ -15,8 +15,22 @@ build: [
 depends: [
   "ocamlfind" {build}
   "dune"  {build}
-  "cstruct"
+  "wodan"
   "checkseum" {>= "0.0.2"}
+  "cohttp-lwt-unix"
+  "mtime"
+  "alcotest"
+  "angstrom"
+  "cohttp-mirage"
+  "duff"
+  "encore"
+  "eqaf"
+  "fpath"
+  "irmin-watcher"
+  "mirage-conduit"
+  "optint"
+  "webmachine"
+  "yaml"
   "ppx_cstruct"
   "sexplib"
   "mirage-types"
@@ -28,10 +42,21 @@ depends: [
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
   "io-page-unix"
+  "afl-persistent"
+  "base64"
+  "cmdliner"
+  "mirage-block-unix"
   "nocrypto"
+  "mirage-block-ramdisk"
+  "irmin-unix"
+  "irmin-test"
+  "irmin-mem"
   "rresult"
+  "irmin"
+  "irmin-chunk"
   "diet" {>= "0.2"}
   "mirage-types-lwt" {>= "3.0.5"}
+  "ocaml-migrate-parsetree"
   "stdcompat"
   "csv" {>= "2.0"}
 ]

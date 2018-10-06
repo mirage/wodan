@@ -3,7 +3,7 @@ open Stdcompat
 (* include Btreemap *)
 
 (* a functional map, which we wrap in imperative style *)
-module FMap = Map_407.Make(String)
+module FMap = Wodan_map_407.Make(String)
 
 type 'a t = ('a FMap.t) ref
 exception AlreadyExists

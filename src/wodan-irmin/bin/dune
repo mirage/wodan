@@ -1,0 +1,7 @@
+(executable
+  (name wodan_irmin_cli)
+  (public_name wodan-irmin)
+  (package wodan-irmin)
+  (libraries checkseum.c digestif.c wodan-irmin io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix)
+  )
+

@@ -176,7 +176,7 @@ let unwrap_opt = function
   |None -> raise Not_found
   |Some v -> v
 
-module KeyedMap = Btreemap_front
+module KeyedMap = Wodan_btreemap
 (*module KeyedMap = Btreemap*)
 let keyedmap_find k map =
   unwrap_opt @@ KeyedMap.find_opt k map
@@ -517,7 +517,7 @@ let read_superblock_params (type disk) (module B: Mirage_types_lwt.BLOCK with ty
     then raise BadVersion
     else if get_superblock_incompat_flags sb <> sb_required_incompat
     then raise BadFlags
-    else if not @@ Crc32c.cstruct_valid sb
+    else if not @@ Wodan_crc32c.cstruct_valid sb
     then raise @@ BadCRC 0L
     else begin
       let block_size = Int32.to_int @@ get_superblock_block_size sb in
@@ -629,7 +629,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     B.read filesystem.disk Int64.(div (mul logical @@ of_int P.block_size) @@ of_int filesystem.other_sector_size) io_data >>= Lwt.wrap1 begin function
       |Result.Error _ -> raise ReadError
       |Result.Ok () ->
-          if not @@ Crc32c.cstruct_valid cstr
+          if not @@ Wodan_crc32c.cstruct_valid cstr
           then raise @@ BadCRC logical
           else cstr, io_data end
 
@@ -739,7 +739,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     set_anynode_hdr_generation entry.raw_node gen;
     set_anynode_hdr_value_count entry.raw_node @@ Int32.of_int
     @@ KeyedMap.length entry.logindex;
-    Crc32c.cstruct_reset entry.raw_node;
+    Wodan_crc32c.cstruct_reset entry.raw_node;
     let logical = next_logical_alloc_valid cache in
     Logs.debug (fun m -> m "_write_node logical:%Ld gen:%Ld" logical gen);
     begin match lookup_parent_link cache.lru entry with
@@ -1571,7 +1571,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
       then raise BadVersion
       else if get_superblock_incompat_flags sb <> sb_required_incompat
       then raise BadFlags
-      else if not @@ Crc32c.cstruct_valid sb
+      else if not @@ Wodan_crc32c.cstruct_valid sb
       then raise @@ BadCRC 0L
       else if get_superblock_block_size sb <> Int32.of_int P.block_size
       then begin
@@ -1601,7 +1601,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     set_superblock_first_block_written sb first_block_written;
     set_superblock_logical_size sb logical_size;
     set_superblock_fsid fsid 0 sb;
-    Crc32c.cstruct_reset sb;
+    Wodan_crc32c.cstruct_reset sb;
     B.write open_fs.filesystem.disk 0L block_io_fanned >>= function
       |Result.Ok () -> Lwt.return ()
       |Result.Error _ -> Lwt.fail WriteError
@@ -1635,7 +1635,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let is_valid_root () =
       get_anynode_hdr_nodetype cstr = 1
       && Cstruct.to_string @@ get_anynode_hdr_fsid cstr = fsid
-      && Crc32c.cstruct_valid cstr
+      && Wodan_crc32c.cstruct_valid cstr
     in
 
     let rec _scan_range start end_opt =

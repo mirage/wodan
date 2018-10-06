@@ -1,5 +1,0 @@
-
-(executables
-  (names irmin_cli)
-  (libraries checkseum.c digestif.c wodan io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix)
-  )

@@ -1,8 +1,6 @@
 /_build/
-/wodan.install
-/lib/.merlin
-.merlin
-_build/
-disk.img
-/afl/output/
 /_opam/
+/afl/output/
+/wodan*.install
+.merlin
+*.img

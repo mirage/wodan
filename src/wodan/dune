@@ -1,0 +1,9 @@
+(library
+  (name        wodan)
+  (public_name wodan)
+  (ocamlopt_flags :standard -O3)
+  (preprocess (pps lwt_ppx ppx_cstruct))
+  (libraries rresult stdcompat cstruct sexplib mirage-types mirage-logs lwt io-page lru logs nocrypto bitv mirage-types-lwt diet checkseum)
+  (wrapped false)
+  )
+

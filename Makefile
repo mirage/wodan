@@ -1,29 +1,30 @@
-
-.PHONY: build clean test install uninstall
-
-DUNE_TARGETS := cli/wodanc.exe examples/irmin_cli.exe
+OPAMS := wodan.opam wodan-irmin.opam wodan-unix.opam
+LOCKED_OPAMS := $(patsubst %.opam, %.opam.locked, $(OPAMS))
 
 build:
-	dune build $(DUNE_TARGETS)
+	dune build
 
 deps:
 	git submodule update --init
 	opam install -y dune lwt_ppx opam-lock
-	dune external-lib-deps --missing $(DUNE_TARGETS)
+	dune external-lib-deps --missing
+
+%.opam.locked: %.opam
+	opam lock $^
+	# Workaround https://github.com/AltGr/opam-lock/issues/2
+	sed -i '/"ocaml"/d; /"seq"/d; /"wodan"/d; /"irmin"/d; /"irmin-chunk"/d; /"irmin-mem"/d;' $@
+	gawk -i inplace '/pin-depends/{exit}1' $@
 
 locked:
 	git submodule update --init
 	opam switch create --switch=.
-	opam install -y --deps-only --switch=. ./wodan.opam.locked
+	opam install -y --deps-only --switch=. $(patsubst %, ./%, $(LOCKED_OPAMS))
 
 locked-travis:
 	git submodule update --init
-	opam install -y --deps-only ./wodan.opam.locked
+	opam install -y --deps-only $(patsubst %, ./%, $(LOCKED_OPAMS))
 
-update-lock:
-	opam lock wodan.opam
-	# Workaround https://github.com/AltGr/opam-lock/issues/2
-	sed -i '/"ocaml"/d; /"seq"/d; /"irmin"/d; /"irmin-chunk"/d; /"irmin-mem"/d;' wodan.opam.locked
+update-lock: $(LOCKED_OPAMS)
 
 fuzz:
 	dune build cli/wodanc.exe
