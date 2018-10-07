@@ -1,0 +1,175 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Wodan: persistence for Mirage</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle
+
+# Wodan
+
+## Persistence for Mirage
+
+---
+# Goals and non-goals
+
+## Goals
+
+- Provide a toolkit
+- Tunable, efficient implementation
+- Integrity: fsck is not a separate utility, every loaded block has been checked
+- Resilience to flaky storage: checksumming
+- Give control to the upper layers
+- Portability: Unix and Unikernels
+- Be the base building block for Mirage persistence
+
+---
+# Goals and non-goals
+
+## Non-goals
+
+- No DWIM: you have to know what you want
+- Costly operations have to be called explicitly
+  - flushing, bulk discard never implied
+- No one-size-fits-all
+  - pick a block size that fits your underlying device
+  - pick a key size that fits your application (integers? SHA?)
+- No stable format: dump and restore if necessary
+- No POSIX compatibility: do one thing well
+
+---
+# What can you do with a key-value store?
+
+- Content-addressed storage (similar to Git or IPFS)
+- All the Irmin primitives
+- RO: read-only
+- AO: append-only — content-addressed, keys derived from values
+- RW: updateable — hashed key to payload
+- Also enumerable (list of keys, expected to be small) and watchable (notify)
+
+---
+# What can you do on top of RO/AO/RW?
+
+- The feature set of Irmin or Git
+- Distribution
+- Merging
+- Transactions
+- Sync
+
+---
+# Providing a block device
+
+Currently we extend the standard Mirage signature
+
+Stubs are fine, and provided.
+
+```ocaml
+(let) module Block = Wodan.BlockCompat(Block) (in)
+```
+
+---
+# Configuring the store
+
+```ocaml
+module Stor = Wodan.Make(Block)(struct
+  include Wodan.StandardSuperblockParams
+
+  let key_size = 20
+  let block_size = 256*1024
+end)
+```
+
+---
+# Opening the store
+
+```ocaml
+Stor.prepare_io
+  Wodan.OpenExistingDevice
+  block
+  Wodan.standard_mount_options
+>>= fun (store, gen) ->
+```
+
+---
+# Accessing the store
+
+```ocaml
+Store.lookup store key
+>>= function
+	|Some counter ->
+		let c = Int64.of_string
+			@@ Store.string_of_value counter in
+		let c = Int64.succ c in
+		Store.insert store key
+			@@ Store.value_of_string @@ Int64.to_string c
+		>>= fun () ->
+		Lwt.return c
+	| None ->
+		Store.insert store key @@ Store.value_of_string "1"
+		>>= fun () ->
+		Lwt.return 1L
+```
+
+Note: string <-> key and string <-> value conversions are actually free.
+
+---
+# Tips and tricks
+
+- Periodic flushing
+- Bulk loading, autoflush on ENOSPC
+- Setting a default value
+- Possible improvement: upserts
+
+---
+# Wodan-Irmin
+
+---
+# What’s next?
+
+- Upstreaming block extensions
+  - Discard, barriers
+- Performance work
+  - Compete with the Rust implementation
+- Correctness work
+  - Add checked addition and substraction (expose from the OCaml runtime)
+  - Better randomized testing
+  - Get fuzzing fast again
+  - Test multiple Lwt threads
+- Releasing
+  - core and unix first, then wodan-irmin when dependencies and interfaces have stabilized
+
+---
+# Go play!
+
+* https://github.com/g2p/wodan
+* https://github.com/mato/camel-service (counter-wodan unikernel)
+    </textarea>
+    <script src="https://remarkjs.com/downloads/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+    <style>
+      .remark-slide-content { font-size: 26px; }
+      .remark-slide-content h1 { font-size: 65px; }
+      .remark-slide-content h2 { font-size: 55px; }
+      .remark-code { font-size: 22px; }
+    </style>
+  </body>
+</html>
+
