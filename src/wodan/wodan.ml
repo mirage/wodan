@@ -1075,12 +1075,13 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           begin match prev_val_opt with
             |None ->
               (* Padded length *)
-              kd.value_end <- kd.value_end + len1
+              kd.value_end <- kd.value_end + len1;
+              KeyedMap.xadd key value kd.logdata_contents;
             |Some prev_val ->
               (* No need to pad lengths *)
-              kd.value_end <- kd.value_end - (String.length prev_val) + len
+              kd.value_end <- kd.value_end - (String.length prev_val) + len;
+              KeyedMap.update key value kd.logdata_contents;
           end;
-          KeyedMap.xadd key value kd.logdata_contents;
           ignore @@ _mark_dirty fs.node_cache alloc_id;
         |InsChild (loc, child_alloc_id_opt) ->
           let cstr = entry.raw_node in
