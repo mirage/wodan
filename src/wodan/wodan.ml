@@ -1533,6 +1533,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
       |Result.Error _ -> raise ReadError
       |Result.Ok () ->
           let sb = _sb_io block_io in
+          Logs.debug (fun m -> m "dbg %s" @@ Cstruct.debug sb);
       if copy_superblock_magic sb <> superblock_magic
       then raise BadMagic
       else if get_superblock_version sb <> superblock_version
@@ -1593,7 +1594,10 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     let read logical =
       B.read fs.disk Int64.(div (mul logical @@ of_int P.block_size) @@ of_int fs.other_sector_size) io_data >>= function
       |Result.Error _ -> Lwt.fail ReadError
-      |Result.Ok () -> Lwt.return () in
+      |Result.Ok () ->
+        List.iter (fun d ->
+            Logs.debug (fun m -> m "dbg %s" @@ Cstruct.debug d)) io_data;
+        Lwt.return () in
 
     let next_logical logical =
       let log1 = Int64.succ logical in
