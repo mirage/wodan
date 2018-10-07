@@ -18,7 +18,8 @@ module Dispatch (Store: Wodan.S) (S: HTTP) = struct
         Store.lookup store key >>= function 
             Some counter ->
               let c = Int64.of_string @@ Store.string_of_value counter in
-              Store.insert store key @@ Store.value_of_string @@ Int64.to_string @@ Int64.succ c >>= fun () ->
+              let c = Int64.succ c in
+              Store.insert store key @@ Store.value_of_string @@ Int64.to_string c >>= fun () ->
               Lwt.return c
             | None ->
               Store.insert store key @@ Store.value_of_string "1" >>= fun () ->
@@ -33,6 +34,7 @@ module Dispatch (Store: Wodan.S) (S: HTTP) = struct
       let headers = Cohttp.Header.init_with "Content-Type" "text/html"
       in
       next_camel store >>= fun counter ->
+      Store.flush store >>= fun _gen ->
       let body = Fmt.strf {html|<html>
 <body>
 <pre>
