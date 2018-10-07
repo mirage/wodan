@@ -3,16 +3,20 @@ git clone https://github.com/g2p/wodan
 
 in wodan/:
 
-    apply changes in wodan.patch
-    git submodule init
-    opam pin add diet.dev vendor/ocaml-diet
     opam pin add -k path wodan.dev .
+    opam pin add -k path wodan-unix.dev .
 
     edit $(opam config var prefix)/lib/wodan/META and:
-        remove all ctypes
-        add checkseum.ocaml
+        add checkseum.ocaml below checkseum
 
 to build the solo5 hvt unikernel:
+
+Add the following pins:
+
+opam pin add mirage-solo5.dev https://github.com/mato/mirage-solo5#fixes-for-wodan
+opam pin add mirage-block-solo5.dev https://github.com/mato/mirage-block-solo5#fixes-for-wodan
+
+Then:
 
 mirage configure -t hvt --http=80
 mirage build
@@ -28,7 +32,7 @@ to run:
 (once to format image)
     
     rm disk.img; touch disk.img ; fallocate -z -l $((256*1024*3)) disk.img
-    dune exec -- wodan/cli/wodanc.exe format disk.img; echo $?
+    wodanc format disk.img; echo $?
 
- ./solo5-hvt --net=tap100 --disk=disk.img  ./http.hvt --logs=\*:debug
+ ./solo5-hvt --net=tap100 --disk=disk.img  ./http.hvt --logs=wodan:debug
 
