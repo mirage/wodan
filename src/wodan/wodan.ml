@@ -1434,17 +1434,22 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     end
 
   let rec _lookup open_fs alloc_id key =
+    Logs.debug (fun m -> m "_lookup");
     match lru_get open_fs.node_cache.lru alloc_id with
-    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" alloc_id
+    |None ->
+      Logs.err (fun m -> m "Missing LRU entry for %Ld (lookup)" alloc_id);
+      failwith @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" alloc_id
     |Some entry ->
       match
         KeyedMap.find_opt key entry.logdata.logdata_contents
       with
         |Some va ->
-            Lwt.return_some va
+          (*Logs.debug (fun m -> m "Found");*)
+          if _is_value open_fs.filesystem va
+          then Lwt.return_some va
+          else Lwt.return_none
         |None ->
-            Logs.debug (fun m -> m "_lookup");
-            if not @@ _has_children entry then Lwt.return_none else
+          if not @@ _has_children entry then Lwt.return_none else
             let key1, offset = unwrap_opt @@ KeyedMap.find_first_opt key @@ Lazy.force entry.children in
             let%lwt child_alloc_id, _ce = _preload_child open_fs alloc_id entry key1 offset in
             _lookup open_fs child_alloc_id key
