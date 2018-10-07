@@ -27,9 +27,9 @@ locked-travis:
 update-lock: $(LOCKED_OPAMS)
 
 fuzz:
-	dune build cli/wodanc.exe
+	dune build src/wodan-unix/wodanc.exe
 	afl-fuzz -i afl/input -o afl/output -- \
-		_build/default/cli/wodanc.exe fuzz @@
+		_build/default/src/wodan-unix/wodanc.exe fuzz @@
 
 test:
 	dune runtest irmin-tests
