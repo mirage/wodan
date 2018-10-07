@@ -78,11 +78,11 @@ let bench _copts =
 let fuzz copts =
 (* Persistent mode disabled, results are not stable,
    maybe due to CRC munging. *)
-(*AflPersistent.run (fun () ->*)
+AflPersistent.run (fun () ->
   Lwt_main.run (
     Block.connect copts.disk
     >>= fun bl ->
-    Unikernel1.fuzz bl)
+    Unikernel1.fuzz bl))
 
 let help _copts man_format cmds topic = match topic with
 | None -> `Help (`Pager, None) (* help about the program. *)
