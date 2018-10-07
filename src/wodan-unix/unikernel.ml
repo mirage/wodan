@@ -134,7 +134,7 @@ module Client (B: Wodan.EXTBLOCK) = struct
         Lwt.return_unit
       end]
 
-  let bench () =
+  let bench0 count =
     (* Ignore original disk, build a ramdisk instead *)
     (* A tempfile would also work, to match the Rust version *)
     (* Constants matching Rust and the RocksDB benchmark suite *)
@@ -149,7 +149,6 @@ module Client (B: Wodan.EXTBLOCK) = struct
         let key_size = 20
         let block_size = 256*1024
       end) in
-    let count = 10_000 in
     let value_size = 400 in
     let disk_size = 32*1024*1024 in
     let init () =
@@ -178,10 +177,16 @@ module Client (B: Wodan.EXTBLOCK) = struct
       (* Sequential, otherwise expect bugs *)
       Lwt_list.iter_s (fun (k, v) -> Stor.insert root k v) data
     in
-    let _samples = Benchmark.latency1 10L ~name:"10k inserts" (
+    let _samples = Benchmark.latency1 10L ~name:(Printf.sprintf "%d inserts" count) (
         fun () -> Lwt_main.run (iter ()))
         () in
     ()
+
+  let bench () =
+    begin
+      bench0 10_000;
+      (*bench0 30_000;*)
+    end
 
   let fuzz disk =
     Wodan.read_superblock_params (module B) disk >>= function sb_params ->
