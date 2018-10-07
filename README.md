@@ -7,6 +7,29 @@ It provides a key-value store as well as an Irmin backend.
 
 [![Build Status](https://travis-ci.org/g2p/wodan.svg?branch=master)](https://travis-ci.org/g2p/wodan)
 
+## Status
+
+Wodan works, but still needs more hardening and more testing in
+concurrent environments.
+
+The store it provides is usable for basic tasks, but Wodan itself
+doesn't provide ways to serialize complex objects or deal with
+non-fixed size keys or values larger than 64k.  You are expected
+to layer a higher-level store such as Irmin on top of it for such
+amenities.
+
+To get the best performance out of Wodan, you are also expected
+to understand some of the tradeoffs involved in flushing data to
+disk and picking a block size.
+
+## Documentation
+
+Unikernel usage is best explained through an example.
+
+See
+https://github.com/mato/camel-service/tree/master/counter-wodan
+and the notes.txt file it contains for an overview.
+
 ## Paper
 
 This explains some of the design choices behind Wodan.
@@ -42,17 +65,31 @@ dependencies.
 ## CLI usage
 
 ```
-dune exec cli/wodanc.exe --help
+dune exec src/wodan-unix/wodanc.exe --help
+```
+
+If wodan-unix has been installed (or pinned) through Opam,
+you can simply type:
+
+```
+wodanc --help
 ```
 
 At the moment the CLI supports creating filesystems, dumping and
-restoring data into them.
+restoring data into them, plus some more specialised features
+explained below.
+
+### Micro-benchmarking
+
+```
+dune exec src/wodan-unix/wodanc.exe bench
+```
 
 ### Running tests
 
 ```
 make test
-dune exec cli/wodanc.exe exercise
+dune exec src/wodan-unix/wodanc.exe exercise
 ```
 
 ### Running American Fuzzy Lop (AFL)
