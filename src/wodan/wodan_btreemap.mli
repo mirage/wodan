@@ -7,6 +7,8 @@ val clear: 'a t -> unit
 val find_opt: string -> 'a t -> 'a option
 val mem: string -> 'a t -> bool
 val add: string -> 'a -> 'a t -> unit
+(* Map a single value through a function in place *)
+val map1: string -> ('a option -> 'a option) -> 'a t -> unit
 (* Like add, but a value must already exist *)
 val update: string -> 'a -> 'a t -> unit
 (* Like add, but a value cannot already exist *)

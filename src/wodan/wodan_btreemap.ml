@@ -15,6 +15,8 @@ let clear m = m := FMap.empty
 let find_opt k m = FMap.find_opt k !m
 let mem k m = FMap.mem k !m
 let add k v m = m := FMap.add k v !m
+let map1 k f m =
+  m := FMap.update k f !m
 let update k v m =
   m := FMap.update k (function Some _ -> Some v | None -> raise Not_found) !m
 let xadd k v m =
