@@ -1,9 +1,9 @@
 # Wodan
 
+[![Build Status](https://travis-ci.org/g2p/wodan.svg?branch=master)](https://travis-ci.org/g2p/wodan)
+
 Wodan is a flash friendly, safe and flexible
 filesystem library for Mirage OS.
-
-Currently the basic disk format is implemented.
 
 ## Paper
 
