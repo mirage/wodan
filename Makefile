@@ -10,6 +10,10 @@ deps:
 	opam install -y dune opam-lock lwt_ppx
 	dune external-lib-deps --missing @@default
 
+sync:
+	git submodule sync
+	git submodule update
+
 %.opam.locked: %.opam
 	opam lock $^
 	# Workaround https://github.com/AltGr/opam-lock/issues/2
