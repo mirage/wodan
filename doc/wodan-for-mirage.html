@@ -15,6 +15,7 @@
         font-weight: normal;
       }
       .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+      #source { width: 100vw; height: 100vh; }
     </style>
   </head>
   <body>
@@ -97,8 +98,7 @@ class: center, middle
 ---
 # Providing a block device
 
-Currently we extend the standard Mirage signature
-
+Currently we extend the standard Mirage signature.
 Stubs are fine, and provided.
 
 ```ocaml
@@ -256,7 +256,8 @@ let store_conf = Wodan_irmin.config ()
 let repo = KV.Repo.v store_conf
 (* use Irmin as you normally would *)
 ```
-<https://docs.mirage.io/irmin/Irmin/module-type-S/index.html>
+
+<https://docs.mirage.io/irmin/Irmin/module-type-S/>
 
 ---
 # What’s next?
