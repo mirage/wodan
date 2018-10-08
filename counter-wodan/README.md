@@ -1,5 +1,5 @@
 
-git clone https://github.com/g2p/wodan
+    git clone https://github.com/g2p/wodan
 
 in wodan/:
 
@@ -13,13 +13,13 @@ to build the solo5 hvt unikernel:
 
 Add the following pins:
 
-opam pin add mirage-solo5.dev git+https://github.com/mato/mirage-solo5#fixes-for-wodan
-opam pin add mirage-block-solo5.dev git+https://github.com/mato/mirage-block-solo5#fixes-for-wodan
+    opam pin add mirage-solo5.dev git+https://github.com/mato/mirage-solo5#fixes-for-wodan
+    opam pin add mirage-block-solo5.dev git+https://github.com/mato/mirage-block-solo5#fixes-for-wodan
 
 Then:
 
-mirage configure -t hvt --http=80
-mirage build
+    mirage configure -t hvt --http=80
+    mirage build
 
 to run:
 
@@ -34,5 +34,5 @@ to run:
     rm disk.img; touch disk.img ; fallocate -z -l $((256*1024*3)) disk.img
     wodanc format disk.img; echo $?
 
- ./solo5-hvt --net=tap100 --disk=disk.img  ./http.hvt --logs=wodan:debug
+    ./solo5-hvt --net=tap100 --disk=disk.img  ./http.hvt --logs=wodan:debug
 
