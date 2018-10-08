@@ -33,7 +33,7 @@ module Git_S = Irmin_unix.Git.Make
     (Irmin.Path.String_list)
     (Irmin.Branch.String)
 
-let git_config = Irmin_git.config ".git"
+let git_config = Irmin_git.config @@ Sys.getcwd ()
 
 module Wodan_sync = Irmin.Sync(Wodan_S)
 
