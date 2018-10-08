@@ -75,6 +75,13 @@ you can instead type:
 wodanc --help
 ```
 
+When developping, you may prefer to use the following for
+immediate feedback on any changes:
+
+```
+dune exec src/wodan-unix/wodanc.exe
+```
+
 At the moment the CLI supports creating filesystems, dumping and
 restoring data into them, plus some more specialised features
 explained below.
