@@ -20,8 +20,7 @@ open Irmin_test
 module BlockCon = struct
   include Ramdisk
   let connect name = Ramdisk.connect ~name
-  let discard _ _ _ =
-    Lwt.return @@ Ok ()
+  let discard _ _ _ = Lwt.return @@ Ok ()
 end
 
 
@@ -30,14 +29,6 @@ let store = (module
   Wodan_irmin.KV_chunked(BlockCon)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
 : Irmin_test.S)
 
-(*
-module Link = struct
-  include Wodan_irmin.Link(Irmin.Hash.SHA1)
-  let v () = v (Wodan_irmin.config ())
-end
-
-let link = (module Link: Test_link.S)
-*)
 let config = Wodan_irmin.config ~path:"disk.img" ~create:true ()
 
 let clean () =
