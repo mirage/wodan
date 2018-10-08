@@ -44,12 +44,24 @@ let run () =
   let%lwt git_master = Git_S.master git_repo in
   let remote = Irmin.remote_store (module Git_S) git_master in
   let%lwt wodan_master = Wodan_S.master wodan_repo in
-  let%lwt head_commit =
-    Wodan_sync.fetch_exn wodan_master remote in
-  let%lwt () = Wodan_S.Head.set wodan_master head_commit in
-  let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
-  let%lwt _gen = Wodan_S.DB.flush wodan_raw in
-  Lwt.return_unit
+  let%lwt git_heads = Git_S.Head.list git_repo in
+  begin
+    List.iter
+      (fun _commit ->
+         Logs.debug @@
+         (*fun m -> m "Found a head: %a" Git_S.Commit.pp _commit)*)
+         fun m -> m "Found a head")
+      git_heads;
+    begin if git_heads = [] then
+      Logs.debug @@ fun m -> m "Found no head";
+    end;
+    let%lwt head_commit =
+      Wodan_sync.fetch_exn wodan_master remote in
+    let%lwt () = Wodan_S.Head.set wodan_master head_commit in
+    let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
+    let%lwt _gen = Wodan_S.DB.flush wodan_raw in
+    Lwt.return_unit
+  end
 
 let () =
   Logs.set_reporter @@ Logs.format_reporter ();
