@@ -86,7 +86,6 @@ struct
     let tcp = `TCP http_port in
     let http =
       Http_log.info (fun f -> f "listening on %d/TCP" http_port);
-(*      let () = Logs.set_level (Some Logs.Debug); *)
       Store.prepare_io Wodan.OpenExistingDevice block Wodan.standard_mount_options
       >>= fun (store, _) ->
       Http_log.info (fun f -> f "store done");
