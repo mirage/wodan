@@ -49,6 +49,8 @@ class: center, middle
 - No stable format: dump and restore if necessary
 - No POSIX compatibility: do one thing well
 - No types, no text, just binary values
+  - Upsert types might be added, but so far this would be
+    premature optimisation
 
 ---
 # What we have
@@ -76,6 +78,20 @@ class: center, middle
 - An ecosystem building on top
 
 ---
+# What can you do with persistence?
+
+- On-demand, short-lived, self-sufficient unikernels
+  - Die when requests taper out, save runtime resources
+  - Resuscitate statefully
+- Faster startup
+  - No need to link data into the unikernel
+  - Defer/remove initialisation logic
+- More dynamic websites, user-contributed content, wikis
+- On the other hand, threats may persist themselves
+  - Provide read-only stores?
+    (should be at the hypervisor level)
+
+---
 # What can you do with a key-value store?
 
 - Content-addressed storage (similar to Git or IPFS)
@@ -99,7 +115,7 @@ class: center, middle
 # Providing a block device
 
 Currently we extend the standard Mirage signature.
-Stubs are fine, and provided.
+Stub implementations are fine, and provided.
 
 ```ocaml
 (let) module Block = Wodan.BlockCompat(Block) (in)
@@ -217,11 +233,15 @@ library depending on your needs.
 - Using generation numbers in distributed settings
 - Sparse allocation and discard
 - Fast scan vs full scan
+- Read-only hack: use the highest possible generation number
+to prevent flushes
 
 ---
 # Irmin with Wodan
 
 *This is not as ergonomic as we'd like, and subject to change*
+
+For tests or micro-benchmarking:
 
 ```ocaml
 module BlockCon = struct
