@@ -17,7 +17,8 @@ module type EXTBLOCK = sig
   val discard: t -> int64 -> int64 -> (unit, write_error) result io
 end
 
-module BlockCompat : functor (B: Mirage_types_lwt.BLOCK) -> EXTBLOCK
+module BlockCompat : functor (B: Mirage_types_lwt.BLOCK) ->
+  EXTBLOCK with type t = B.t
 
 type insertable =
   |InsValue of string
