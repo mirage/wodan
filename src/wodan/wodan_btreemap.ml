@@ -48,6 +48,11 @@ let find_last_opt k m = FMap.find_last_opt (fun k' -> String.compare k' k < 0) !
 let split_off_after k m =
   let m1, m2 = FMap.partition (fun k' _v -> String.compare k k' >= 0) !m in
   m := m1; ref m2
+let carve_inclusive_range start end_incl m =
+  let m1, m2 = FMap.partition (fun k _v ->
+      String.compare start k > 0
+      || String.compare k end_incl > 0) !m in
+  m := m1; ref m2
 let swap m1 m2 =
   let m = !m1 in
   m1 := !m2;

@@ -1276,18 +1276,13 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
             |None -> zero_key
           in
         (* which keys we will dispatch *)
-        let hit_list = ref [] in
-        KeyedMap.iter_inclusive_range
-          before_bsk_succ best_spill_key (
-          fun key va ->
-            hit_list := key::!hit_list;
-            _fast_insert fs child_alloc_id key (InsValue va) @@ Int64.succ depth;
-            entry.logdata.value_end <- entry.logdata.value_end - (P.key_size + sizeof_datalen + String.length va);
-        ) entry.logdata.logdata_contents;
-
-        List.iter (fun key ->
-            KeyedMap.remove key entry.logdata.logdata_contents;
-          ) !hit_list;
+        let carved_map = KeyedMap.carve_inclusive_range
+          before_bsk_succ best_spill_key entry.logdata.logdata_contents
+        in
+        entry.logdata.value_end <- entry.logdata.value_end - best_spill_score;
+        KeyedMap.iter (fun key va ->
+          _fast_insert fs child_alloc_id key (InsValue va) @@
+          Int64.succ depth) carved_map;
         end;
         _reserve_insert fs alloc_id space split_path depth
         end

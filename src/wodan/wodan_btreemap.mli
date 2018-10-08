@@ -17,6 +17,7 @@ val remove: string -> 'a t -> unit
 val iter: (string -> 'a -> unit) -> 'a t -> unit
 val iter_range: string -> string -> (string -> 'a -> unit) -> 'a t -> unit
 val iter_inclusive_range: string -> string -> (string -> 'a -> unit) -> 'a t -> unit
+val carve_inclusive_range: string -> string -> 'a t -> 'a t
 val fold: (string -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
 val exists: (string -> 'a -> bool) -> 'a t -> bool
 val min_binding: 'a t -> (string * 'a) option
