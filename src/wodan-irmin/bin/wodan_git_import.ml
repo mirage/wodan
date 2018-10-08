@@ -36,11 +36,7 @@ module Wodan_S = Wodan_git_S
 let wodan_config = Wodan_irmin.config
     ~path:"git-import.img" ~create:true ()
 
-module Git_S = Irmin_unix.Git.Make
-    (Irmin_git.Mem)
-    (Irmin.Contents.String)
-    (Irmin.Path.String_list)
-    (Irmin.Branch.String)
+module Git_S = Irmin_unix.Git.FS.KV(Irmin.Contents.String)
 
 let git_config = Irmin_git.config @@ Sys.getcwd ()
 
@@ -58,7 +54,7 @@ let run () =
   begin
     List.iter
       (fun _commit ->
-         Logs.debug @@
+         Logs.info @@
          (*fun m -> m "Found a head: %a" Git_S.Commit.pp _commit)*)
          fun m -> m "Found a head")
       git_heads;
@@ -75,7 +71,7 @@ let run () =
 
 let () =
   Logs.set_reporter @@ Logs.format_reporter ();
-  Logs.set_level @@ Some Logs.Debug;
+  Logs.set_level @@ Some Logs.Info;
   Logs.debug @@ fun m -> m "Pwd %s" @@ Sys.getcwd ();
   Lwt_main.run @@ run ()
 
