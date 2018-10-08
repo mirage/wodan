@@ -28,7 +28,7 @@ Unikernel usage is best explained through an example.
 
 See
 https://github.com/mato/camel-service/tree/master/counter-wodan
-and the notes.txt file it contains for an overview.
+and the README file it contains for an overview.
 
 ## Paper
 
