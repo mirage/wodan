@@ -141,7 +141,7 @@ infrequent flushing or SSDs with large erase blocks.
 rm wodan.img
 touch wodan.img
 fallocate -l16M -z wodan.img
-wodanc format wodan.img
+wodanc format [--key-size=20] [--block-size=262144] wodan.img
 ```
 
 Note: `fallocate -z` is `--zero-range`, blocks are reserved.

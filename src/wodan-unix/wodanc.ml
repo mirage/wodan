@@ -16,6 +16,7 @@
 (*************************************************************************************)
 
 open Lwt.Infix
+open Cmdliner (* Arg, Manpage, Term *)
 
 let _ = Printexc.record_backtrace true
 
@@ -44,13 +45,13 @@ let restore copts =
     >>= fun _nc ->
     Unikernel1.restore bl)
 
-let format copts =
+let format copts key_size block_size =
   Lwt_main.run (
     Block.connect copts.disk
     >>= fun bl ->
     Nocrypto_entropy_lwt.initialize ()
     >>= fun _nc ->
-    Unikernel1.format bl)
+    Unikernel1.format bl key_size block_size)
 
 let trim copts =
   Lwt_main.run (
@@ -88,16 +89,14 @@ let help _copts man_format cmds topic = match topic with
 | None -> `Help (`Pager, None) (* help about the program. *)
 | Some topic ->
     let topics = "topics" :: cmds in
-    let conv, _ = Cmdliner.Arg.enum (List.rev_map (fun s -> (s, s)) topics) in
+    let conv, _ = Arg.enum (List.rev_map (fun s -> (s, s)) topics) in
     match conv topic with
     | `Error e -> `Error (false, e)
     | `Ok t when t = "topics" -> List.iter print_endline topics; `Ok ()
     | `Ok t when List.mem t cmds -> `Help (man_format, Some t)
     | `Ok _t ->
         let page = (topic, 7, "", "", ""), [`S topic; `P "Placeholder";] in
-        `Ok (Cmdliner.Manpage.print man_format Format.std_formatter page)
-
-open Cmdliner
+        `Ok (Manpage.print man_format Format.std_formatter page)
 
 (* Options common to all commands *)
 
@@ -139,6 +138,14 @@ let restore_cmd =
   Term.info "restore" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let format_cmd =
+  let doc = "Use a key size of $(docv) bytes." in
+  let key_size = Arg.(
+      value & opt int Wodan.StandardSuperblockParams.key_size
+      & info ["key-size"] ~docv:"BYTES" ~doc) in
+  let doc = "Use a block size of $(docv) bytes." in
+  let block_size = Arg.(
+      value & opt int Wodan.StandardSuperblockParams.block_size
+      & info ["block-size"] ~docv:"BYTES" ~doc) in
   let doc = "Format a zeroed filesystem" in
   let exits = Term.default_exits in
   let man =
@@ -146,7 +153,7 @@ let format_cmd =
      `P "Format a filesystem that has been zeroed beforehand.";
   ]
   in
-  Term.(const format $ copts_t),
+  Term.(const format $ copts_t $ key_size $ block_size),
   Term.info "format" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let trim_cmd =

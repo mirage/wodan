@@ -28,8 +28,12 @@ module Client (B: Wodan.EXTBLOCK) = struct
     >>= function (Wodan.OPEN_RET ((module Stor), root, _gen)) ->
     Stor.fstrim root
 
-  let format disk =
-    let module Stor = Wodan.Make(B)(Wodan.StandardSuperblockParams) in
+  let format disk ks bs =
+    let module Stor = Wodan.Make(B)(struct
+        include Wodan.StandardSuperblockParams
+        let key_size = ks
+        let block_size = bs
+      end) in
     let%lwt info = B.get_info disk in
     let%lwt _root, _gen = Stor.prepare_io (Wodan.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardSuperblockParams.block_size)) disk Wodan.standard_mount_options in
@@ -78,8 +82,8 @@ module Client (B: Wodan.EXTBLOCK) = struct
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Stor.P.block_size)) disk Wodan.standard_mount_options in
     (
     let root = ref rootval in
-    let key = Stor.key_of_cstruct @@ Cstruct.of_string "abcdefghijklmnopqrst" in
-    let cval = Stor.value_of_cstruct @@ Cstruct.of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
+    let key = Stor.key_of_string "abcdefghijklmnopqrst" in
+    let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
     Stor.insert !root key cval >>= fun () ->
     Stor.flush !root >>= function gen1 ->
     Stor.lookup !root key >>= function cval1_opt ->
