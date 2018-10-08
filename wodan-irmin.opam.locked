@@ -158,7 +158,6 @@ depends: [
   "x509" {= "0.6.2"}
   "xenstore" {= "2.0.0"}
   "xenstore_transport" {= "1.0.0"}
-  "yaml" {= "0.2.1"}
   "zarith" {= "1.7"}
   "zarith-freestanding" {= "1.7"}
 ]
