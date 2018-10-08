@@ -76,12 +76,9 @@ module HTTP
     (Pclock: Mirage_types.PCLOCK) (Http: HTTP) (B: BLOCK) =
 struct
 
-  module B2 = struct
-    include B
-    let discard _ _ _ = Lwt.return (Rresult.R.return ())
-  end
+  module B = Wodan.BlockCompat(B)
 
-  module Store = Wodan.Make(B2)(Wodan.StandardSuperblockParams)
+  module Store = Wodan.Make(B)(Wodan.StandardSuperblockParams)
   module D = Dispatch(Store)(Http)
 
   let start _clock http block =
