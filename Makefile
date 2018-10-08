@@ -7,8 +7,8 @@ build:
 
 deps:
 	git submodule update --init
-	opam install -y dune lwt_ppx opam-lock
-	dune external-lib-deps --missing
+	opam install -y dune opam-lock lwt_ppx
+	dune external-lib-deps --missing @@default
 
 %.opam.locked: %.opam
 	opam lock $^
