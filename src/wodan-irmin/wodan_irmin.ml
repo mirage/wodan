@@ -487,6 +487,15 @@ module KV (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS) (C: Irmin.Contents.S)
   (Irmin.Branch.String)
   (Irmin.Hash.SHA1)
 
+module KV_git (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS)
+= struct
+  module DB = DB_BUILDER(BC)(PA)
+  module AO = Irmin_chunk.AO(AO_BUILDER(BC)(PA))
+  module RW = RW_BUILDER(BC)(PA)(Irmin.Hash.SHA1)
+  include Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String)
+  let flush = DB.flush
+end
+
 module KV_chunked (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS) (C: Irmin.Contents.S)
 = Make_chunked(BC)(PA)
   (Irmin.Metadata.None)

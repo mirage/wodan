@@ -16,13 +16,22 @@
 (*************************************************************************************)
 
 
-module Wodan_S = Wodan_irmin.KV_chunked
+module Wodan_nongit_S = Wodan_irmin.KV_chunked
     (struct
       include Block
       let connect name = Block.connect name
     end)
     (Wodan.StandardSuperblockParams)
     (Irmin.Contents.String)
+
+module Wodan_git_S = Wodan_irmin.KV_git
+    (struct
+      include Block
+      let connect name = Block.connect name
+    end)
+    (Wodan.StandardSuperblockParams)
+
+module Wodan_S = Wodan_git_S
 
 let wodan_config = Wodan_irmin.config
     ~path:"git-import.img" ~create:true ()
@@ -44,6 +53,7 @@ let run () =
   let%lwt git_master = Git_S.master git_repo in
   let remote = Irmin.remote_store (module Git_S) git_master in
   let%lwt wodan_master = Wodan_S.master wodan_repo in
+  let%lwt _git_head = Git_S.Head.get git_master in
   let%lwt git_heads = Git_S.Head.list git_repo in
   begin
     List.iter
@@ -66,5 +76,6 @@ let run () =
 let () =
   Logs.set_reporter @@ Logs.format_reporter ();
   Logs.set_level @@ Some Logs.Debug;
+  Logs.debug @@ fun m -> m "Pwd %s" @@ Sys.getcwd ();
   Lwt_main.run @@ run ()
 

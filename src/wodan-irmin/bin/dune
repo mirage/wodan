@@ -12,6 +12,6 @@
   (public_name wodan-git-import)
   (preprocess (pps lwt_ppx))
   (package wodan-irmin)
-  (libraries checkseum.c digestif.c wodan-irmin io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix)
+  (libraries checkseum.c digestif.c wodan-irmin io-page-unix mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix irmin-git)
   )
 
