@@ -73,21 +73,32 @@ module Dispatch (Store: Wodan.S) (S: HTTP) = struct
 end
 
 module HTTP
-    (Pclock: Mirage_types.PCLOCK) (Http: HTTP) (B: BLOCK) =
-struct
+    (Time: Mirage_types_lwt.TIME)
+    (Pclock: Mirage_types.PCLOCK)
+    (Http: HTTP)
+    (B: BLOCK)
+= struct
 
   module B = Wodan.BlockCompat(B)
 
   module Store = Wodan.Make(B)(Wodan.StandardSuperblockParams)
   module D = Dispatch(Store)(Http)
 
-  let start _clock http block =
+  let rec periodic_flush store =
+    Time.sleep_ns 30_000_000_000L
+    >>= fun () ->
+    Store.flush store
+    >>= fun _gen ->
+    periodic_flush store
+
+  let start _time _clock http block =
     let http_port = Key_gen.http_port () in
     let tcp = `TCP http_port in
     let http =
       Http_log.info (fun f -> f "listening on %d/TCP" http_port);
       Store.prepare_io Wodan.OpenExistingDevice block Wodan.standard_mount_options
       >>= fun (store, _) ->
+      Lwt.async (fun () -> periodic_flush store);
       Http_log.info (fun f -> f "store done");
       http tcp @@ D.serve (D.dispatcher store)
     in

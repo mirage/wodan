@@ -17,9 +17,9 @@ let main =
   let keys = List.map Key.abstract [ http_port ] in
   foreign
     ~packages ~keys
-    "Dispatch.HTTP" (pclock @-> http @-> block @-> job)
+    "Dispatch.HTTP" (time @-> pclock @-> http @-> block @-> job)
 
 let img = block_of_file "disk.img"
 
 let () =
-  register "http" [main $ default_posix_clock $ http_srv $ img]
+  register "http" [main $ default_time $ default_posix_clock $ http_srv $ img]
