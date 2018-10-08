@@ -38,7 +38,9 @@ let wodan_config = Wodan_irmin.config
 
 module Git_S = Irmin_unix.Git.FS.KV(Irmin.Contents.String)
 
-let git_config = Irmin_git.config @@ Sys.getcwd ()
+(*let git_config = Irmin_git.config @@ Sys.getcwd ()*)
+(* Use a repo that doesn't have submodules *)
+let git_config = Irmin_git.config Sys.argv.(1)
 
 module Wodan_sync = Irmin.Sync(Wodan_S)
 
