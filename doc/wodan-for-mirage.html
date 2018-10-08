@@ -51,6 +51,7 @@ class: center, middle
   - pick a key size that fits your application (integers? SHA?)
 - No stable format: dump and restore if necessary
 - No POSIX compatibility: do one thing well
+- No types, no text, just binary values
 
 ---
 # What can you do with a key-value store?
@@ -94,6 +95,29 @@ module Stor = Wodan.Make(Block)(struct
 end)
 ```
 
+Note:
+These defaults have very large fanout, and are appropriate for
+infrequent flushing or SSDs with large erase blocks.
+
+---
+# Creating an image
+
+```bash
+touch wodan.img
+fallocate -l16M -z wodan.img
+wodanc format wodan.img
+```
+
+---
+# Dumping and loading data
+
+```bash
+wodanc dump wodan.img > dump.tsv
+wodanc restore wodan.img < dump.tsv
+```
+
+Format is TSV base64.
+
 ---
 # Opening the store
 
@@ -103,6 +127,14 @@ Stor.prepare_io
   block
   Wodan.standard_mount_options
 >>= fun (store, gen) ->
+```
+
+or
+
+```ocaml
+{Wodan.standard_mount_options with
+  fast_scan = fast_scan;
+  cache_size = cache_size}
 ```
 
 ---
@@ -125,18 +157,27 @@ Store.lookup store key
 		Lwt.return 1L
 ```
 
+<small>
 Note: string <-> key and string <-> value conversions are actually free.
+Serialisation isn't handled and should be provided by another
+library depending on your needs.
+</small>
 
 ---
 # Tips and tricks
 
 - Periodic flushing
 - Bulk loading, autoflush on ENOSPC
+  - Flushing can free space on the disk
 - Setting a default value
-- Possible improvement: upserts
+- Tombstones
+- Autoconfiguring module parameters from an existing superblock
+- Using generation numbers in distributed settings
 
 ---
 # Wodan-Irmin
+
+…
 
 ---
 # What’s next?
@@ -154,10 +195,31 @@ Note: string <-> key and string <-> value conversions are actually free.
   - core and unix first, then wodan-irmin when dependencies and interfaces have stabilized
 
 ---
+class: middle
+
 # Go play!
 
 * https://github.com/g2p/wodan
 * https://github.com/mato/camel-service (counter-wodan unikernel)
+
+Build on this, and remember to persist.
+
+---
+class: middle
+
+```
+                     ,,__
+           ..  ..   / o._)                   .---.
+          /--'/--\  \-'||        .----.    .'     '.
+         /        \_/ / |      .'      '..'         '-.
+       .'\  \__\  __.'.'     .'          ì-._
+         )\ |  )\ |      _.'
+        // \\ // \\
+       ||_  \\|_  \\_
+   mrf '--' '--'' '--'
+
+       12 camels served!
+```
     </textarea>
     <script src="https://remarkjs.com/downloads/remark-latest.min.js">
     </script>
