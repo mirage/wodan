@@ -26,22 +26,18 @@ class: center, middle
 ## Persistence for Mirage
 
 ---
-# Goals and non-goals
-
-## Goals
+# Goals
 
 - Provide a toolkit
 - Tunable, efficient implementation
 - Integrity: fsck is not a separate utility, every loaded block has been checked
-- Resilience to flaky storage: checksumming
+- Resilience to flaky storage
 - Give control to the upper layers
 - Portability: Unix and Unikernels
 - Be the base building block for Mirage persistence
 
 ---
-# Goals and non-goals
-
-## Non-goals
+# Non-goals
 
 - No DWIM: you have to know what you want
 - Costly operations have to be called explicitly
@@ -54,6 +50,31 @@ class: center, middle
 - No types, no text, just binary values
 
 ---
+# What we have
+
+- A good design
+  - Log-structured, flash-friendly, resilient
+  - Hitchhiker trees for write performance
+  - Novel logic removing the need for a fixed root block
+- Some level of integrity (checksums and copy on write)
+- Basic benchmarking
+- Two compatible implementations
+  - Both providing a library and CLI
+  - Both fuzzed, compatible test cases
+  - Competing on performance
+- An Irmin binding
+- Unix and Solo5 working
+
+---
+# What is missing
+
+- Easy installation (upstream work)
+- Backing device ordering guarantees (more upstream work)
+- Lots of hardening
+- Growable stores, use thin provisioning instead
+- An ecosystem building on top
+
+---
 # What can you do with a key-value store?
 
 - Content-addressed storage (similar to Git or IPFS)
@@ -61,7 +82,8 @@ class: center, middle
 - RO: read-only
 - AO: append-only — content-addressed, keys derived from values
 - RW: updateable — hashed key to payload
-- Also enumerable (list of keys, expected to be small) and watchable (notify)
+  - Also enumerable (list of keys, expected to be small) and watchable (notify)
+- A key-value server, memcached / redis style
 
 ---
 # What can you do on top of RO/AO/RW?
@@ -81,6 +103,19 @@ Stubs are fine, and provided.
 
 ```ocaml
 (let) module Block = Wodan.BlockCompat(Block) (in)
+```
+
+So far we need to add discard (only provided on Unix).
+
+For obtaining the block device, either get it through Mirage /
+Functoria, or use a specific backend.
+
+```ocaml
+Ramdisk.connect ~name:"wodan" >>= fun disk ->
+```
+
+```ocaml
+Mirage_block_unix.connect "wodan.img" >>= fun disk ->
 ```
 
 ---
@@ -103,10 +138,17 @@ infrequent flushing or SSDs with large erase blocks.
 # Creating an image
 
 ```bash
+rm wodan.img
 touch wodan.img
 fallocate -l16M -z wodan.img
 wodanc format wodan.img
 ```
+
+Note: `fallocate -z` is `--zero-range`, blocks are reserved.
+
+`fallocate` without flags (`ftruncate`) or with `-p` (for
+`--punch-hole`) may also be used; in which case space will
+be allocated on first use.
 
 ---
 # Dumping and loading data
@@ -129,7 +171,7 @@ Stor.prepare_io
 >>= fun (store, gen) ->
 ```
 
-or
+with non-default options:
 
 ```ocaml
 {Wodan.standard_mount_options with
@@ -173,11 +215,48 @@ library depending on your needs.
 - Tombstones
 - Autoconfiguring module parameters from an existing superblock
 - Using generation numbers in distributed settings
+- Sparse allocation and discard
+- Fast scan vs full scan
 
 ---
-# Wodan-Irmin
+# Irmin with Wodan
 
-…
+*This is not as ergonomic as we'd like, and subject to change*
+
+```ocaml
+module BlockCon = struct
+  include Ramdisk
+  let connect name = Ramdisk.connect ~name
+  let discard _ _ _ = Lwt.return @@ Ok ()
+end
+```
+
+For real persistence, use:
+
+```ocaml
+module BlockCon = Mirage_block_unix
+```
+
+---
+# Irmin with Wodan (cont.)
+
+```ocaml
+module KV = Wodan_irmin.KV_chunked
+  (BlockCon)
+  (Wodan.StandardSuperblockParams)
+  (Irmin.Contents.String)
+
+  (* Alternatively: Irmin.Contents.Json *)
+```
+
+Then access KV.AO, KV.RW, KV.flush, etc.
+
+```ocaml
+let store_conf = Wodan_irmin.config ()
+let repo = KV.Repo.v store_conf
+(* use Irmin as you normally would *)
+```
+<https://docs.mirage.io/irmin/Irmin/module-type-S/index.html>
 
 ---
 # What’s next?
@@ -229,7 +308,7 @@ class: middle
     <style>
       .remark-slide-content { font-size: 26px; }
       .remark-slide-content h1 { font-size: 65px; }
-      .remark-slide-content h2 { font-size: 55px; }
+      .remark-slide-content h2 { font-size: 45px; }
       .remark-code { font-size: 22px; }
     </style>
   </body>
