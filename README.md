@@ -47,7 +47,7 @@ An opam switch with flambda is recommended for performance reasons.
 opam switch 4.06.1+fp+flambda
 ```
 
-### Building the library
+### Building the library, CLI, and Irmin bindings
 
 ```
 make deps
@@ -65,11 +65,11 @@ dependencies.
 ## CLI usage
 
 ```
-dune exec src/wodan-unix/wodanc.exe --help
+./wodanc --help
 ```
 
 If wodan-unix has been installed (or pinned) through Opam,
-you can simply type:
+you can instead type:
 
 ```
 wodanc --help
@@ -82,14 +82,14 @@ explained below.
 ### Micro-benchmarking
 
 ```
-dune exec src/wodan-unix/wodanc.exe bench
+./wodanc bench
 ```
 
 ### Running tests
 
 ```
 make test
-dune exec src/wodan-unix/wodanc.exe exercise
+./wodanc exercise
 ```
 
 ### Running American Fuzzy Lop (AFL)
