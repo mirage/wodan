@@ -295,6 +295,9 @@ module Wodan_Git_KV = Wodan_irmin.KV_git(DB)
 let run () =
   let%lwt wodan_repo = Wodan_Git_KV.Repo.v store_conf in
   let%lwt wodan_master = Wodan_Git_KV.master wodan_repo in
+  let%lwt contents = Wodan_Git_KV.get wodan_master ["README.md"] in
+  let body = Irmin.Type.to_string Wodan_Git_KV.contents_t contents in
+  Logs.debug (fun m -> m "Body %s" body);
   Lwt.return_unit
 ```
 
