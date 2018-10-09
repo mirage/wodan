@@ -963,7 +963,6 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     if sm <> expect_sm then if expect_sm then failwith "logical address appeared out of thin air" else failwith "logical address referenced twice";
     if not expect_sm then begin
       bitv_set64 cache.space_map logical true;
-      Logs.debug (fun m -> m "Decreasing free_count to update space map");
       cache.free_count <- int64_pred_nowrap cache.free_count
     end
 
