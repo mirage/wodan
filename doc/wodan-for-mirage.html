@@ -241,13 +241,13 @@ to prevent flushes
 ---
 # Irmin with Wodan
 
-*This is not as ergonomic as we'd like, and subject to change*
+<small>*This is not as ergonomic as we'd like, and subject to change*</small>
 
 For tests or micro-benchmarking:
 
 ```ocaml
 module BlockCon = struct
-  include Ramdisk
+  include Ramdisk (* from mirage-block-ramdisk *)
   let connect name = Ramdisk.connect ~name
   let discard _ _ _ = Lwt.return @@ Ok ()
 end
@@ -256,18 +256,23 @@ end
 For real persistence, use:
 
 ```ocaml
-module BlockCon = Mirage_block_unix
+module BlockCon = struct
+  include Block (* from mirage-block-unix *)
+  let connect name = Block.connect name
+end
 ```
 
 ---
 # Irmin with Wodan (cont.)
 
 ```ocaml
-module KV = Wodan_irmin.KV_chunked
-  (BlockCon)
-  (Wodan.StandardSuperblockParams)
-  (Irmin.Contents.String)
+module DB = Wodan_irmin.DB_BUILDER
+    (BlockCon)(Wodan.StandardSuperblockParams)
+```
 
+```ocaml
+module KV = Wodan_irmin.KV_chunked
+  (DB)(Irmin.Contents.String)
   (* Alternatively: Irmin.Contents.Json *)
 ```
 
@@ -282,12 +287,23 @@ let repo = KV.Repo.v store_conf
 <https://docs.mirage.io/irmin/Irmin/module-type-S/>
 
 ---
+# Irmin with Wodan and Git
+
+```ocaml
+module Wodan_Git_KV = Wodan_irmin.KV_git(DB)
+
+let run () =
+  let%lwt wodan_repo = Wodan_Git_KV.Repo.v store_conf in
+  let%lwt wodan_master = Wodan_Git_KV.master wodan_repo in
+  Lwt.return_unit
+```
+
+
+---
 # What’s next?
 
 - Upstreaming block extensions
   - Discard, barriers
-- Performance work
-  - Compete with the Rust implementation
 - Correctness work
   - Add checked addition and substraction (expose from the OCaml runtime)
   - Better randomized testing
@@ -296,8 +312,16 @@ let repo = KV.Repo.v store_conf
   - Fix the CI which I broke for the demo
 - Usability
   - Better error reporting (currently allows DoS)
+
+---
+# What’s next (cont.)?
+
+- Streamline building unikernels with Opam
+  (dependency issues, Dune is fine)
 - Releasing
   - core and unix first, then wodan-irmin when dependencies and interfaces have stabilized
+- Performance work
+  - Compete with the Rust implementation
 
 ---
 class: middle
