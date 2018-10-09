@@ -465,10 +465,10 @@ module KV (DB: DB) (C: Irmin.Contents.S)
 module KV_git (DB: DB)
 = struct
   module DB = DB
-  module AO = AO_BUILDER(DB)
-  (*module AO = Irmin_chunk.AO(AO_BUILDER(BC)(PA))*)
+  (*module AO = AO_BUILDER(DB)*)
+  module AO = Irmin_chunk.AO(AO_BUILDER(DB))
   (*module LINK = LINK_BUILDER(BC)(PA)
-  module AO = Irmin_chunk.AO_stable(LINK)(AO_BUILDER(BC)(PA))*)
+  module AO = Irmin_chunk.AO_stable(LINK)(AO_BUILDER(DB))*)
   module RW = RW_BUILDER(DB)(Irmin.Hash.SHA1)
   include Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String)
   let flush = DB.flush
