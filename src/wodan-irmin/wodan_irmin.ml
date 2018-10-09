@@ -110,41 +110,33 @@ end = struct
 
   (* inspired from ocaml-git/src/git/fs.ml *)
 
-  type key = { config: X.config; w: X.t Weak.t }
+  type key = X.key
 
-  module WeakTbl = Weak.Make(struct
+  module Hashtab = Hashtbl.Make(struct
       type t = key
-      let hash t = Hashtbl.hash @@ X.key t.config
-      let equal t1 t2 = X.key t1.config = X.key t2.config
+      let hash = Hashtbl.hash
+      let equal = (=)
     end)
 
-  let cache = WeakTbl.create 10
-  let clear () = WeakTbl.clear cache
-  let dummy = Weak.create 0 (* only used to create a search key *)
+  let cache = Hashtab.create 10
+  let clear () = Hashtab.clear cache
 
   let find config =
     try
-      let search_key = { config; w = dummy } in
-      let cached_value = WeakTbl.find cache search_key in
-      match Weak.get cached_value.w 0 with
-      | None   -> WeakTbl.remove cache cached_value; None
-      | Some f -> Some (cached_value.config, f)
+      let cached_value = Hashtab.find cache @@ X.key config in
+      Some cached_value
     with Not_found ->
       None
 
   let add config t =
-    let w = Weak.create 1 in
-    Weak.set w 0 (Some t);
-    let v = { config; w } in
-    Gc.finalise (fun _ -> Weak.set v.w 0 None) t; (* keep v alive *)
-    WeakTbl.add cache v
+    Hashtab.add cache (X.key config) t
 
   let read config =
-    Logs.debug (fun m -> m "Weak cardinal %d" @@ WeakTbl.count cache);
+    Logs.debug (fun m -> m "Cache cardinal %d" @@ Hashtab.length cache);
     match find config with
     | Some v ->
       Logs.debug (fun m -> m "Cache found config");
-      Lwt.return v
+      Lwt.return (config, v)
     | None   ->
       Logs.debug (fun m -> m "Cache found no config");
       X.v config >|= fun v -> add config v; config, v
