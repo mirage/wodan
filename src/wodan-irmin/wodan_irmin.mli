@@ -2498,13 +2498,12 @@ module KV_git :
       type key = step list
       type metadata =
           Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).metadata
-      type contents =
-          Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).contents
+      type contents = step
       type node = Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).node
       type tree = [ `Contents of contents * metadata | `Node of node ]
       type commit =
           Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).commit
-      type branch = step
+      type branch = contents
       type slice = Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).slice
       type lca_error = [ `Max_depth_reached | `Too_many_lcas ]
       type ff_error =
@@ -2581,7 +2580,7 @@ module KV_git :
         end
       module Contents :
         sig
-          type t = contents
+          type t = branch
           val t : t Irmin.Type.ty
           val merge : t option Irmin.Merge.t
           module Hash :
@@ -2600,21 +2599,19 @@ module KV_git :
       module Tree :
         sig
           val empty : tree
-          val of_contents : ?metadata:metadata -> contents -> tree
+          val of_contents : ?metadata:metadata -> branch -> tree
           val of_node : node -> tree
           val kind : tree -> key -> [ `Contents | `Node ] option Lwt.t
           val list :
             tree -> key -> (branch * [ `Contents | `Node ]) list Lwt.t
           val diff :
-            tree ->
-            tree -> (key * (contents * metadata) Irmin.diff) list Lwt.t
+            tree -> tree -> (key * (branch * metadata) Irmin.diff) list Lwt.t
           val mem : tree -> key -> bool Lwt.t
-          val find_all : tree -> key -> (contents * metadata) option Lwt.t
-          val find : tree -> key -> contents option Lwt.t
-          val get_all : tree -> key -> (contents * metadata) Lwt.t
-          val get : tree -> key -> contents Lwt.t
-          val add :
-            tree -> key -> ?metadata:metadata -> contents -> tree Lwt.t
+          val find_all : tree -> key -> (branch * metadata) option Lwt.t
+          val find : tree -> key -> branch option Lwt.t
+          val get_all : tree -> key -> (branch * metadata) Lwt.t
+          val get : tree -> key -> branch Lwt.t
+          val add : tree -> key -> ?metadata:metadata -> branch -> tree Lwt.t
           val remove : tree -> key -> tree Lwt.t
           val mem_tree : tree -> key -> bool Lwt.t
           val find_tree : tree -> key -> tree option Lwt.t
@@ -2633,7 +2630,7 @@ module KV_git :
             ?uniq:uniq ->
             ?pre:'a node_fn ->
             ?post:'a node_fn ->
-            (key -> contents -> 'a -> 'a Lwt.t) -> tree -> 'a -> 'a Lwt.t
+            (key -> branch -> 'a -> 'a Lwt.t) -> tree -> 'a -> 'a Lwt.t
           type stats =
             Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).Tree.stats = {
             nodes : int;
@@ -2645,7 +2642,7 @@ module KV_git :
           val pp_stats : stats Fmt.t
           val stats : ?force:bool -> tree -> stats Lwt.t
           type concrete =
-              [ `Contents of contents * metadata
+              [ `Contents of branch * metadata
               | `Tree of (branch * concrete) list ]
           val of_concrete : concrete -> tree
           val to_concrete : tree -> concrete Lwt.t
@@ -2668,10 +2665,10 @@ module KV_git :
       val list : t -> key -> (branch * [ `Contents | `Node ]) list Lwt.t
       val mem : t -> key -> bool Lwt.t
       val mem_tree : t -> key -> bool Lwt.t
-      val find_all : t -> key -> (contents * metadata) option Lwt.t
-      val find : t -> key -> contents option Lwt.t
-      val get_all : t -> key -> (contents * metadata) Lwt.t
-      val get : t -> key -> contents Lwt.t
+      val find_all : t -> key -> (branch * metadata) option Lwt.t
+      val find : t -> key -> branch option Lwt.t
+      val get_all : t -> key -> (branch * metadata) Lwt.t
+      val get : t -> key -> branch Lwt.t
       val find_tree : t -> key -> tree option Lwt.t
       val get_tree : t -> key -> tree Lwt.t
       type 'a transaction =
@@ -2681,7 +2678,7 @@ module KV_git :
           info:Irmin.Info.f -> 'a -> unit Lwt.t
       val with_tree :
         t -> key -> (tree option -> tree option Lwt.t) transaction
-      val set : t -> key -> ?metadata:metadata -> contents transaction
+      val set : t -> key -> ?metadata:metadata -> branch transaction
       val set_tree : t -> key -> tree transaction
       val remove : t -> key transaction
       val clone : src:t -> dst:branch -> t Lwt.t
@@ -2829,7 +2826,7 @@ module KV_git :
       val step_t : branch Irmin.Type.ty
       val key_t : key Irmin.Type.ty
       val metadata_t : metadata Irmin.Type.ty
-      val contents_t : contents Irmin.Type.ty
+      val contents_t : branch Irmin.Type.ty
       val node_t : node Irmin.Type.ty
       val tree_t : tree Irmin.Type.ty
       val commit_t : repo -> commit Irmin.Type.ty
@@ -2845,7 +2842,7 @@ module KV_git :
               type t =
                   Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).Private.Contents.t
               type key = Contents.hash
-              type value = contents
+              type value = branch
               val mem : t -> key -> bool Lwt.t
               val find : t -> key -> value option Lwt.t
               val add : t -> value -> key Lwt.t
@@ -2853,7 +2850,7 @@ module KV_git :
               module Key :
                 sig
                   type t = key
-                  val digest : branch -> t
+                  val digest : value -> t
                   val hash : t -> int
                   val digest_size : int
                   val t : t Irmin.Type.ty
@@ -3131,7 +3128,7 @@ module KV_git :
           module Slice :
             sig
               type t = slice
-              type contents = Contents.key * Contents.value
+              type contents = Contents.key * branch
               type node = Node.key * Node.value
               type commit = Branch.value * Commit.value
               type value =
@@ -3159,7 +3156,7 @@ module KV_git :
               type t =
                   Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).Private.Sync.t
               type commit = Branch.value
-              type branch = step
+              type branch = contents
               type endpoint =
                   Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).Private.Sync.endpoint
               val fetch :

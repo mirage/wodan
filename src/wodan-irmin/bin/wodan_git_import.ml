@@ -50,14 +50,12 @@ let run () =
   Logs.info (fun m -> m "Loading Git repo");
   let%lwt git_repo = Git_S.Repo.v git_config in
   Logs.info (fun m -> m "Loading Git master");
-  let%lwt git_master = Git_S.master git_repo in
+  let%lwt git_branch = Git_S.of_branch git_repo Sys.argv.(2) in
   Logs.info (fun m -> m "Converting Git to a remote");
-  let remote = Irmin.remote_store (module Git_S) git_master in
+  let remote = Irmin.remote_store (module Git_S) git_branch in
   Logs.info (fun m -> m "Loading Wodan master");
   let%lwt wodan_master = Wodan_S.master wodan_repo in
-  Logs.info (fun m -> m "Loading Git heads");
-  let%lwt _git_head = Git_S.Head.get git_master in
-  let%lwt _git_heads = Git_S.Head.list git_repo in
+  Logs.info (fun m -> m "Fetching from Git into Wodan");
   let%lwt head_commit =
     Wodan_sync.fetch_exn wodan_master remote in
   let%lwt () = Wodan_S.Head.set wodan_master head_commit in
