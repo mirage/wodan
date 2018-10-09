@@ -10,8 +10,7 @@
   branch = fix-73
 [submodule "vendor/irmin"]
 	path = vendor/irmin
-	url = https://github.com/samoht/irmin.git
-  branch = git-submodule
+	url = https://github.com/mirage/irmin.git
 [submodule "vendor/decompress"]
 	path = vendor/decompress
 	url = https://github.com/mirage/decompress.git
