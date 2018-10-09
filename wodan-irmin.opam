@@ -19,6 +19,7 @@ depends: [
   "checkseum" {>= "0.0.2"}
   "cohttp-lwt-unix"
   "mtime"
+  "hex"
   "alcotest"
   "angstrom"
   "cohttp-mirage"
