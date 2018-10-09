@@ -1,0 +1,369 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Wodan: persistence for Mirage</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+      #source { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle
+
+# Wodan
+
+## Persistence for Mirage
+
+---
+# Goals
+
+- Provide a toolkit
+- Tunable, efficient implementation
+- Integrity: fsck is not a separate utility, every loaded block has been checked
+- Resilience to flaky storage
+- Give control to the upper layers
+- Portability: Unix and Unikernels
+- Be the base building block for Mirage persistence
+
+---
+# Non-goals
+
+- No DWIM: you have to know what you want
+- Costly operations have to be called explicitly
+  - flushing, bulk discard never implied
+- No one-size-fits-all
+  - pick a block size that fits your underlying device
+  - pick a key size that fits your application (integers? SHA?)
+- No stable format: dump and restore if necessary
+- No POSIX compatibility: do one thing well
+- No types, no text, just binary values
+  - Upsert types might be added, but so far this would be
+    premature optimisation
+- Compression, chunking, deduplication, etc, all punted to upper
+  layers
+
+---
+# What we have
+
+- A good design
+  - Log-structured, flash-friendly, resilient
+  - Hitchhiker trees for write performance
+  - Novel logic removing the need for a fixed root block
+- Some level of integrity (checksums and copy on write)
+- Basic benchmarking
+- Two compatible implementations
+  - Both providing a library and CLI
+  - Both fuzzed, compatible test cases
+  - Competing on performance
+- An Irmin binding
+- Unix and Solo5 working
+
+---
+# What is missing
+
+- Easy installation (upstream work)
+- Backing device ordering guarantees (more upstream work)
+- Lots of hardening
+- Growable stores, use thin provisioning instead
+- An ecosystem building on top
+
+---
+# What can you do with persistence?
+
+- On-demand, short-lived, self-sufficient unikernels
+  - Die when requests taper out, save runtime resources
+  - Resuscitate statefully
+- Faster startup
+  - No need to link data into the unikernel
+  - Defer/remove initialisation logic
+- More dynamic websites, user-contributed content, wikis
+- On the other hand, threats may persist themselves
+  - Provide read-only stores?
+    (should be at the hypervisor level)
+
+---
+# What can you do with a key-value store?
+
+- Content-addressed storage (similar to Git or IPFS)
+- All the Irmin primitives
+- RO: read-only
+- AO: append-only — content-addressed, keys derived from values
+- RW: updateable — hashed key to payload
+  - Also enumerable (list of keys, expected to be small) and watchable (notify)
+- A key-value server, memcached / redis style
+
+---
+# What can you do on top of RO/AO/RW?
+
+- The feature set of Irmin or Git
+- Distribution
+- Merging
+- Transactions
+- Sync
+
+---
+# Providing a block device
+
+Currently we extend the standard Mirage signature.
+Stub implementations are fine, and provided.
+
+```ocaml
+(let) module Block = Wodan.BlockCompat(Block) (in)
+```
+
+So far we need to add discard (only provided on Unix).
+
+For obtaining the block device, either get it through Mirage /
+Functoria, or use a specific backend.
+
+```ocaml
+Ramdisk.connect ~name:"wodan" >>= fun disk ->
+```
+
+```ocaml
+Mirage_block_unix.connect "wodan.img" >>= fun disk ->
+```
+
+---
+# Configuring the store
+
+```ocaml
+module Stor = Wodan.Make(Block)(struct
+  include Wodan.StandardSuperblockParams
+
+  let key_size = 20
+  let block_size = 256*1024
+end)
+```
+
+Note:
+These defaults have very large fanout, and are appropriate for
+infrequent flushing or SSDs with large erase blocks.
+
+---
+# Creating an image
+
+```bash
+rm wodan.img
+touch wodan.img
+fallocate -l16M -z wodan.img
+wodanc format [--key-size=20] [--block-size=262144] wodan.img
+```
+
+Note: `fallocate -z` is `--zero-range`, blocks are reserved.
+
+`fallocate` without flags (`ftruncate`) or with `-p` (for
+`--punch-hole`) may also be used; in which case space will
+be allocated on first use.
+
+---
+# Dumping and loading data
+
+```bash
+wodanc dump wodan.img > dump.tsv
+wodanc restore wodan.img < dump.tsv
+```
+
+Format is TSV base64.
+
+---
+# Opening the store
+
+```ocaml
+Stor.prepare_io
+  Wodan.OpenExistingDevice
+  block
+  Wodan.standard_mount_options
+>>= fun (store, gen) ->
+```
+
+with non-default options:
+
+```ocaml
+{Wodan.standard_mount_options with
+  fast_scan = fast_scan;
+  cache_size = cache_size}
+```
+
+---
+# Accessing the store
+
+```ocaml
+Store.lookup store key
+>>= function
+	|Some counter ->
+		let c = Int64.of_string
+			@@ Store.string_of_value counter in
+		let c = Int64.succ c in
+		Store.insert store key
+			@@ Store.value_of_string @@ Int64.to_string c
+		>>= fun () ->
+		Lwt.return c
+	| None ->
+		Store.insert store key @@ Store.value_of_string "1"
+		>>= fun () ->
+		Lwt.return 1L
+```
+
+<small>
+Note: string <-> key and string <-> value conversions are actually free.
+Serialisation isn't handled and should be provided by another
+library depending on your needs.
+</small>
+
+---
+# Tips and tricks
+
+- Periodic flushing
+- Bulk loading, autoflush on ENOSPC
+  - Flushing can free space on the disk
+- Setting a default value
+- Tombstones
+- Autoconfiguring module parameters from an existing superblock
+- Using generation numbers in distributed settings
+- Sparse allocation and discard
+- Fast scan vs full scan
+- Read-only hack: use the highest possible generation number
+to prevent flushes
+
+---
+# Irmin with Wodan
+
+<small>*This is not as ergonomic as we'd like, and subject to change*</small>
+
+For tests or micro-benchmarking:
+
+```ocaml
+module BlockCon = struct
+  include Ramdisk (* from mirage-block-ramdisk *)
+  let connect name = Ramdisk.connect ~name
+  let discard _ _ _ = Lwt.return @@ Ok ()
+end
+```
+
+For real persistence, use:
+
+```ocaml
+module BlockCon = struct
+  include Block (* from mirage-block-unix *)
+  let connect name = Block.connect name
+end
+```
+
+---
+# Irmin with Wodan (cont.)
+
+```ocaml
+module DB = Wodan_irmin.DB_BUILDER
+    (BlockCon)(Wodan.StandardSuperblockParams)
+```
+
+```ocaml
+module KV = Wodan_irmin.KV_chunked
+  (DB)(Irmin.Contents.String)
+  (* Alternatively: Irmin.Contents.Json *)
+```
+
+Then access KV.AO, KV.RW, KV.flush, etc.
+
+```ocaml
+let store_conf = Wodan_irmin.config ()
+let repo = KV.Repo.v store_conf
+(* use Irmin as you normally would *)
+```
+
+<https://docs.mirage.io/irmin/Irmin/module-type-S/>
+
+---
+# Irmin with Wodan and Git
+
+```ocaml
+module Wodan_Git_KV = Wodan_irmin.KV_git(DB)
+
+let run () =
+  let%lwt wodan_repo = Wodan_Git_KV.Repo.v store_conf in
+  let%lwt wodan_master = Wodan_Git_KV.master wodan_repo in
+  let%lwt contents = Wodan_Git_KV.get wodan_master ["README.md"] in
+  let body = Irmin.Type.to_string Wodan_Git_KV.contents_t contents in
+  Logs.debug (fun m -> m "Body %s" body);
+  Lwt.return_unit
+```
+
+
+---
+# What’s next?
+
+- Upstreaming block extensions
+  - Discard, barriers
+- Correctness work
+  - Add checked addition and substraction (expose from the OCaml runtime)
+  - Better randomized testing
+  - Get fuzzing fast again
+  - Test multiple Lwt threads
+  - Fix the CI which I broke for the demo
+- Usability
+  - Better error reporting (currently allows DoS)
+
+---
+# What’s next (cont.)?
+
+- Streamline building unikernels with Opam
+  (dependency issues, Dune is fine)
+- Releasing
+  - core and unix first, then wodan-irmin when dependencies and interfaces have stabilized
+- Performance work
+  - Compete with the Rust implementation
+
+---
+class: middle
+
+# Go play!
+
+* https://github.com/g2p/wodan
+* https://github.com/mato/camel-service (counter-wodan unikernel)
+
+Build on this, and remember to persist.
+
+---
+class: middle
+
+```
+                     ,,__
+           ..  ..   / o._)                   .---.
+          /--'/--\  \-'||        .----.    .'     '.
+         /        \_/ / |      .'      '..'         '-.
+       .'\  \__\  __.'.'     .'          ì-._
+         )\ |  )\ |      _.'
+        // \\ // \\
+       ||_  \\|_  \\_
+   mrf '--' '--'' '--'
+
+       12 camels served!
+```
+    </textarea>
+    <script src="https://remarkjs.com/downloads/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+    <style>
+      .remark-slide-content { font-size: 26px; }
+      .remark-slide-content h1 { font-size: 65px; }
+      .remark-slide-content h2 { font-size: 45px; }
+      .remark-code { font-size: 22px; }
+    </style>
+  </body>
+</html>
+
