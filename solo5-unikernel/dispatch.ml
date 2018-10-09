@@ -34,7 +34,6 @@ module Dispatch (Store: Wodan.S) (S: HTTP) = struct
       let headers = Cohttp.Header.init_with "Content-Type" "text/html"
       in
       next_camel store >>= fun counter ->
-      Store.flush store >>= fun _gen ->
       let body = Fmt.strf {html|<html>
 <body>
 <pre>
