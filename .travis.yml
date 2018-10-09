@@ -8,8 +8,9 @@ script:
   - make test
 matrix:
   include:
-  - env: OCAML_VERSION=4.06 PACKAGE=wodan
   - env: OCAML_VERSION=4.07 PACKAGE=wodan
+  - env: OCAML_VERSION=4.06 PACKAGE=wodan
+  - env: OCAML_VERSION=4.05 PACKAGE=wodan
   allow_failures:
   - env: OCAML_VERSION=4.05 PACKAGE=wodan
 os:
