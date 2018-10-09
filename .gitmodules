@@ -21,3 +21,6 @@
 [submodule "vendor/ocaml-yaml"]
 	path = vendor/ocaml-yaml
 	url = https://github.com/g2p/ocaml-yaml.git
+[submodule "vendor/eqaf"]
+	path = vendor/eqaf
+	url = https://github.com/dinosaure/eqaf.git
