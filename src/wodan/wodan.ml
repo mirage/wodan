@@ -741,7 +741,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     set_anynode_hdr_value_count entry.raw_node @@ Int32.of_int
     @@ KeyedMap.length entry.logdata.logdata_contents;
     let logical = next_logical_alloc_valid cache in
-    Logs.debug (fun m -> m "_write_node logical:%Ld gen:%Ld vlen:%d" logical gen @@ KeyedMap.length entry.logdata.logdata_contents);
+    Logs.debug (fun m -> m "_write_node logical:%Ld gen:%Ld vlen:%d value_end:%d" logical gen (KeyedMap.length entry.logdata.logdata_contents) entry.logdata.value_end);
     begin match lookup_parent_link cache.lru entry with
     |Some (parent_key, parent_entry, offset) ->
       assert (parent_key <> alloc_id);
