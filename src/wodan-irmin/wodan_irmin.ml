@@ -140,9 +140,14 @@ end = struct
     WeakTbl.add cache v
 
   let read config =
+    Logs.debug (fun m -> m "Weak cardinal %d" @@ WeakTbl.count cache);
     match find config with
-    | Some v -> Lwt.return v
-    | None   -> X.v config >|= fun v -> add config v; config, v
+    | Some v ->
+      Logs.debug (fun m -> m "Cache found config");
+      Lwt.return v
+    | None   ->
+      Logs.debug (fun m -> m "Cache found no config");
+      X.v config >|= fun v -> add config v; config, v
 end
 
 module DB_BUILDER
@@ -240,6 +245,8 @@ struct
     let raw_v = Irmin.Type.encode_bin V.t va in
     let k = K.digest raw_v in
     Log.debug (fun m -> m "AO.add -> %a (%d)" (Irmin.Type.pp K.t) k K.digest_size);
+    (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.digest_size (Irmin.Type.pp V.t) va);*)
+    (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.digest_size raw_v);*)
     let raw_k = Irmin.Type.encode_bin K.t k in
     let root = db_root db in
     may_autoflush db (fun () ->
