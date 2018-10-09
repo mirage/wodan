@@ -8,51 +8,16 @@ module type HTTP = Cohttp_lwt.S.Server
 let http_src = Logs.Src.create "http" ~doc:"HTTP server"
 module Http_log = (val Logs.src_log http_src : Logs.LOG)
 
-module Dispatch (Store: Wodan.S) (S: HTTP) = struct
-
-  let failf fmt = Fmt.kstrf Lwt.fail_with fmt
-
-  let key = Store.key_of_string "12345678901234567890"
-
-  let next_camel store =
-        Store.lookup store key >>= function 
-            Some counter ->
-              let c = Int64.of_string @@ Store.string_of_value counter in
-              let c = Int64.succ c in
-              Store.insert store key @@ Store.value_of_string @@ Int64.to_string c >>= fun () ->
-              Lwt.return c
-            | None ->
-              Store.insert store key @@ Store.value_of_string "1" >>= fun () ->
-              Lwt.return 1L
+module Dispatch (Wodan_Git_KV: Wodan_irmin.KV_git_S) (S: HTTP) = struct
 
   (* given a URI, find the appropriate file,
    * and construct a response with its contents. *)
-  let rec dispatcher store uri =
+  let rec dispatcher repo uri =
     match Uri.path uri with
-    | "" | "/" -> dispatcher store (Uri.with_path uri "index.html")
-    | "/index.html" ->
-      let headers = Cohttp.Header.init_with "Content-Type" "text/html"
-      in
-      next_camel store >>= fun counter ->
-      Store.flush store >>= fun _gen ->
-      let body = Fmt.strf {html|<html>
-<body>
-<pre>
-                     ,,__
-           ..  ..   / o._)                   .---.
-          /--'/--\  \-'||        .----.    .'     '.
-         /        \_/ / |      .'      '..'         '-.
-       .'\  \__\  __.'.'     .'          ì-._
-         )\ |  )\ |      _.'
-        // \\ // \\
-       ||_  \\|_  \\_
-   mrf '--' '--'' '--'
-
-       %Ld camels served!
-</pre>
-</body></html>
-|html} (counter)
-      in
+    | "" | "/" -> dispatcher repo (Uri.with_path uri "README.md")
+    | "/README.md" ->
+      let headers = Cohttp.Header.init_with "Content-Type" "text/plain" in
+      let body = "" in
       S.respond_string ~status:`OK ~body ~headers ()
     | _ ->
       S.respond_not_found ()
@@ -78,29 +43,26 @@ module HTTP
     (Http: HTTP)
     (B: BLOCK)
 = struct
+  module BlockCon = struct
+    include Block (* from mirage-block-solo5 *)
+    let discard _ _ _ = Lwt.return @@ Ok ()
+  end
 
-  module B = Wodan.BlockCompat(B)
-
-  module Store = Wodan.Make(B)(Wodan.StandardSuperblockParams)
-  module D = Dispatch(Store)(Http)
-
-  let rec periodic_flush store =
-    Time.sleep_ns 30_000_000_000L
-    >>= fun () ->
-    Store.flush store
-    >>= fun _gen ->
-    periodic_flush store
+  module DB = Wodan_irmin.DB_BUILDER
+    (BlockCon)(Wodan.StandardSuperblockParams)
+  module Wodan_Git_KV = Wodan_irmin.KV_git(DB)
+  module D = Dispatch(Wodan_Git_KV)(Http)
 
   let start _time _clock http block =
     let http_port = Key_gen.http_port () in
     let tcp = `TCP http_port in
+    let store_conf = Wodan_irmin.config ~path:"../git-import.img" () in
     let http =
       Http_log.info (fun f -> f "listening on %d/TCP" http_port);
-      Store.prepare_io Wodan.OpenExistingDevice block Wodan.standard_mount_options
-      >>= fun (store, _) ->
-      Lwt.async (fun () -> periodic_flush store);
-      Http_log.info (fun f -> f "store done");
-      http tcp @@ D.serve (D.dispatcher store)
+      Wodan_Git_KV.Repo.v store_conf
+      >>= fun repo ->
+      Http_log.info (fun f -> f "repo ready");
+      http tcp @@ D.serve (D.dispatcher repo)
     in
     Lwt.join [ http ]
 
