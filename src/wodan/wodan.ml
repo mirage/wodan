@@ -125,10 +125,18 @@ let sizeof_datalen = 2
 
 let sizeof_logical = 8
 
-let rec make_fanned_io_list size cstr =
-  if Cstruct.len cstr = 0 then []
-  else let head, rest = Cstruct.split cstr size in
-  head::make_fanned_io_list size rest
+let make_fanned_io_list size cstr =
+  let r = ref [] in
+  let l = Cstruct.len cstr in
+  let rec iter off =
+    if off = 0 then ()
+    else begin
+      let off = off - size in
+      r := (Cstruct.sub cstr off size)::!r;
+      iter off
+    end in
+  iter l;
+  !r
 
 let _sb_io block_io =
   Cstruct.sub block_io 0 sizeof_superblock
