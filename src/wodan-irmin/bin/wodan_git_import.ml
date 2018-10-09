@@ -57,24 +57,13 @@ let run () =
   let%lwt wodan_master = Wodan_S.master wodan_repo in
   Logs.info (fun m -> m "Loading Git heads");
   let%lwt _git_head = Git_S.Head.get git_master in
-  let%lwt git_heads = Git_S.Head.list git_repo in
-  begin
-    List.iter
-      (fun _commit ->
-         Logs.info @@
-         (*fun m -> m "Found a head: %a" Git_S.Commit.pp _commit)*)
-         fun m -> m "Found a head")
-      git_heads;
-    begin if git_heads = [] then
-      Logs.info @@ fun m -> m "Found no head";
-    end;
-    let%lwt head_commit =
-      Wodan_sync.fetch_exn wodan_master remote in
-    let%lwt () = Wodan_S.Head.set wodan_master head_commit in
-    let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
-    let%lwt _gen = Wodan_S.DB.flush wodan_raw in
-    Lwt.return_unit
-  end
+  let%lwt _git_heads = Git_S.Head.list git_repo in
+  let%lwt head_commit =
+    Wodan_sync.fetch_exn wodan_master remote in
+  let%lwt () = Wodan_S.Head.set wodan_master head_commit in
+  let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
+  let%lwt _gen = Wodan_S.DB.flush wodan_raw in
+  Lwt.return_unit
 
 let () =
   Logs.set_reporter @@ Logs.format_reporter ();
