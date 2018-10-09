@@ -51,6 +51,8 @@ class: center, middle
 - No types, no text, just binary values
   - Upsert types might be added, but so far this would be
     premature optimisation
+- Compression, chunking, deduplication, etc, all punted to upper
+  layers
 
 ---
 # What we have
@@ -291,6 +293,9 @@ let repo = KV.Repo.v store_conf
   - Better randomized testing
   - Get fuzzing fast again
   - Test multiple Lwt threads
+  - Fix the CI which I broke for the demo
+- Usability
+  - Better error reporting (currently allows DoS)
 - Releasing
   - core and unix first, then wodan-irmin when dependencies and interfaces have stabilized
 
