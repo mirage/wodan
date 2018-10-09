@@ -132,13 +132,10 @@ end = struct
     Hashtab.add cache (X.key config) t
 
   let read config =
-    Logs.debug (fun m -> m "Cache cardinal %d" @@ Hashtab.length cache);
     match find config with
     | Some v ->
-      Logs.debug (fun m -> m "Cache found config");
       Lwt.return (config, v)
     | None   ->
-      Logs.debug (fun m -> m "Cache found no config");
       X.v config >|= fun v -> add config v; config, v
 end
 
@@ -480,3 +477,4 @@ module KV_chunked (DB: DB) (C: Irmin.Contents.S)
   (Irmin.Path.String_list)
   (Irmin.Branch.String)
   (Irmin.Hash.SHA1)
+
