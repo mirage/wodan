@@ -409,7 +409,7 @@ module Make :
             sig
               type t = Irmin.Make(AO)(RW)(M)(C)(P)(B)(H).History.E.t
               val compare : t -> t -> int
-              type vertex = vertex
+              type vertex
               val src : t -> vertex
               val dst : t -> vertex
               type label = Irmin.Make(AO)(RW)(M)(C)(P)(B)(H).History.E.label
@@ -482,7 +482,7 @@ module Make :
       module Key :
         sig
           type t = key
-          type step = step
+          type step
           val empty : t
           val v : step list -> t
           val is_empty : t -> bool
@@ -551,7 +551,7 @@ module Make :
               module Path :
                 sig
                   type t = key
-                  type step = step
+                  type step
                   val empty : t
                   val v : step list -> t
                   val is_empty : t -> bool
@@ -1178,7 +1178,7 @@ module Make_chunked :
             sig
               type t = Irmin.Make(AO)(RW)(M)(C)(P)(B)(H).History.E.t
               val compare : t -> t -> int
-              type vertex = vertex
+              type vertex
               val src : t -> vertex
               val dst : t -> vertex
               type label = Irmin.Make(AO)(RW)(M)(C)(P)(B)(H).History.E.label
@@ -1251,7 +1251,7 @@ module Make_chunked :
       module Key :
         sig
           type t = key
-          type step = step
+          type step
           val empty : t
           val v : step list -> t
           val is_empty : t -> bool
@@ -1320,7 +1320,7 @@ module Make_chunked :
               module Path :
                 sig
                   type t = key
-                  type step = step
+                  type step
                   val empty : t
                   val v : step list -> t
                   val is_empty : t -> bool
@@ -1956,7 +1956,7 @@ module KV :
               type t =
                   Irmin.Make(AO)(RW)(Irmin.Metadata.None)(C)(Irmin.Path.String_list)(Irmin.Branch.String)(Irmin.Hash.SHA1).History.E.t
               val compare : t -> t -> int
-              type vertex = vertex
+              type vertex
               val src : t -> vertex
               val dst : t -> vertex
               type label =
@@ -2030,7 +2030,7 @@ module KV :
       module Key :
         sig
           type t = key
-          type step = step
+          type step
           val empty : t
           val v : step list -> t
           val is_empty : t -> bool
@@ -2101,7 +2101,7 @@ module KV :
               module Path :
                 sig
                   type t = key
-                  type step = step
+                  type step
                   val empty : t
                   val v : step list -> t
                   val is_empty : t -> bool
@@ -2413,56 +2413,7 @@ module KV :
 module type KV_git_S =
     sig
       module DB :
-        sig
-          module Stor :
-            sig
-              type key = DB.Stor.key
-              type value = DB.Stor.value
-              type disk = DB.Stor.disk
-              type root = DB.Stor.root
-              module Key :
-                sig
-                  type t = key
-                  val equal : t -> t -> bool
-                  val hash : t -> int
-                  val compare : t -> t -> int
-                end
-              module P : sig val block_size : int val key_size : int end
-              val key_of_cstruct : Cstruct.t -> key
-              val key_of_string : string -> key
-              val cstruct_of_key : key -> Cstruct.t
-              val string_of_key : key -> string
-              val value_of_cstruct : Cstruct.t -> value
-              val value_of_string : string -> value
-              val value_equal : value -> value -> bool
-              val cstruct_of_value : value -> Cstruct.t
-              val string_of_value : value -> string
-              val next_key : key -> key
-              val is_tombstone : root -> value -> bool
-              val insert : root -> key -> value -> unit Lwt.t
-              val lookup : root -> key -> value option Lwt.t
-              val mem : root -> key -> bool Lwt.t
-              val flush : root -> int64 Lwt.t
-              val fstrim : root -> int64 Lwt.t
-              val live_trim : root -> int64 Lwt.t
-              val log_statistics : root -> unit
-              val search_range :
-                root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
-              val iter : root -> (key -> value -> unit) -> unit Lwt.t
-              val prepare_io :
-                Wodan.deviceOpenMode ->
-                disk -> Wodan.mount_options -> (root * int64) Lwt.t
-            end
-          type t = DB.t
-          val db_root : t -> Stor.root
-          val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-          val make :
-            path:string ->
-            create:bool ->
-            mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
-          val v : Irmin.config -> t Lwt.t
-          val flush : t -> int64 Lwt.t
-        end
+        DB
       module AO :
         functor (K : Irmin.Hash.S) (V : Irmin.Type.S) ->
           sig
@@ -2741,7 +2692,7 @@ module type KV_git_S =
               type t =
                   Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String).History.E.t
               val compare : t -> t -> int
-              type vertex = vertex
+              type vertex
               val src : t -> vertex
               val dst : t -> vertex
               type label =
@@ -2815,7 +2766,7 @@ module type KV_git_S =
       module Key :
         sig
           type t = key
-          type step = step
+          type step
           val empty : t
           val v : step list -> t
           val is_empty : t -> bool
@@ -2886,7 +2837,7 @@ module type KV_git_S =
               module Path :
                 sig
                   type t = key
-                  type step = step
+                  type step
                   val empty : t
                   val v : step list -> t
                   val is_empty : t -> bool
@@ -3530,7 +3481,7 @@ module KV_chunked :
               type t =
                   Irmin.Make(AO)(RW)(Irmin.Metadata.None)(C)(Irmin.Path.String_list)(Irmin.Branch.String)(Irmin.Hash.SHA1).History.E.t
               val compare : t -> t -> int
-              type vertex = vertex
+              type vertex
               val src : t -> vertex
               val dst : t -> vertex
               type label =
@@ -3604,7 +3555,7 @@ module KV_chunked :
       module Key :
         sig
           type t = key
-          type step = step
+          type step
           val empty : t
           val v : step list -> t
           val is_empty : t -> bool
@@ -3675,7 +3626,7 @@ module KV_chunked :
               module Path :
                 sig
                   type t = key
-                  type step = step
+                  type step
                   val empty : t
                   val v : step list -> t
                   val is_empty : t -> bool
