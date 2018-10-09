@@ -8,7 +8,16 @@ module type HTTP = Cohttp_lwt.S.Server
 let http_src = Logs.Src.create "http" ~doc:"HTTP server"
 module Http_log = (val Logs.src_log http_src : Logs.LOG)
 
-module Dispatch (Wodan_Git_KV: Wodan_irmin.KV_git_S) (S: HTTP) = struct
+module BlockCon = struct
+  include Block (* from mirage-block-solo5 *)
+  let discard _ _ _ = Lwt.return @@ Ok ()
+end
+
+module DB = Wodan_irmin.DB_BUILDER
+  (BlockCon)(Wodan.StandardSuperblockParams)
+module Wodan_Git_KV = Wodan_irmin.KV_git(DB)
+
+module Dispatch (S: HTTP) = struct
 
   (* given a URI, find the appropriate file,
    * and construct a response with its contents. *)
@@ -43,20 +52,13 @@ module HTTP
     (Http: HTTP)
     (B: BLOCK)
 = struct
-  module BlockCon = struct
-    include Block (* from mirage-block-solo5 *)
-    let discard _ _ _ = Lwt.return @@ Ok ()
-  end
 
-  module DB = Wodan_irmin.DB_BUILDER
-    (BlockCon)(Wodan.StandardSuperblockParams)
-  module Wodan_Git_KV = Wodan_irmin.KV_git(DB)
-  module D = Dispatch(Wodan_Git_KV)(Http)
+  module D = Dispatch(Http)
 
   let start _time _clock http block =
     let http_port = Key_gen.http_port () in
     let tcp = `TCP http_port in
-    let store_conf = Wodan_irmin.config ~path:"../git-import.img" () in
+    let store_conf = Wodan_irmin.config ~path:"../git-import.img" ~create:false () in
     let http =
       Http_log.info (fun f -> f "listening on %d/TCP" http_port);
       Wodan_Git_KV.Repo.v store_conf
