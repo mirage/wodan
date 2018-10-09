@@ -23,10 +23,11 @@ module BlockCon = struct
   let discard _ _ _ = Lwt.return @@ Ok ()
 end
 
+module DB_ram = Wodan_irmin.DB_BUILDER(BlockCon)(Wodan.StandardSuperblockParams)
 
 (*let store = store (module Wodan_irmin.Make) (module Irmin.Metadata.None)*)
 let store = (module
-  Wodan_irmin.KV_chunked(BlockCon)(Wodan.StandardSuperblockParams)(Irmin.Contents.String)
+  Wodan_irmin.KV_chunked(DB_ram)(Irmin.Contents.String)
 : Irmin_test.S)
 
 let config = Wodan_irmin.config ~path:"disk.img" ~create:true ()

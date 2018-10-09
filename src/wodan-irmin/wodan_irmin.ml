@@ -201,18 +201,17 @@ struct
 end
 
 module RO_BUILDER
-: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Type.S) -> sig
+: functor (DB: DB) -> functor (K: Irmin.Hash.S) -> functor (V: Irmin.Type.S) -> sig
   include Irmin.RO
   include DB with type t := t
 end with type key = K.t and type value = V.t
-= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS)
-(K: Irmin.Hash.S) (V: Irmin.Type.S) ->
+= functor (DB: DB) (K: Irmin.Hash.S) (V: Irmin.Type.S) ->
 struct
-  include DB_BUILDER(B)(P)
+  include DB
   type key = K.t
   type value = V.t
 
-  let () = assert (K.digest_size = P.key_size)
+  let () = assert (K.digest_size = DB.Stor.P.key_size)
 
   let find db k =
     Log.debug (fun l -> l "find %a" (Irmin.Type.pp K.t) k);
@@ -227,11 +226,10 @@ struct
 end
 
 module AO_BUILDER
-: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.AO_MAKER
-= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS)
-(K: Irmin.Hash.S) (V: Irmin.Type.S) ->
+: DB -> Irmin.AO_MAKER
+= functor (DB: DB) (K: Irmin.Hash.S) (V: Irmin.Type.S) ->
 struct
-  include RO_BUILDER(B)(P)(K)(V)
+  include RO_BUILDER(DB)(K)(V)
 
   let add db va =
     let raw_v = Irmin.Type.encode_bin V.t va in
@@ -248,10 +246,10 @@ struct
 end
 
 module LINK_BUILDER
-: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.LINK_MAKER
-= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS) (K: Irmin.Hash.S) ->
+: DB -> Irmin.LINK_MAKER
+= functor (DB: DB) (K: Irmin.Hash.S) ->
 struct
-  include RO_BUILDER(B)(P)(K)(K)
+  include RO_BUILDER(DB)(K)(K)
 
   let add db k va =
     let raw_v = Irmin.Type.encode_bin K.t va in
@@ -264,11 +262,11 @@ struct
 end
 
 module RW_BUILDER
-: BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> Irmin.Hash.S -> Irmin.RW_MAKER
-= functor (B: BLOCK_CON) (P: Wodan.SUPERBLOCK_PARAMS) (H: Irmin.Hash.S)
+: DB -> Irmin.Hash.S -> Irmin.RW_MAKER
+= functor (DB: DB) (H: Irmin.Hash.S)
 (K: Irmin.Type.S) (V: Irmin.Type.S) ->
 struct
-  module BUILDER = DB_BUILDER(B)(P)
+  module BUILDER = DB
   module Stor = BUILDER.Stor
 
   module KeyHashtbl = Hashtbl.Make(Stor.Key)
@@ -286,7 +284,7 @@ struct
   let db_root db = BUILDER.db_root db.nested
   let may_autoflush db = BUILDER.may_autoflush db.nested
 
-  let () = assert (H.digest_size = P.key_size)
+  let () = assert (H.digest_size = Stor.P.key_size)
 
   type key = K.t
   type value = V.t
@@ -303,8 +301,7 @@ struct
     Stor.key_of_string @@ (Irmin.Type.encode_bin H.t) @@ H.digest
     @@ Stor.string_of_value va
 
-  let make ~path ~create ~mount_options ~list_key ~autoflush =
-    BUILDER.make ~path ~create ~mount_options ~autoflush >>= function db ->
+  let make ~list_key ~db =
       let root = BUILDER.db_root db in
       let magic_key = Bytes.make H.digest_size '\000' in
       Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
@@ -330,32 +327,11 @@ struct
         end >>= fun () ->
           Lwt.return db
 
-  module Cache = Cache(struct
-      type nonrec t = t
-      type config = string * bool * Wodan.mount_options * string * bool
-      type key = string
-      let key (path, _, _, _, _) = path
-      let v (path, create, mount_options, list_key, autoflush) =
-        make ~path ~create ~mount_options ~list_key ~autoflush
-    end)
-
   let v config =
     let module C = Irmin.Private.Conf in
-    let path = C.get config Conf.path in
-    let create = C.get config Conf.create in
-    let cache_size = C.get config Conf.cache_size in
-    let fast_scan = C.get config Conf.fast_scan in
     let list_key = C.get config Conf.list_key in
-    let autoflush = C.get config Conf.autoflush in
-    let mount_options = {standard_mount_options with fast_scan = fast_scan; cache_size = cache_size} in
-    Cache.read (path, create, mount_options, list_key, autoflush) >|=
-    fun ((_, create', mount_options', list_key', autoflush'), t) ->
-    assert (create=create');
-    assert (mount_options=mount_options');
-    assert (list_key=list_key');
-    assert (autoflush=autoflush');
-    t
-
+    DB.v config >>= fun nested ->
+    make ~db:nested ~list_key
 
   let set_and_list db ik iv ikv =
     assert (not @@ Stor.is_tombstone (db_root db) iv);
@@ -449,57 +425,57 @@ struct
     Stor.mem (db_root db) @@ key_to_inner_key k
 end
 
-module Make (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS)
+module Make (DB: DB)
 (M: Irmin.Metadata.S)
 (C: Irmin.Contents.S)
 (P: Irmin.Path.S)
 (B: Irmin.Branch.S)
 (H: Irmin.Hash.S)
 = struct
-  module DB = DB_BUILDER(BC)(PA)
-  module AO = AO_BUILDER(BC)(PA)
-  module RW = RW_BUILDER(BC)(PA)(H)
+  module DB = DB
+  module AO = AO_BUILDER(DB)
+  module RW = RW_BUILDER(DB)(H)
   include Irmin.Make(AO)(RW)(M)(C)(P)(B)(H)
   let flush = DB.flush
 end
 
 (* XXX Stable chunking or not? *)
-module Make_chunked (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS)
+module Make_chunked (DB: DB)
 (M: Irmin.Metadata.S)
 (C: Irmin.Contents.S)
 (P: Irmin.Path.S)
 (B: Irmin.Branch.S)
 (H: Irmin.Hash.S)
 = struct
-  module DB = DB_BUILDER(BC)(PA)
-  module AO = Irmin_chunk.AO(AO_BUILDER(BC)(PA))
-  module RW = RW_BUILDER(BC)(PA)(H)
+  module AO = Irmin_chunk.AO(AO_BUILDER(DB))
+  module DB = DB
+  module RW = RW_BUILDER(DB)(H)
   include Irmin.Make(AO)(RW)(M)(C)(P)(B)(H)
   let flush = DB.flush
 end
 
-module KV (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS) (C: Irmin.Contents.S)
-= Make(BC)(PA)
+module KV (DB: DB) (C: Irmin.Contents.S)
+= Make(DB)
   (Irmin.Metadata.None)
   (C)
   (Irmin.Path.String_list)
   (Irmin.Branch.String)
   (Irmin.Hash.SHA1)
 
-module KV_git (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS)
+module KV_git (DB: DB)
 = struct
-  module DB = DB_BUILDER(BC)(PA)
-  (*module AO = AO_BUILDER(BC)(PA)*)
+  module DB = DB
+  module AO = AO_BUILDER(DB)
   (*module AO = Irmin_chunk.AO(AO_BUILDER(BC)(PA))*)
-  module LINK = LINK_BUILDER(BC)(PA)
-  module AO = Irmin_chunk.AO_stable(LINK)(AO_BUILDER(BC)(PA))
-  module RW = RW_BUILDER(BC)(PA)(Irmin.Hash.SHA1)
+  (*module LINK = LINK_BUILDER(BC)(PA)
+  module AO = Irmin_chunk.AO_stable(LINK)(AO_BUILDER(BC)(PA))*)
+  module RW = RW_BUILDER(DB)(Irmin.Hash.SHA1)
   include Irmin_git.Generic_KV(AO)(RW)(Irmin.Contents.String)
   let flush = DB.flush
 end
 
-module KV_chunked (BC: BLOCK_CON) (PA: Wodan.SUPERBLOCK_PARAMS) (C: Irmin.Contents.S)
-= Make_chunked(BC)(PA)
+module KV_chunked (DB: DB) (C: Irmin.Contents.S)
+= Make_chunked(DB)
   (Irmin.Metadata.None)
   (C)
   (Irmin.Path.String_list)

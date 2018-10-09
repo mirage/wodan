@@ -15,21 +15,18 @@
 (*                                                                                   *)
 (*************************************************************************************)
 
+module Wodan_DB = Wodan_irmin.DB_BUILDER
+    (struct
+      include Block
+      let connect name = Block.connect name
+    end)
+    (Wodan.StandardSuperblockParams)
 
 module Wodan_nongit_S = Wodan_irmin.KV_chunked
-    (struct
-      include Block
-      let connect name = Block.connect name
-    end)
-    (Wodan.StandardSuperblockParams)
+    (Wodan_DB)
     (Irmin.Contents.String)
 
-module Wodan_git_S = Wodan_irmin.KV_git
-    (struct
-      include Block
-      let connect name = Block.connect name
-    end)
-    (Wodan.StandardSuperblockParams)
+module Wodan_git_S = Wodan_irmin.KV_git(Wodan_DB)
 
 module Wodan_S = Wodan_git_S
 
