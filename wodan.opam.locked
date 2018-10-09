@@ -35,7 +35,6 @@ depends: [
   "cstruct-lwt" {= "3.2.1"}
   "csv" {= "2.1"}
   "diet" {= "0.2"}
-  "dune" {= "1.3.0"}
   "duration" {= "0.1.1"}
   "fmt" {= "0.8.5"}
   "gmp-freestanding" {= "6.1.2-1"}
@@ -72,7 +71,6 @@ depends: [
   "mirage-protocols" {= "1.4.0"}
   "mirage-protocols-lwt" {= "1.4.0"}
   "mirage-random" {= "1.1.0"}
-  "mirage-solo5" {= "0.4.0"}
   "mirage-stack" {= "1.3.0"}
   "mirage-stack-lwt" {= "1.3.0"}
   "mirage-time" {= "1.1.0"}
