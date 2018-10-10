@@ -105,38 +105,58 @@ module Cache (X: sig
     val key: config -> key
   end): sig
   val read : X.config -> (X.config * X.t) Lwt.t
-  val clear: unit -> unit
 end = struct
-
-  (* inspired from ocaml-git/src/git/fs.ml *)
-
   type key = X.key
 
-  module Hashtab = Hashtbl.Make(struct
-      type t = key
-      let hash = Hashtbl.hash
-      let equal = (=)
-    end)
+  module Key = struct
+    type t = key
+    let hash = Hashtbl.hash
+    let equal = (=)
+  end
 
-  let cache = Hashtab.create 10
-  let clear () = Hashtab.clear cache
+  (* Weak in the values *)
+  module ValueTab = Hashtbl.Make(Key)
+
+  module Value = struct
+    type t = X.t
+    let hash = Hashtbl.hash
+    let equal = (==)
+  end
+
+  (* Weak in the keys *)
+  module ConfigTab = Ephemeron.K1.Make(Value)
+
+  let value_cache = ValueTab.create 10
+  let config_cache = ConfigTab.create 10
 
   let find config =
+    Gc.full_major ();
+    let key = X.key config in
     try
-      let cached_value = Hashtab.find cache @@ X.key config in
-      Some cached_value
+      let weak_t = ValueTab.find value_cache key in
+      let opt_t = Weak.get weak_t 0 in
+      match opt_t with
+        None -> None
+      |Some t ->
+        let config' = ConfigTab.find config_cache t in
+        Some (config', t)
     with Not_found ->
       None
 
   let add config t =
-    Hashtab.add cache (X.key config) t
+    let weak_t = Weak.create 1 in
+    let key = X.key config in
+    Weak.set weak_t 0 @@ Some t;
+    Gc.finalise (fun _ -> ValueTab.remove value_cache key) t;
+    ValueTab.add value_cache key weak_t;
+    ConfigTab.add config_cache t config
 
   let read config =
     match find config with
     | Some v ->
-      Lwt.return (config, v)
+      Lwt.return v
     | None   ->
-      X.v config >|= fun v -> add config v; config, v
+      X.v config >|= fun t -> add config t; config, t
 end
 
 module DB_BUILDER
