@@ -6,13 +6,13 @@ build:
 	ln -Tsf _build/default/src/wodan-unix/wodanc.exe wodanc
 
 deps:
-	git submodule update --init
+	git submodule update --init --recursive
 	opam install -y dune opam-lock lwt_ppx
 	dune external-lib-deps --missing @@default
 
 sync:
-	git submodule sync
-	git submodule update
+	git submodule sync --recursive
+	git submodule update --init --recursive
 
 %.opam.locked: %.opam
 	opam lock $^
