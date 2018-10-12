@@ -7,7 +7,6 @@
 [submodule "vendor/digestif"]
 	path = vendor/digestif
 	url = https://github.com/mirage/digestif.git
-  branch = fix-73
 [submodule "vendor/irmin"]
 	path = vendor/irmin
 	url = https://github.com/mirage/irmin.git
