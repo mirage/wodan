@@ -1,4 +1,4 @@
-val src : Logs.src
+
 module Log : Logs.LOG
 val standard_mount_options : Wodan.mount_options
 module Conf :
@@ -42,26 +42,9 @@ module type DB =
     type t
     val db_root : t -> Stor.root
     val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-    val make :
-      path:string ->
-      create:bool ->
-      mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
     val v : Irmin.config -> t Lwt.t
     val flush : t -> int64 Lwt.t
   end
-module Cache :
-  functor
-    (X : sig
-           type config
-           type t
-           type key
-           val v : config -> t Lwt.t
-           val key : config -> key
-         end) ->
-    sig
-      val read : X.config -> (X.config * X.t) Lwt.t
-      val clear : unit -> unit
-    end
 module DB_BUILDER : BLOCK_CON -> Wodan.SUPERBLOCK_PARAMS -> DB
 module RO_BUILDER :
   functor (DB : DB) (K : Irmin.Hash.S) (V : Irmin.Type.S) ->
@@ -74,10 +57,6 @@ module RO_BUILDER :
       module Stor : Wodan.S
       val db_root : t -> Stor.root
       val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-      val make :
-        path:string ->
-        create:bool ->
-        mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
       val v : Irmin.config -> t Lwt.t
       val flush : t -> int64 Lwt.t
     end
@@ -132,10 +111,6 @@ module Make :
           type t = DB.t
           val db_root : t -> Stor.root
           val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-          val make :
-            path:string ->
-            create:bool ->
-            mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
           val v : Irmin.config -> t Lwt.t
           val flush : t -> int64 Lwt.t
         end
@@ -909,10 +884,6 @@ module Make_chunked :
           type t = DB.t
           val db_root : t -> Stor.root
           val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-          val make :
-            path:string ->
-            create:bool ->
-            mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
           val v : Irmin.config -> t Lwt.t
           val flush : t -> int64 Lwt.t
         end
@@ -1663,10 +1634,6 @@ module KV :
           type t = DB.t
           val db_root : t -> Stor.root
           val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-          val make :
-            path:string ->
-            create:bool ->
-            mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
           val v : Irmin.config -> t Lwt.t
           val flush : t -> int64 Lwt.t
         end
@@ -2448,10 +2415,6 @@ module KV_git :
           type t = DB.t
           val db_root : t -> Stor.root
           val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-          val make :
-            path:string ->
-            create:bool ->
-            mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
           val v : Irmin.config -> t Lwt.t
           val flush : t -> int64 Lwt.t
         end
@@ -3241,10 +3204,6 @@ module KV_chunked :
           type t = DB.t
           val db_root : t -> Stor.root
           val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-          val make :
-            path:string ->
-            create:bool ->
-            mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
           val v : Irmin.config -> t Lwt.t
           val flush : t -> int64 Lwt.t
         end

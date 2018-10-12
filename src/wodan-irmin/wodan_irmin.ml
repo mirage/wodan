@@ -92,7 +92,6 @@ module type DB = sig
   type t
   val db_root : t -> Stor.root
   val may_autoflush : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-  val make : path:string -> create:bool -> mount_options:Wodan.mount_options -> autoflush:bool -> t Lwt.t
   val v : Irmin.config -> t Lwt.t
   val flush : t -> int64 Lwt.t
 end
@@ -318,37 +317,49 @@ struct
     Stor.key_of_string @@ (Irmin.Type.encode_bin H.t) @@ H.digest
     @@ Stor.string_of_value va
 
-  let make ~list_key ~db =
-      let root = BUILDER.db_root db in
-      let magic_key = Bytes.make H.digest_size '\000' in
-      Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
-      let db = {
-        nested = db;
-        keydata = KeyHashtbl.create 10;
-        magic_key = Stor.key_of_string (Bytes.unsafe_to_string magic_key) ;
-        watches = W.v ();
-        lock = L.v ();
-      } in
-      begin try%lwt
+  let make ~list_key ~config =
+    let%lwt db = BUILDER.v config in
+    let root = BUILDER.db_root db in
+    let magic_key = Bytes.make H.digest_size '\000' in
+    Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
+    let db = {
+      nested = db;
+      keydata = KeyHashtbl.create 10;
+      magic_key = Stor.key_of_string (Bytes.unsafe_to_string magic_key) ;
+      watches = W.v ();
+      lock = L.v ();
+    } in
+    begin try%lwt
         while%lwt true do
           Stor.lookup root db.magic_key >>= function
-            |None -> Lwt.fail Exit
-            |Some va -> begin
-                let ik = inner_val_to_inner_key va in
-                KeyHashtbl.add db.keydata ik db.magic_key;
-                db.magic_key <- Stor.next_key db.magic_key;
-                Lwt.return_unit
+          |None -> Lwt.fail Exit
+          |Some va -> begin
+              let ik = inner_val_to_inner_key va in
+              KeyHashtbl.add db.keydata ik db.magic_key;
+              db.magic_key <- Stor.next_key db.magic_key;
+              Lwt.return_unit
             end
         done
       with Exit -> Lwt.return_unit
-        end >>= fun () ->
-          Lwt.return db
+    end >|= fun () -> db
+
+  module Cache = Cache(struct
+      type nonrec t = t
+      type config = string * string * Irmin.Private.Conf.t
+      type key = string
+      let key (path, _, _) = path
+      let v (_, list_key, config) =
+        make ~list_key ~config
+    end)
 
   let v config =
     let module C = Irmin.Private.Conf in
     let list_key = C.get config Conf.list_key in
-    DB.v config >>= fun nested ->
-    make ~db:nested ~list_key
+    let path = C.get config Conf.path in
+    Cache.read (path, list_key, config) >|=
+    fun ((_, list_key', _), t) ->
+    assert (list_key=list_key');
+    t
 
   let set_and_list db ik iv ikv =
     assert (not @@ Stor.is_tombstone (db_root db) iv);
