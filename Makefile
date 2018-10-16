@@ -17,7 +17,7 @@ sync:
 %.opam.locked: %.opam
 	opam lock $^
 	# Workaround https://github.com/AltGr/opam-lock/issues/2
-	sed -i '/{= "dev"}/d; /"ocaml"/d; /"ocaml-src"/d; /"ocaml-variants"/d; /"eqaf"/d; /"yaml"/d; /"seq"/d; /"wodan"/d; /"irmin"/d; /"irmin-chunk"/d; /"irmin-mem"/d;' $@
+	sed -i '/{= "dev"}/d; /"ocaml"/d; /"ocaml-src"/d; /"ocaml-variants"/d; /"mirage-block/d; /"eqaf"/d; /"yaml"/d; /"seq"/d; /"wodan"/d; /"irmin"/d; /"irmin-chunk"/d; /"irmin-mem"/d;' $@
 	gawk -i inplace '/pin-depends/{exit}1' $@
 
 locked:
