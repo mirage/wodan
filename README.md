@@ -41,7 +41,7 @@ This explains some of the design choices behind Wodan.
 
 ## Building, installing and running
 
-Wodan requires [Opam][opam], [Dune][dune], [Mirage 3][mirage],
+Wodan requires [Opam 2][opam], [Dune][dune], [Mirage 3][mirage],
 and [OCaml 4.06][ocaml].
 
 An opam switch with flambda is recommended for performance reasons.
