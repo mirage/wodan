@@ -491,6 +491,7 @@ module type S = sig
 
   val key_of_cstruct : Cstruct.t -> key
   val key_of_string : string -> key
+  val key_of_string_padded : string -> key
   val cstruct_of_key : key -> Cstruct.t
   val string_of_key : key -> string
   val value_of_cstruct : Cstruct.t -> value
@@ -562,6 +563,11 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     if String.length key <> P.key_size
     then raise @@ BadKey key
     else key
+
+  let key_of_string_padded key =
+    if String.length key > P.key_size
+    then raise @@ BadKey key
+    else key ^ (String.make (P.key_size - String.length key) '\000')
 
   let cstruct_of_key key =
     Cstruct.of_string key

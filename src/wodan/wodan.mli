@@ -70,6 +70,7 @@ module type S =
     module P : SUPERBLOCK_PARAMS
     val key_of_cstruct : Cstruct.t -> key
     val key_of_string : string -> key
+    val key_of_string_padded : string -> key
     val cstruct_of_key : key -> Cstruct.t
     val string_of_key : key -> string
     val value_of_cstruct : Cstruct.t -> value
