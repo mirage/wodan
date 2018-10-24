@@ -19,21 +19,7 @@ val config :
   ?list_key:string -> ?autoflush:bool -> unit -> Irmin.config
 module type BLOCK_CON =
   sig
-    type page_aligned_buffer = Cstruct.t
-    type error = private [> Mirage_block.error ]
-    val pp_error : error Fmt.t
-    type write_error = private
-        [> `Disconnected | `Is_read_only | `Unimplemented ]
-    val pp_write_error : write_error Fmt.t
-    type 'a io = 'a Lwt.t
-    type t
-    val disconnect : t -> unit io
-    val get_info : t -> Mirage_block.info io
-    val read :
-      t -> int64 -> page_aligned_buffer list -> (unit, error) result io
-    val write :
-      t -> int64 -> page_aligned_buffer list -> (unit, write_error) result io
-    val discard : t -> int64 -> int64 -> (unit, write_error) result io
+    include Wodan.EXTBLOCK
     val connect : string -> t io
   end
 module type DB =
