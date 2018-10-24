@@ -1153,17 +1153,16 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                 assert (KeyedMap.find_opt entry.highest_key parent_entry.children_alloc_ids = Some alloc_id);
           end;
       end;
-      (*let hdrsize = header_size entry.cached_node in
-      let cstr = entry.raw_node in
-      let rec scan_key off =
-        if off < hdrsize + redzone_size - sizeof_logical then failwith "child link data bleeding into start of node";
-        let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-        if log1 <> 0L then
-          scan_key (off - childlink_size)
-        else if redzone_size > sizeof_logical && not @@ is_zero_key @@ Cstruct.to_string @@ Cstruct.sub cstr (off + sizeof_logical - redzone_size) redzone_size then
-          begin Logs.err (fun m -> m "partial redzone"); fail := true end
-        in
-      scan_key (block_end - childlink_size);*)
+
+      let vend = ref @@ header_size entry.cached_node in
+      KeyedMap.iter (fun _k va ->
+        vend := !vend + P.key_size + sizeof_datalen + String.length va
+                ) entry.logdata.logdata_contents;
+      if !vend != entry.logdata.value_end then begin
+        Logs.err (fun m -> m "Inconsistent value_end %Ld" depth);
+        fail := true;
+      end;
+
       begin match entry.flush_info with
       |Some flush_info -> begin
           if KeyedMap.exists
