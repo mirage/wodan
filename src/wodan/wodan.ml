@@ -1317,7 +1317,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
             let cl2 = KeyedMap.split_off_after median children in
             let ca2 = KeyedMap.split_off_after median entry.children_alloc_ids in
             let fc2 = KeyedMap.split_off_after median di.flush_children in
-        let blit_cd_child offset centry =
+        let blit_cd_child k offset centry =
           let cstr0 = entry.raw_node in
           let cstr1 = centry.raw_node in
           let offset1 = centry.childlinks.childlinks_offset - childlink_size in
@@ -1325,12 +1325,14 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           Cstruct.blit cstr0 (Int64.to_int offset) cstr1 offset1 childlink_size;
           assert (Lazy.is_val centry.children);
           let key1 = Cstruct.to_string @@ Cstruct.sub cstr1 (Int64.to_int offset) P.key_size in
+          Logs.debug (fun m -> m "Blitting %S (%S) from offset %Ld" key1 k offset);
+          assert (k = key1);
           KeyedMap.xadd key1 (Int64.of_int offset1) (Lazy.force centry.children);
         in
         KeyedMap.iter (fun _k va -> entry1.logdata.value_end <- entry1.logdata.value_end + String.length va + P.key_size + sizeof_datalen) kc;
         KeyedMap.iter (fun _k va -> entry2.logdata.value_end <- entry2.logdata.value_end + String.length va + P.key_size + sizeof_datalen) kc2;
-        KeyedMap.iter (fun _k off -> blit_cd_child off entry1) children;
-        KeyedMap.iter (fun _k off -> blit_cd_child off entry2) cl2;
+        KeyedMap.iter (fun k off -> blit_cd_child k off entry1) children;
+        KeyedMap.iter (fun k off -> blit_cd_child k off entry2) cl2;
         KeyedMap.swap entry1.logdata.logdata_contents kc;
         KeyedMap.swap entry2.logdata.logdata_contents kc2;
         entry1.children_alloc_ids <- entry.children_alloc_ids;
