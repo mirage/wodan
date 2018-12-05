@@ -1203,6 +1203,11 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
                 end
       end;
       end;
+      KeyedMap.iter (fun k offset ->
+              let cstr = entry.raw_node in
+              let key = Cstruct.to_string @@ Cstruct.sub cstr (Int64.to_int offset) P.key_size in
+              assert (k = key)
+              ) @@ Lazy.force entry.children;
       KeyedMap.iter (fun _k child_alloc_id ->
           if child_alloc_id = alloc_id then begin
             Logs.err (fun m -> m "Self-pointing node %Ld" depth);
