@@ -1329,7 +1329,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           centry.childlinks.childlinks_offset <- offset1;
           Cstruct.blit cstr0 (Int64.to_int offset) cstr1 offset1 childlink_size;
           assert (Lazy.is_val centry.children);
-          let key1 = Cstruct.to_string @@ Cstruct.sub cstr1 (Int64.to_int offset) P.key_size in
+          let key1 = Cstruct.to_string @@ Cstruct.sub cstr1 offset1 P.key_size in
           Logs.debug (fun m -> m "Blitting %S (%S) from offset %Ld" key1 k offset);
           assert (k = key1);
           KeyedMap.xadd key1 (Int64.of_int offset1) (Lazy.force centry.children);
