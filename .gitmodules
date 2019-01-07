@@ -40,3 +40,6 @@
 [submodule "vendor/ocaml-webmachine"]
 	path = vendor/ocaml-webmachine
 	url = https://github.com/inhabitedtype/ocaml-webmachine.git
+[submodule "vendor/ocaml-diet"]
+	path = vendor/ocaml-diet
+	url = https://github.com/g2p/ocaml-diet.git
