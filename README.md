@@ -5,7 +5,7 @@ filesystem library for Mirage OS.
 
 It provides a key-value store as well as an Irmin backend.
 
-[![Build Status](https://travis-ci.org/g2p/wodan.svg?branch=master)](https://travis-ci.org/g2p/wodan)
+[![Build Status](https://travis-ci.org/mirage/wodan.svg?branch=master)](https://travis-ci.org/mirage/wodan)
 
 ## Status
 
@@ -24,7 +24,7 @@ disk and picking a block size.
 
 ## Documentation
 
-Here is a [Wodan for Mirage users](https://g2p.github.io/wodan/doc/wodan-for-mirage.html)
+Here is a [Wodan for Mirage users](https://mirage.github.io/wodan/doc/wodan-for-mirage.html)
 presentation.
 
 Unikernel usage is best explained through an example.
