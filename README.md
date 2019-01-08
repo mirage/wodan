@@ -33,6 +33,8 @@ See
 https://github.com/mato/camel-service/tree/master/counter-wodan
 and the README file it contains for an overview.
 
+There is also an [ICFP 2017 presentation which is more focused on the internals](https://g2p.github.io/research/wodan-slides.pdf).
+
 ## Paper
 
 This explains some of the design choices behind Wodan.
