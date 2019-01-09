@@ -208,10 +208,10 @@ let help_cmd =
     let doc = "The topic to get help on. `topics' lists the topics." in
     Arg.(value & pos 0 (some string) None & info [] ~docv:"TOPIC" ~doc)
   in
-  let doc = "display help about wodan and wodan commands" in
+  let doc = "display help about wodanc and wodanc subcommands" in
   let man =
     [`S Manpage.s_description;
-     `P "Prints help about wodan commands and other subjects...";
+     `P "Prints help about wodanc commands and other subjects...";
     ]
   in
   Term.(ret
@@ -223,7 +223,7 @@ let default_cmd =
   let sdocs = Manpage.s_common_options in
   let exits = Term.default_exits in
   Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
-  Term.info "wodan" ~doc ~sdocs ~exits
+  Term.info "wodanc" ~doc ~sdocs ~exits
 
 let cmds = [restore_cmd; dump_cmd; format_cmd;
             trim_cmd; exercise_cmd; bench_cmd; fuzz_cmd; help_cmd]
