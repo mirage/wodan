@@ -33,7 +33,7 @@
 	url = https://github.com/mirage/mirage.git
 [submodule "vendor/ocaml-cohttp"]
 	path = vendor/ocaml-cohttp
-	url = https://github.com/mirage/ocaml-cohttp.git
+	url = https://github.com/g2p/ocaml-cohttp.git
 [submodule "vendor/ocaml-conduit"]
 	path = vendor/ocaml-conduit
 	url = https://github.com/mirage/ocaml-conduit.git
