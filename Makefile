@@ -22,7 +22,7 @@ sync:
 
 locked:
 	git submodule update --init
-	opam switch create --switch=.
+	opam switch create .
 	opam install -y --deps-only --switch=. $(patsubst %, ./%, $(LOCKED_OPAMS))
 
 locked-travis:
