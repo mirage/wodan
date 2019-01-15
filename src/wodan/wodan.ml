@@ -51,6 +51,7 @@ module BlockCompat (B: Mirage_types_lwt.BLOCK) : EXTBLOCK with
   let discard _ _ _ = Lwt.return @@ Ok ()
 end
 
+(* Incompatibility flags *)
 let sb_incompat_rdepth = 1l
 let sb_incompat_fsid = 2l
 let sb_incompat_value_count = 4l
@@ -257,6 +258,7 @@ let lookup_parent_link lru entry =
     let offset = keyedmap_find entry.highest_key children in
     Some (parent_key, parent_entry, offset)
 
+(* Exclusive set *)
 let lru_xset lru alloc_id value =
   if LRU.mem alloc_id lru then raise @@ AlreadyCached alloc_id;
   let would_discard = ((LRU.size lru) + (LRUValue.weight value) > LRU.capacity lru) in
