@@ -16,41 +16,36 @@
 (*                                                                                   *)
 (*************************************************************************************)
 
-module type OrderedType = sig
-  type t
-  val compare : t -> t -> int
-end
+[@@@warning "-32"]
 
 module type S = sig
-  type key
-  type 'a t
+  type t = string
 
-  val create: unit -> 'a t
-  val length: 'a t -> int
-  val is_empty: 'a t -> bool
-  val clear: 'a t -> unit
-  val find_opt: key -> 'a t -> 'a option
-  val mem: key -> 'a t -> bool
-  val add: key -> 'a -> 'a t -> unit
-  (* Map a single value through a function in place *)
-  val map1: key -> ('a option -> 'a option) -> 'a t -> unit
-  (* Like add, but a value must already exist *)
-  val update: key -> 'a -> 'a t -> unit
-  (* Like add, but a value cannot already exist *)
-  val xadd: key -> 'a -> 'a t -> unit
-  val remove: key -> 'a t -> unit
-  val iter: (key -> 'a -> unit) -> 'a t -> unit
-  val iter_range: key -> key -> (key -> 'a -> unit) -> 'a t -> unit
-  val iter_inclusive_range: key -> key -> (key -> 'a -> unit) -> 'a t -> unit
-  val carve_inclusive_range: key -> key -> 'a t -> 'a t
-  val fold: (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
-  val exists: (key -> 'a -> bool) -> 'a t -> bool
-  val min_binding: 'a t -> (key * 'a) option
-  val max_binding: 'a t -> (key * 'a) option
-  val find_first_opt: key -> 'a t -> (key * 'a) option
-  val find_last_opt: key -> 'a t -> (key * 'a) option
-  val split_off_after: key -> 'a t -> 'a t
-  val swap: 'a t -> 'a t -> unit
+  exception ValueTooLarge of string
+
+  val value_of_cstruct : Cstruct.t -> t
+  val value_of_string : string -> t
+  val value_equal : t -> t -> bool
+  val cstruct_of_value : t -> Cstruct.t
+  val string_of_value : t -> string
 end
 
-module Make (Ord : OrderedType) : S with type key = Ord.t
+module Make : S = struct
+  type t = string
+
+  exception ValueTooLarge of string
+
+  let value_of_string value =
+    if String.length value >= 65536 then
+      raise (ValueTooLarge value)
+    else
+      value
+
+  let value_of_cstruct value = value_of_string (Cstruct.to_string value)
+
+  let value_equal = String.equal
+
+  let cstruct_of_value value = Cstruct.of_string value
+
+  let string_of_value value = value
+end

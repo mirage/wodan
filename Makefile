@@ -3,7 +3,7 @@ LOCKED_OPAMS := $(patsubst %.opam, %.opam.locked, $(OPAMS))
 
 build:
 	dune build
-	ln -Tsf _build/default/src/wodan-unix/wodanc.exe wodanc
+	ln -sf _build/default/src/wodan-unix/wodanc.exe wodanc
 
 deps:
 	git submodule update --init --recursive

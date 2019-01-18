@@ -16,41 +16,18 @@
 (*                                                                                   *)
 (*************************************************************************************)
 
-module type OrderedType = sig
-  type t
-  val compare : t -> t -> int
-end
-
 module type S = sig
-  type key
-  type 'a t
+  type t = int64
 
-  val create: unit -> 'a t
-  val length: 'a t -> int
-  val is_empty: 'a t -> bool
-  val clear: 'a t -> unit
-  val find_opt: key -> 'a t -> 'a option
-  val mem: key -> 'a t -> bool
-  val add: key -> 'a -> 'a t -> unit
-  (* Map a single value through a function in place *)
-  val map1: key -> ('a option -> 'a option) -> 'a t -> unit
-  (* Like add, but a value must already exist *)
-  val update: key -> 'a -> 'a t -> unit
-  (* Like add, but a value cannot already exist *)
-  val xadd: key -> 'a -> 'a t -> unit
-  val remove: key -> 'a t -> unit
-  val iter: (key -> 'a -> unit) -> 'a t -> unit
-  val iter_range: key -> key -> (key -> 'a -> unit) -> 'a t -> unit
-  val iter_inclusive_range: key -> key -> (key -> 'a -> unit) -> 'a t -> unit
-  val carve_inclusive_range: key -> key -> 'a t -> 'a t
-  val fold: (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
-  val exists: (key -> 'a -> bool) -> 'a t -> bool
-  val min_binding: 'a t -> (key * 'a) option
-  val max_binding: 'a t -> (key * 'a) option
-  val find_first_opt: key -> 'a t -> (key * 'a) option
-  val find_last_opt: key -> 'a t -> (key * 'a) option
-  val split_off_after: key -> 'a t -> 'a t
-  val swap: 'a t -> 'a t -> unit
+  val hash : t -> int
+
+  val equal : t -> t -> bool
+
+  val pred : t -> t
+
+  (* Predecessor function with no ill behaviour
+     on the edge of the definition set *)
+  val pred_safe : t -> t
 end
 
-module Make (Ord : OrderedType) : S with type key = Ord.t
+module Make : S

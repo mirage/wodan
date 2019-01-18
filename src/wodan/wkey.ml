@@ -16,41 +16,71 @@
 (*                                                                                   *)
 (*************************************************************************************)
 
-module type OrderedType = sig
-  type t
-  val compare : t -> t -> int
-end
+[@@@warning "-32"]
 
 module type S = sig
-  type key
-  type 'a t
+  type t = string
 
-  val create: unit -> 'a t
-  val length: 'a t -> int
-  val is_empty: 'a t -> bool
-  val clear: 'a t -> unit
-  val find_opt: key -> 'a t -> 'a option
-  val mem: key -> 'a t -> bool
-  val add: key -> 'a -> 'a t -> unit
-  (* Map a single value through a function in place *)
-  val map1: key -> ('a option -> 'a option) -> 'a t -> unit
-  (* Like add, but a value must already exist *)
-  val update: key -> 'a -> 'a t -> unit
-  (* Like add, but a value cannot already exist *)
-  val xadd: key -> 'a -> 'a t -> unit
-  val remove: key -> 'a t -> unit
-  val iter: (key -> 'a -> unit) -> 'a t -> unit
-  val iter_range: key -> key -> (key -> 'a -> unit) -> 'a t -> unit
-  val iter_inclusive_range: key -> key -> (key -> 'a -> unit) -> 'a t -> unit
-  val carve_inclusive_range: key -> key -> 'a t -> 'a t
-  val fold: (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
-  val exists: (key -> 'a -> bool) -> 'a t -> bool
-  val min_binding: 'a t -> (key * 'a) option
-  val max_binding: 'a t -> (key * 'a) option
-  val find_first_opt: key -> 'a t -> (key * 'a) option
-  val find_last_opt: key -> 'a t -> (key * 'a) option
-  val split_off_after: key -> 'a t -> 'a t
-  val swap: 'a t -> 'a t -> unit
+  exception BadKey of string
+
+  val equal : t -> t -> bool
+  val hash : t -> int
+  val compare : t -> t -> int
+
+  val zero_key : t
+  val top_key : t
+
+  val key_of_cstruct : Cstruct.t -> t
+  val key_of_string : string -> t
+  val key_of_string_padded : string -> t
+  val cstruct_of_key : t -> Cstruct.t
+  val string_of_key : t -> string
+  val next_key : t -> t
 end
 
-module Make (Ord : OrderedType) : S with type key = Ord.t
+module Make (P : Wblock.SUPERBLOCK_PARAMS) : S = struct
+  type t = string
+
+  exception BadKey of string
+
+  let equal = String.equal
+  let hash = Hashtbl.hash
+  let compare = String.compare
+
+  let zero_key = String.make P.key_size '\000'
+  let top_key = String.make P.key_size '\255'
+
+
+  let key_of_cstruct key =
+    if Cstruct.len key <> P.key_size then
+      raise @@ BadKey (Cstruct.to_string key)
+    else
+      Cstruct.to_string key
+  
+  let key_of_string key =
+    if String.length key <> P.key_size then
+      raise (BadKey key)
+    else
+      key
+  let key_of_string_padded key =
+    if String.length key > P.key_size then
+      raise (BadKey key)
+    else
+      key ^ (String.make (P.key_size - String.length key) '\000')
+  
+  let cstruct_of_key key = Cstruct.of_string key
+
+  let string_of_key key = key
+
+  let next_key key =
+    if key = top_key then
+      raise (BadKey ("Already at top key : " ^ key))
+    else
+      let carry = ref 1 in
+      String.map
+        (fun c ->
+          let c' = (!carry + Char.code c) mod 256 in
+          carry := if c' = 0 then 1 else 0;
+          Char.chr c')
+        key
+end

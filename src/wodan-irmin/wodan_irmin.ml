@@ -285,14 +285,14 @@ struct
   module BUILDER = DB
   module Stor = BUILDER.Stor
 
-  module KeyHashtbl = Hashtbl.Make(Stor.Key)
+  module KeyHashtbl = Hashtbl.Make(Stor.K)
   module W = Irmin.Private.Watch.Make(K)(V)
   module L = Irmin.Private.Lock.Make(K)
 
   type t = {
     nested: BUILDER.t;
-    keydata: Stor.key KeyHashtbl.t;
-    mutable magic_key: Stor.key;
+    keydata: Stor.K.t KeyHashtbl.t;
+    mutable magic_key: Stor.K.t;
     watches: W.t;
     lock: L.t;
   }

@@ -1,4 +1,21 @@
-val max_dirty : int
+(*************************************************************************************)
+(*  Copyright 2017 Gabriel de Perthuis <g2p.code@gmail.com>                          *)
+(*  Copyright 2019 Nicolas Assouad <nicolas@tarides.com>                          *)
+(*                                                                                   *)
+(*  Permission to use, copy, modify, and/or distribute this software for any         *)
+(*  purpose with or without fee is hereby granted, provided that the above           *)
+(*  copyright notice and this permission notice appear in all copies.                *)
+(*                                                                                   *)
+(*  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH    *)
+(*  REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND  *)
+(*  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,         *)
+(*  INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM      *)
+(*  LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR    *)
+(*  OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR           *)
+(*  PERFORMANCE OF THIS SOFTWARE.                                                    *)
+(*                                                                                   *)
+(*************************************************************************************)
+
 exception BadMagic
 exception BadVersion
 exception BadFlags
@@ -8,8 +25,8 @@ exception ReadError
 exception WriteError
 exception OutOfSpace
 exception NeedsFlush
-exception BadKey of string
-exception ValueTooLarge of string
+(*exception BadKey of string*)
+(*exception ValueTooLarge of string*)
 exception BadNodeType of int
 
 module type EXTBLOCK = sig
@@ -25,6 +42,8 @@ type insertable =
   |InsChild of int64 * int64 option (* loc, alloc_id *)
 
 val sizeof_superblock : int
+
+val max_dirty : int
 
 (* All parameters that can't be read from the superblock *)
 type mount_options = {
@@ -54,47 +73,43 @@ val standard_mount_options : mount_options
 val read_superblock_params : (module Mirage_types_lwt.BLOCK with type t = 'a) -> 'a -> (module SUPERBLOCK_PARAMS) Lwt.t
 
 type deviceOpenMode = OpenExistingDevice | FormatEmptyDevice of int64
-module type S =
-  sig
-    type key
-    type value
-    type disk
-    type root
-    module Key :
-      sig
-        type t = key
-        val equal : t -> t -> bool
-        val hash : t -> int
-        val compare : t -> t -> int
-      end
-    module P : SUPERBLOCK_PARAMS
-    val key_of_cstruct : Cstruct.t -> key
-    val key_of_string : string -> key
-    val key_of_string_padded : string -> key
-    val cstruct_of_key : key -> Cstruct.t
-    val string_of_key : key -> string
-    val value_of_cstruct : Cstruct.t -> value
-    val value_of_string : string -> value
-    val value_equal : value -> value -> bool
-    val cstruct_of_value : value -> Cstruct.t
-    val string_of_value : value -> string
-    val next_key : key -> key
-    val is_tombstone : root -> value -> bool
-    val insert : root -> key -> value -> unit Lwt.t
-    val lookup : root -> key -> value option Lwt.t
-    val mem : root -> key -> bool Lwt.t
-    val flush : root -> int64 Lwt.t
-    val fstrim : root -> int64 Lwt.t
-    val live_trim : root -> int64 Lwt.t
-    val log_statistics : root -> unit
-    val search_range :
-      root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
-    val iter :
-      root -> (key -> value -> unit) -> unit Lwt.t
-    val prepare_io : deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
-  end
+
+module type S = sig
+  type disk
+  type root
+
+  module K : Wkey.S
+  module V : Wvalue.S
+  module P : SUPERBLOCK_PARAMS
+
+  val key_of_cstruct : Cstruct.t -> K.t
+  val key_of_string : string -> K.t
+  val key_of_string_padded : string -> K.t
+  val cstruct_of_key : K.t -> Cstruct.t
+  val string_of_key : K.t -> string
+  val next_key : K.t -> K.t
+
+  val value_of_cstruct : Cstruct.t -> V.t
+  val value_of_string : string -> V.t
+  val value_equal : V.t -> V.t -> bool
+  val cstruct_of_value : V.t -> Cstruct.t
+  val string_of_value : V.t -> string
+  
+  val is_tombstone : root -> V.t -> bool
+  val insert : root -> K.t -> V.t -> unit Lwt.t
+  val lookup : root -> K.t -> V.t option Lwt.t
+  val mem : root -> K.t -> bool Lwt.t
+  val flush : root -> int64 Lwt.t
+  val fstrim : root -> int64 Lwt.t
+  val live_trim : root -> int64 Lwt.t
+  val log_statistics : root -> unit
+  val search_range : root -> K.t -> K.t -> (K.t -> V.t -> unit) -> unit Lwt.t
+  val iter : root -> (K.t -> V.t -> unit) -> unit Lwt.t
+  val prepare_io : deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
+end
+
 module Make :
-  functor (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) -> (S with type disk = B.t)
+  functor (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) -> S with type disk = B.t
 
 type open_ret =
     OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret

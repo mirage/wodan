@@ -29,11 +29,12 @@ module Client (B: Wodan.EXTBLOCK) = struct
     Stor.fstrim root
 
   let format disk ks bs =
-    let module Stor = Wodan.Make(B)(struct
-        include Wodan.StandardSuperblockParams
-        let key_size = ks
-        let block_size = bs
-      end) in
+    let module P = struct
+      include Wodan.StandardSuperblockParams
+      let key_size = ks
+      let block_size = bs
+    end in
+    let module Stor = Wodan.Make(B)(P) in
     let%lwt info = B.get_info disk in
     let%lwt _root, _gen = Stor.prepare_io (Wodan.FormatEmptyDevice
       Int64.(div (mul info.size_sectors @@ of_int info.sector_size) @@ of_int Wodan.StandardSuperblockParams.block_size)) disk Wodan.standard_mount_options in
@@ -68,11 +69,11 @@ module Client (B: Wodan.EXTBLOCK) = struct
       |None -> Wodan.StandardSuperblockParams.block_size
       |Some block_size -> block_size
     in
-    let module Stor = Wodan.Make(B)(struct
-        include Wodan.StandardSuperblockParams
-        let block_size = bs
-      end) in
-
+    let module P = struct
+      include Wodan.StandardSuperblockParams
+      let block_size = bs
+    end in
+    let module Stor = Wodan.Make(B)(P) in
     let ios = ref 0 in
     let time0 = ref 0. in
     let%lwt info = B.get_info disk in
@@ -148,11 +149,12 @@ module Client (B: Wodan.EXTBLOCK) = struct
       include Ramdisk
       let discard _ _ _ = Lwt.return @@ Ok ()
     end in
-    let module Stor = Wodan.Make(Ramdisk)(struct
-        include Wodan.StandardSuperblockParams
-        let key_size = 20
-        let block_size = 256*1024
-      end) in
+    let module P = struct
+      include Wodan.StandardSuperblockParams
+      let key_size = 20
+      let block_size = 256*1024
+    end in
+    let module Stor = Wodan.Make(Ramdisk)(P) in
     let value_size = 400 in
     let disk_size = 32*1024*1024 in
     let init () =

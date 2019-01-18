@@ -1,5 +1,6 @@
 (*************************************************************************************)
 (*  Copyright 2017 Gabriel de Perthuis <g2p.code@gmail.com>                          *)
+(*  Copyright 2019 Nicolas Assouad <nicolas@tarides.com>                          *)
 (*                                                                                   *)
 (*  Permission to use, copy, modify, and/or distribute this software for any         *)
 (*  purpose with or without fee is hereby granted, provided that the above           *)
@@ -15,29 +16,39 @@
 (*                                                                                   *)
 (*************************************************************************************)
 
+[@@@warning "-32"]
+[@@@warning "-33"]
+
 open Lwt.Infix
 open Sexplib.Std
+open Wblock
 
-let superblock_magic = "MIRAGE KVFS \xf0\x9f\x90\xaa"
-let superblock_version = 1l
 let max_dirty = 128
 
-
-exception BadMagic
-exception BadVersion
-exception BadFlags
-exception BadCRC of int64
-exception BadParams
-
-exception ReadError
 exception WriteError
 exception OutOfSpace
 exception NeedsFlush
 
-exception BadKey of string
-exception ValueTooLarge of string
 exception BadNodeType of int
 exception BadNodeFSID of string
+
+(* Signature importation *)
+exception BadMagic = BadMagic
+exception BadVersion = BadVersion
+exception BadFlags = BadFlags
+exception BadCRC = BadCRC
+exception BadParams = BadParams
+exception ReadError = ReadError
+
+module type SUPERBLOCK_PARAMS = SUPERBLOCK_PARAMS
+
+module StandardSuperblockParams = StandardSuperblockParams
+
+let sizeof_superblock = sizeof_superblock
+
+let read_superblock_params = read_superblock_params
+
+(****************)
 
 module type EXTBLOCK = sig
   include Mirage_types_lwt.BLOCK
@@ -50,81 +61,6 @@ module BlockCompat (B: Mirage_types_lwt.BLOCK) : EXTBLOCK with
   include B
   let discard _ _ _ = Lwt.return @@ Ok ()
 end
-
-(* Incompatibility flags *)
-let sb_incompat_rdepth = 1l
-let sb_incompat_fsid = 2l
-let sb_incompat_value_count = 4l
-let sb_required_incompat = Int32.logor sb_incompat_rdepth
-  @@ Int32.logor sb_incompat_fsid sb_incompat_value_count
-
-[@@@warning "-32"]
-
-(* 512 bytes.  The rest of the block isn't crc-controlled. *)
-[%%cstruct type superblock = {
-  magic: uint8_t [@len 16];
-  (* major version, all later fields may change if this does *)
-  version: uint32_t;
-  compat_flags: uint32_t;
-  (* refuse to mount if unknown incompat_flags are set *)
-  incompat_flags: uint32_t;
-  block_size: uint32_t;
-  key_size: uint8_t;
-  first_block_written: uint64_t;
-  logical_size: uint64_t;
-  (* FSID is UUID-sized (128 bits) *)
-  fsid: uint8_t [@len 16];
-  reserved: uint8_t [@len 443];
-  crc: uint32_t;
-}[@@little_endian]]
-
-let () = assert (String.length superblock_magic = 16)
-let () = assert (sizeof_superblock = 512)
-
-let sizeof_crc = 4
-
-[%%cstruct type anynode_hdr = {
-  nodetype: uint8_t;
-  generation: uint64_t;
-  fsid: uint8_t [@len 16];
-  value_count: uint32_t;
-}[@@little_endian]]
-let () = assert (sizeof_anynode_hdr = 29)
-
-[%%cstruct type rootnode_hdr = {
-  (* nodetype = 1 *)
-  nodetype: uint8_t;
-  (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
-  generation: uint64_t;
-  fsid: uint8_t [@len 16];
-  value_count: uint32_t;
-  depth: uint32_t;
-}[@@little_endian]]
-let () = assert (sizeof_rootnode_hdr = 33)
-(* Contents: logged data, and child node links *)
-(* All node types end with a CRC *)
-(* rootnode_hdr
- * logged data: (key, datalen, data)*, grow from the left end towards the right
- *
- * child links: (key, logical offset)*, grow from the right end towards the left
- * crc *)
-
-[%%cstruct type childnode_hdr = {
-  (* nodetype = 2 *)
-  nodetype: uint8_t;
-  generation: uint64_t;
-  fsid: uint8_t [@len 16];
-  value_count: uint32_t;
-}[@@little_endian]]
-let () = assert (sizeof_childnode_hdr = 29)
-(* Contents: logged data, and child node links *)
-(* Layout: see above *)
-
-[@@@warning "+32"]
-
-let sizeof_datalen = 2
-
-let sizeof_logical = 8
 
 let make_fanned_io_list size cstr =
   let r = ref [] in
@@ -139,208 +75,15 @@ let make_fanned_io_list size cstr =
   iter l;
   !r
 
-let _sb_io block_io =
-  Cstruct.sub block_io 0 sizeof_superblock
-
-type statistics = {
-  mutable inserts: int;
-  mutable lookups: int;
-  mutable range_searches: int;
-  mutable iters: int;
-}
-
-let default_statistics = {
-  inserts=0;
-  lookups=0;
-  range_searches=0;
-  iters=0;
-}
-
-type childlinks = {
-  (* starts at block_size - sizeof_crc, if there are no children *)
-  mutable childlinks_offset: int;
-}
-
-type node = [
-  |`Root
-  |`Child]
-
-let header_size = function
-  |`Root -> sizeof_rootnode_hdr
-  |`Child -> sizeof_childnode_hdr
-
 let string_dump key =
   Cstruct.hexdump @@ Cstruct.of_string key
 
 let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
 module Logs = (val Logs.src_log src : Logs.LOG)
 
-module BlockIntervals = Diet.Make(struct
-  include Int64
-  let t_of_sexp = int64_of_sexp
-  let sexp_of_t = sexp_of_int64
-end)
-
 let unwrap_opt = function
   |None -> raise Not_found
   |Some v -> v
-
-module KeyedMap = Wodan_btreemap
-(*module KeyedMap = Btreemap*)
-let keyedmap_find k map =
-  unwrap_opt @@ KeyedMap.find_opt k map
-let keyedmap_keys map =
-  KeyedMap.fold (fun k _v acc -> k::acc) map []
-module KeyedSet = Set.Make(String)
-
-module LRUKey = struct
-  type t = int64
-  let hash = Hashtbl.hash
-  let equal = Int64.equal
-end
-
-type logdata_index = {
-  mutable logdata_contents: string KeyedMap.t;
-  mutable value_end: int;
-  mutable old_value_end: int;
-}
-
-type flush_info = {
-  mutable flush_children: int64 KeyedMap.t;
-}
-
-type lru_entry = {
-  cached_node: node;
-  mutable parent_key: LRUKey.t option;
-  (* A node is flushable iff it's referenced from flush_root
-     through a flush_children map.
-     We use an option here to make checking for flushability faster.
-     A flushable node is either new or dirty, but not both. *)
-  mutable flush_info: flush_info option;
-(* Use offsets so that data isn't duplicated *)
-  mutable children: (int64 KeyedMap.t) Lazy.t;
-(* Don't reference nodes directly, always go through the
- * LRU to bump recently accessed nodes *)
-  mutable children_alloc_ids: int64 KeyedMap.t;
-  mutable highest_key: string;
-  raw_node: Cstruct.t;
-  io_data: Cstruct.t list;
-  logdata: logdata_index;
-  childlinks: childlinks;
-  mutable prev_logical: int64 option;
-  (* depth counted from the leaves; mutable on the root only *)
-  mutable rdepth: int32;
-}
-
-module LRUValue = struct
-  type t = lru_entry
-  let weight _val = 1
-end
-
-module LRU = Lru.M.Make(LRUKey)(LRUValue)
-
-let lru_get lru alloc_id =
-  LRU.find alloc_id lru
-
-let lru_peek lru alloc_id =
-  LRU.find ~promote:false alloc_id lru
-
-exception AlreadyCached of LRUKey.t
-
-let lookup_parent_link lru entry =
-  match entry.parent_key with
-  |None -> None
-  |Some parent_key ->
-    match lru_peek lru parent_key with
-    |None -> failwith "Missing parent"
-    |Some parent_entry ->
-    let children = Lazy.force parent_entry.children in
-    let offset = keyedmap_find entry.highest_key children in
-    Some (parent_key, parent_entry, offset)
-
-(* Exclusive set *)
-let lru_xset lru alloc_id value =
-  if LRU.mem alloc_id lru then raise @@ AlreadyCached alloc_id;
-  let would_discard = ((LRU.size lru) + (LRUValue.weight value) > LRU.capacity lru) in
-  (* assumes uniform weights, looks only at the bottom item *)
-  if would_discard then begin
-    match LRU.lru lru with
-    |Some (_alloc_id, entry) when entry.flush_info <> None ->
-      failwith "Would discard dirty data" (* TODO expose this as a proper API value *)
-    |Some (_alloc_id, entry) ->
-      begin match lookup_parent_link lru entry with
-      |None -> failwith "Would discard a root key, LRU too small for tree depth"
-      |Some (_parent_key, parent_entry, _offset) ->
-        KeyedMap.remove entry.highest_key parent_entry.children_alloc_ids
-      end
-    |_ -> failwith "LRU capacity is too small"
-  end;
-  LRU.add alloc_id value lru
-
-let lru_create capacity =
-  LRU.create capacity
-
-type node_cache = {
-  (* LRUKey.t -> lru_entry
-   * all nodes are keyed by their alloc_id *)
-  lru: LRU.t;
-  mutable flush_root: LRUKey.t option;
-  mutable next_alloc_id: int64;
-  (* The next generation number we'll allocate *)
-  mutable next_generation: int64;
-  (* The next logical address we'll allocate (if free) *)
-  mutable next_logical_alloc: int64;
-  (* Count of free blocks on disk *)
-  mutable free_count: int64;
-  mutable new_count: int64;
-  mutable dirty_count: int64;
-  fsid: string;
-  logical_size: int64;
-  (* Logical -> bit.  Zero iff free. *)
-  space_map: Bitv.t;
-  scan_map: Bitv.t option;
-  mutable freed_intervals: BlockIntervals.t;
-  statistics: statistics;
-}
-
-let bitv_create64 off bit =
-  if Int64.compare off (Int64.of_int max_int) > 0 then failwith (Printf.sprintf "Size %Ld too large for a Bitv" off);
-  Bitv.create (Int64.to_int off) bit
-
-let bitv_set64 vec off bit =
-  Bitv.set vec (Int64.to_int off) bit (* Safe as long as bitv_create64 is used *)
-
-let bitv_get64 vec off =
-  Bitv.get vec (Int64.to_int off) (* Safe as long as bitv_create64 is used *)
-
-let bitv_len64 vec =
-  Int64.of_int @@ Bitv.length vec
-
-let next_logical_novalid cache logical =
-  let log1 = Int64.succ logical in
-  if log1 = cache.logical_size then 1L else log1
-
-let next_logical_alloc_valid cache =
-  if cache.free_count = 0L then failwith "Out of space"; (* Not the same as OutOfSpace *)
-  let rec after log =
-    if not @@ bitv_get64 cache.space_map log then log else
-      after @@ next_logical_novalid cache log
-  in let loc = after cache.next_logical_alloc in
-  cache.next_logical_alloc <- next_logical_novalid cache loc; loc
-
-let next_alloc_id cache =
-  let r = cache.next_alloc_id in
-  cache.next_alloc_id <- Int64.succ cache.next_alloc_id;
-  r
-
-let next_generation cache =
-  let r = cache.next_generation in
-  cache.next_generation <- Int64.succ cache.next_generation;
-  r
-
-let int64_pred_nowrap va =
-  if Int64.compare va 0L <= 0 then failwith "Int64 wrapping down to negative"
-  else Int64.pred va
 
 type insertable =
   |InsValue of string
@@ -350,95 +93,6 @@ type insertable =
 type insert_space =
   |InsSpaceValue of int
   |InsSpaceChild of int
-
-let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
-  (*Logs.debug (fun m -> m "_reserve_dirty_rec %Ld" alloc_id);*)
-  match lru_get cache.lru alloc_id with
-  |None -> failwith "Missing LRU key"
-  |Some entry -> begin
-      match entry.flush_info with
-      |Some _di -> ()
-      |None -> begin
-          match entry.cached_node with
-          |`Root -> ()
-          |`Child ->
-            match entry.parent_key with
-            |Some parent_key -> begin
-                match lru_get cache.lru parent_key with
-                |None -> failwith "missing parent_entry"
-                |Some _parent_entry -> _reserve_dirty_rec cache parent_key new_count dirty_count
-              end
-            |None -> failwith "entry.parent_key inconsistent (no parent)";
-        end;
-        begin
-        match entry.prev_logical with
-        |None ->
-            new_count := Int64.succ !new_count
-        |Some _plog ->
-            dirty_count := Int64.succ !dirty_count
-        end;
-  end
-
-let _reserve_dirty cache alloc_id new_count depth =
-  (*Logs.debug (fun m -> m "_reserve_dirty %Ld" alloc_id);*)
-  let new_count = ref new_count in
-  let dirty_count = ref 0L in
-  _reserve_dirty_rec cache alloc_id new_count dirty_count;
-  (*Logs.debug (fun m -> m "_reserve_dirty %Ld free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld depth %Ld"
-             alloc_id cache.free_count cache.new_count cache.dirty_count !new_count !dirty_count depth);*)
-  if Int64.(compare cache.free_count @@ add cache.dirty_count @@ add !dirty_count @@ add cache.new_count !new_count) < 0 then begin
-    if Int64.(compare cache.free_count @@ add !dirty_count @@ add cache.new_count @@ add !new_count @@ succ depth) >= 0 then
-      raise NeedsFlush (* flush and retry, it will succeed *)
-    else
-      raise OutOfSpace (* flush if you like, but retrying will not succeed *)
-  end
-
-let rec _mark_dirty cache alloc_id : flush_info =
-  (*Logs.debug (fun m -> m "_mark_dirty %Ld" alloc_id);*)
-  match lru_get cache.lru alloc_id with
-  |None -> failwith "Missing LRU key"
-  |Some entry -> begin
-      match entry.flush_info with
-      |Some di -> di
-      |None -> begin
-          match entry.cached_node with
-          |`Root ->
-            begin match cache.flush_root with
-              |None -> cache.flush_root <- Some alloc_id
-              |_ -> failwith "flush_root inconsistent" end
-          |`Child ->
-            match entry.parent_key with
-            |Some parent_key -> begin
-                match lru_get cache.lru parent_key with
-                |None -> failwith "missing parent_entry"
-                |Some _parent_entry ->
-                    let parent_di = _mark_dirty cache parent_key in
-                    begin
-                      if KeyedMap.exists (fun _k lk -> lk = alloc_id) parent_di.flush_children then
-                        failwith "dirty_node inconsistent" else
-                        KeyedMap.add entry.highest_key alloc_id parent_di.flush_children
-                    end
-              end
-            |None -> failwith "entry.parent_key inconsistent (no parent)";
-        end;
-        let di = { flush_children=KeyedMap.create (); } in
-        entry.flush_info <- Some di;
-        begin
-        match entry.prev_logical with
-        |None ->
-          cache.new_count <- Int64.succ cache.new_count;
-          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then failwith "Out of space"; (* Not the same as OutOfSpace *)
-        |Some _plog ->
-          cache.dirty_count <- Int64.succ cache.dirty_count;
-          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then failwith "Out of space";
-        end;
-        di
-    end
-
-let _get_superblock_io () =
-  (* This will only work on Unix, which has buffered IO instead of direct IO.
-  TODO figure out portability *)
-    Cstruct.create 512
 
 type mount_options = {
   (* Whether the empty value should be considered a tombstone,
@@ -451,16 +105,8 @@ type mount_options = {
   cache_size: int;
 }
 
-(* All parameters that can be read from the superblock *)
-module type SUPERBLOCK_PARAMS = sig
-  (* Size of blocks, in bytes *)
-  val block_size: int
-  (* The exact size of all keys, in bytes *)
-  val key_size: int
-end
-
 module type PARAMS = sig
-  include SUPERBLOCK_PARAMS
+  include Wblock.SUPERBLOCK_PARAMS
 end
 
 let standard_mount_options = {
@@ -469,127 +115,71 @@ let standard_mount_options = {
   cache_size=1024;
 }
 
-module StandardSuperblockParams : SUPERBLOCK_PARAMS = struct
-  let block_size = 256*1024
-  let key_size = 20
-end
-
 type deviceOpenMode =
-  |OpenExistingDevice
-  |FormatEmptyDevice of int64
+  | OpenExistingDevice
+  | FormatEmptyDevice of int64
 
 module type S = sig
-  type key
-  type value
   type disk
   type root
 
-  module Key : sig
-    include Hashtbl.HashedType with type t = key
-    include Map.OrderedType with type t := key
-  end
+  module K : Wkey.S
+  module V : Wvalue.S
+  module P : Wblock.SUPERBLOCK_PARAMS
 
-  module P : PARAMS
+  val key_of_cstruct : Cstruct.t -> K.t
+  val key_of_string : string -> K.t
+  val key_of_string_padded : string -> K.t
+  val cstruct_of_key : K.t -> Cstruct.t
+  val string_of_key : K.t -> string
+  val next_key : K.t -> K.t
 
-  val key_of_cstruct : Cstruct.t -> key
-  val key_of_string : string -> key
-  val key_of_string_padded : string -> key
-  val cstruct_of_key : key -> Cstruct.t
-  val string_of_key : key -> string
-  val value_of_cstruct : Cstruct.t -> value
-  val value_of_string : string -> value
-  val value_equal : value -> value -> bool
-  val cstruct_of_value : value -> Cstruct.t
-  val string_of_value : value -> string
-  val next_key : key -> key
-  val is_tombstone : root -> value -> bool
-
-  val insert : root -> key -> value -> unit Lwt.t
-  val lookup : root -> key -> value option Lwt.t
-  val mem : root -> key -> bool Lwt.t
+  val value_of_cstruct : Cstruct.t -> V.t
+  val value_of_string : string -> V.t
+  val value_equal : V.t -> V.t -> bool
+  val cstruct_of_value : V.t -> Cstruct.t
+  val string_of_value : V.t -> string
+  
+  val is_tombstone : root -> V.t -> bool
+  val insert : root -> K.t -> V.t -> unit Lwt.t
+  val lookup : root -> K.t -> V.t option Lwt.t
+  val mem : root -> K.t -> bool Lwt.t
   val flush : root -> int64 Lwt.t
   val fstrim : root -> int64 Lwt.t
   val live_trim : root -> int64 Lwt.t
   val log_statistics : root -> unit
-  val search_range : root
-    -> key (* start inclusive *)
-    -> key (* end exclusive *)
-    -> (key -> value -> unit)
-    -> unit Lwt.t
-  val iter : root -> (key -> value -> unit) -> unit Lwt.t
+  val search_range : root -> K.t -> K.t -> (K.t -> V.t -> unit) -> unit Lwt.t
+  val iter : root -> (K.t -> V.t -> unit) -> unit Lwt.t
   val prepare_io : deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
 end
 
-let read_superblock_params (type disk) (module B: Mirage_types_lwt.BLOCK with type t = disk) disk =
-  let block_io = _get_superblock_io () in
-  let block_io_fanned = [block_io] in
-  B.read disk 0L block_io_fanned >>= Lwt.wrap1 begin function
-    |Result.Error _ -> raise ReadError
-    |Result.Ok () ->
-        let sb = _sb_io block_io in
-    if copy_superblock_magic sb <> superblock_magic
-    then raise BadMagic
-    else if get_superblock_version sb <> superblock_version
-    then raise BadVersion
-    else if get_superblock_incompat_flags sb <> sb_required_incompat
-    then raise BadFlags
-    else if not @@ Wodan_crc32c.cstruct_valid sb
-    then raise @@ BadCRC 0L
-    else begin
-      let block_size = Int32.to_int @@ get_superblock_block_size sb in
-      let key_size = get_superblock_key_size sb in
-      (module struct
-        let block_size = block_size
-        let key_size = key_size
-      end : SUPERBLOCK_PARAMS)
-    end
-  end
-
-module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = struct
-  type key = string
-  type value = string
+module Make (B : EXTBLOCK) (P : Wblock.SUPERBLOCK_PARAMS) : S with type disk = B.t = struct
   type disk = B.t
 
+  module K = Wkey.Make(P)
+  module V = Wvalue.Make
+  module C = Wcache.Make(Wcache_key.Make)(Wcache_value.Make(K))
   module P = P
-  module Key = struct
-    include String
-    let hash = Hashtbl.hash
-  end
 
-  let key_of_cstruct key =
-    if Cstruct.len key <> P.key_size
-    then raise @@ BadKey (Cstruct.to_string key)
-    else Cstruct.to_string key
+  open C
+  open CV
 
-  let key_of_string key =
-    if String.length key <> P.key_size
-    then raise @@ BadKey key
-    else key
+  let int64_pred_nowrap = CK.pred_safe
 
-  let key_of_string_padded key =
-    if String.length key > P.key_size
-    then raise @@ BadKey key
-    else key ^ (String.make (P.key_size - String.length key) '\000')
+  let zero_key = K.zero_key
+  let top_key = K.top_key
+  let key_of_cstruct = K.key_of_cstruct
+  let key_of_string = K.key_of_string
+  let key_of_string_padded = K.key_of_string_padded
+  let cstruct_of_key = K.cstruct_of_key
+  let string_of_key = K.string_of_key
+  let next_key = K.next_key
 
-  let cstruct_of_key key =
-    Cstruct.of_string key
-
-  let string_of_key key = key
-
-  let value_of_string value =
-    let len = String.length value in
-    if len >= 65536 then raise @@ ValueTooLarge value else value
-
-  let value_of_cstruct value =
-    value_of_string @@ Cstruct.to_string value
-
-  let value_equal = String.equal
-
-  let cstruct_of_value value =
-    Cstruct.of_string value
-
-  let string_of_value value =
-    value
+  let value_of_string = V.value_of_string
+  let value_of_cstruct = V.value_of_cstruct
+  let value_equal = V.value_equal
+  let cstruct_of_value = V.cstruct_of_value
+  let string_of_value = V.string_of_value
 
   let block_end = P.block_size - sizeof_crc
 
@@ -600,24 +190,11 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
             Allows more efficient fuzzing. *)
       Cstruct.create P.block_size
 
-  let zero_key = String.make P.key_size '\000'
-  let top_key = String.make P.key_size '\255'
   let zero_data = Cstruct.create P.block_size
   let _is_zero_data cstr =
     Cstruct.equal cstr zero_data
 
   let childlink_size = P.key_size + sizeof_logical
-
-  let next_key key =
-    if key = top_key then invalid_arg "Already at top key";
-    let r = Bytes.make P.key_size '\000' in
-    let state = ref 1 in
-    for i = P.key_size - 1 downto 0 do
-      let code = (!state + Char.code key.[i]) mod 256 in
-      Bytes.set r i @@ Char.chr code;
-      state := if code = 0 then 1 else 0;
-    done;
-    Bytes.to_string r
 
   type filesystem = {
     (* Backing device *)
@@ -638,7 +215,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
 
   type root = {
     open_fs: open_fs;
-    root_key: LRUKey.t;
+    root_key: CK.t;
   }
 
   let is_tombstone root value =
