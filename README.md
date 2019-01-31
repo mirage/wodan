@@ -91,6 +91,18 @@ At the moment the CLI supports creating filesystems, dumping and
 restoring data into them, plus some more specialised features
 explained below.
 
+### Creating an empty disk
+
+In order to be able to use the following commands, you need a disk for Wodan to
+operate on.
+
+The following commands create a zeroed image of size 512M named `disk.img`.
+
+```
+touch disk.img
+fallocate -z -l 512m
+```
+
 ### Micro-benchmarking
 
 ```
