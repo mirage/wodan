@@ -209,20 +209,9 @@ module BlockIntervals = Diet.Make (struct
   let sexp_of_t = sexp_of_int64
 end)
 
-let unwrap_opt = function
-  | None ->
-      raise Not_found
-  | Some v ->
-      v
+module KeyedMap = Keyedmap.Make(String)
 
-module KeyedMap = Wodan_btreemap
-
-(*module KeyedMap = Btreemap*)
-let keyedmap_find k map = unwrap_opt @@ KeyedMap.find_opt k map
-
-let keyedmap_keys map = KeyedMap.fold (fun k _v acc -> k :: acc) map []
-
-module KeyedSet = Set.Make (String)
+module KeyedSet = Set.Make(String)
 
 module LRUKey = struct
   type t = int64
@@ -284,14 +273,12 @@ let lookup_parent_link lru entry =
       None
   | Some parent_key -> (
     match lru_peek lru parent_key with
-    | None ->
-        failwith "Missing parent"
-    | Some parent_entry ->
-        let children = Lazy.force parent_entry.children in
-        let offset = keyedmap_find entry.highest_key children in
-        Some (parent_key, parent_entry, offset) )
+    |None -> failwith "Missing parent"
+    |Some parent_entry ->
+    let children = Lazy.force parent_entry.children in
+    let offset = KeyedMap.find children entry.highest_key  in
+    Some (parent_key, parent_entry, offset)
 
-(* Exclusive set *)
 let lru_xset lru alloc_id value =
   if LRU.mem alloc_id lru then raise @@ AlreadyCached alloc_id;
   let would_discard =
@@ -300,18 +287,16 @@ let lru_xset lru alloc_id value =
   (* assumes uniform weights, looks only at the bottom item *)
   ( if would_discard then
     match LRU.lru lru with
-    | Some (_alloc_id, entry)
-      when entry.flush_info <> None ->
-        failwith "Would discard dirty data"
-        (* TODO expose this as a proper API value *)
-    | Some (_alloc_id, entry) -> (
-      match lookup_parent_link lru entry with
-      | None ->
-          failwith "Would discard a root key, LRU too small for tree depth"
-      | Some (_parent_key, parent_entry, _offset) ->
-          KeyedMap.remove entry.highest_key parent_entry.children_alloc_ids )
-    | _ ->
-        failwith "LRU capacity is too small" );
+    |Some (_alloc_id, entry) when entry.flush_info <> None ->
+      failwith "Would discard dirty data" (* TODO expose this as a proper API value *)
+    |Some (_alloc_id, entry) ->
+      begin match lookup_parent_link lru entry with
+      |None -> failwith "Would discard a root key, LRU too small for tree depth"
+      |Some (_parent_key, parent_entry, _offset) ->
+        KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key
+      end
+    |_ -> failwith "LRU capacity is too small"
+  end;
   LRU.add alloc_id value lru
 
 let lru_create capacity = LRU.create capacity
@@ -456,60 +441,38 @@ let _reserve_dirty cache alloc_id new_count depth =
 let rec _mark_dirty cache alloc_id : flush_info =
   (*Logs.debug (fun m -> m "_mark_dirty %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
-  | None ->
-      failwith "Missing LRU key"
-  | Some entry -> (
-    match entry.flush_info with
-    | Some di ->
-        di
-    | None ->
-        ( match entry.cached_node with
-        | `Root -> (
-          match cache.flush_root with
-          | None ->
-              cache.flush_root <- Some alloc_id
-          | _ ->
-              failwith "flush_root inconsistent" )
-        | `Child -> (
-          match entry.parent_key with
-          | Some parent_key -> (
-            match lru_get cache.lru parent_key with
-            | None ->
-                failwith "missing parent_entry"
-            | Some _parent_entry ->
-                let parent_di = _mark_dirty cache parent_key in
-                if
-                  KeyedMap.exists
-                    (fun _k lk -> lk = alloc_id)
-                    parent_di.flush_children
-                then failwith "dirty_node inconsistent"
-                else
-                  KeyedMap.add entry.highest_key alloc_id
-                    parent_di.flush_children )
-          | None ->
-              failwith "entry.parent_key inconsistent (no parent)" ) );
-        let di = {flush_children = KeyedMap.create ()} in
+  |None -> failwith "Missing LRU key"
+  |Some entry -> begin
+      match entry.flush_info with
+      |Some di -> di
+      |None -> begin
+          match entry.cached_node with
+          |`Root ->
+            begin match cache.flush_root with
+              |None -> cache.flush_root <- Some alloc_id
+              |_ -> failwith "flush_root inconsistent" end
+          |`Child ->
+            match entry.parent_key with
+            |Some parent_key -> begin
+                match lru_get cache.lru parent_key with
+                |None -> failwith "missing parent_entry"
+                |Some _parent_entry ->
+                    let parent_di = _mark_dirty cache parent_key in
+                    KeyedMap.add_if_absent parent_di.flush_children entry.highest_key alloc_id
+              end
+            |None -> failwith "entry.parent_key inconsistent (no parent)";
+        end;
+        let di = { flush_children=KeyedMap.create (); } in
         entry.flush_info <- Some di;
-        ( match entry.prev_logical with
-        | None ->
-            cache.new_count <- Int64.succ cache.new_count;
-            if
-              Int64.(
-                compare
-                  (add cache.new_count cache.dirty_count)
-                  cache.free_count)
-              > 0
-            then failwith "Out of space" (* Not the same as OutOfSpace *)
-        | Some _plog ->
-            cache.dirty_count <- Int64.succ cache.dirty_count;
-            if
-              Int64.(
-                compare
-                  (add cache.new_count cache.dirty_count)
-                  cache.free_count)
-              > 0
-            then failwith "Out of space" );
-        di )
+        begin
+        match entry.prev_logical with
+        |None ->
+          cache.new_count <- Int64.succ cache.new_count;
+          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then failwith "Out of space"; (* Not the same as OutOfSpace *)
+        |Some _plog ->
+          cache.dirty_count <- Int64.succ cache.dirty_count;
+          if Int64.(compare (add cache.new_count cache.dirty_count) cache.free_count) > 0 then failwith "Out of space";
+        end;
 
 let _get_superblock_io () =
   (* This will only work on Unix, which has buffered IO instead of direct IO.
@@ -791,11 +754,8 @@ struct
       else
         let key = Cstruct.to_string @@ Cstruct.sub cstr off P.key_size in
         let len = Cstruct.LE.get_uint16 cstr (off + P.key_size) in
-        let va =
-          Cstruct.to_string
-          @@ Cstruct.sub cstr (off + P.key_size + sizeof_datalen) len
-        in
-        KeyedMap.xadd key va r.logdata_contents;
+        let va = Cstruct.to_string @@ Cstruct.sub cstr (off + P.key_size + sizeof_datalen) len in
+        KeyedMap.add_if_absent r.logdata_contents key va ;
         r.value_end <- off + P.key_size + sizeof_datalen + len;
         scan r.value_end @@ pred value_count
     in
@@ -810,12 +770,11 @@ struct
   let _compute_children entry =
     Logs.debug (fun m -> m "_compute_children");
     let r = KeyedMap.create () in
-    List.iter
-      (fun off ->
-        let key =
-          Cstruct.to_string @@ Cstruct.sub entry.raw_node off P.key_size
-        in
-        KeyedMap.xadd key (Int64.of_int off) r )
+    List.iter (
+      fun off ->
+        let key = Cstruct.to_string @@ Cstruct.sub (
+          entry.raw_node) off P.key_size in
+        KeyedMap.add_if_absent r key (Int64.of_int off))
       (_gen_childlink_offsets entry.childlinks.childlinks_offset);
     r
 
@@ -1183,16 +1142,16 @@ struct
     let children = Lazy.force parent.children in
     (* Force *before* blitting *)
     child.parent_key <- Some parent_key;
-    Cstruct.blit
-      (Cstruct.of_string child.highest_key)
-      0 parent.raw_node off P.key_size;
-    (parent.childlinks).childlinks_offset <- off;
-    KeyedMap.xadd
+    Cstruct.blit (Cstruct.of_string child.highest_key) 0 parent.raw_node off P.key_size;
+    parent.childlinks.childlinks_offset <- off;
+    KeyedMap.add_if_absent
+      children
       (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size)
-      (Int64.of_int off) children;
-    KeyedMap.xadd
+      (Int64.of_int off);
+    KeyedMap.add_if_absent
+      parent.children_alloc_ids
       (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size)
-      alloc_id parent.children_alloc_ids;
+      alloc_id;
     (*ignore @@ _mark_dirty cache parent_key;*)
     ignore @@ _mark_dirty cache child_key
 
@@ -1287,8 +1246,8 @@ struct
     if entry.rdepth = 0l then
       failwith "invalid rdepth: found children when rdepth = 0";
     let rdepth = Int32.pred entry.rdepth in
-    match KeyedMap.find_opt child_key entry.children_alloc_ids with
-    | None ->
+    match KeyedMap.find_opt entry.children_alloc_ids child_key with
+    |None ->
         let logical = _logical_of_offset cstr offset in
         ( if%lwt Lwt.return open_fs.filesystem.mount_options.fast_scan then
           match cache.scan_map with
@@ -1309,7 +1268,7 @@ struct
           _load_child_node_at open_fs logical child_key entry_key rdepth
         in
         let alloc_id = next_alloc_id cache in
-        KeyedMap.xadd child_key alloc_id entry.children_alloc_ids;
+        KeyedMap.add_if_absent entry.children_alloc_ids child_key alloc_id;
         lru_xset cache.lru alloc_id child_entry;
         Lwt.return (alloc_id, child_entry)
     | Some alloc_id -> (
@@ -1341,87 +1300,115 @@ struct
         assert (has_free_space entry @@ _ins_req_space insertable);
         (* Simple insertion *)
         match insertable with
-        | InsValue value ->
-            let len = String.length value in
-            let len1 = P.key_size + sizeof_datalen + len in
-            let kd = entry.logdata in
-            (* TODO optionally optimize storing tombstones on leaf nodes *)
-            KeyedMap.map1 key
-              (function
-                | None ->
-                    (* Padded length *)
-                    kd.value_end <- kd.value_end + len1;
-                    Some value
-                | Some prev_val ->
-                    (* No need to pad lengths *)
-                    kd.value_end
-                    <- kd.value_end - String.length prev_val + len;
-                    Some value)
-              kd.logdata_contents;
-            ignore @@ _mark_dirty fs.node_cache alloc_id
-        | InsChild (loc, child_alloc_id_opt) ->
-            let cstr = entry.raw_node in
-            let cls = entry.childlinks in
-            let offset = cls.childlinks_offset - childlink_size in
-            let children = Lazy.force entry.children in
-            cls.childlinks_offset <- offset;
-            Cstruct.blit (Cstruct.of_string key) 0 cstr offset P.key_size;
-            Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
-            KeyedMap.xadd
+        |InsValue value ->
+          let len = String.length value in
+          let len1 = P.key_size + sizeof_datalen + len in
+          let kd = entry.logdata in
+          (* TODO optionally optimize storing tombstones on leaf nodes *)
+          KeyedMap.update kd.logdata_contents key (function
+              |None ->
+              (* Padded length *)
+              kd.value_end <- kd.value_end + len1;
+              Some value
+            |Some prev_val ->
+              (* No need to pad lengths *)
+              kd.value_end <- kd.value_end - (String.length prev_val) + len;
+              Some value
+            );
+          ignore @@ _mark_dirty fs.node_cache alloc_id;
+        |InsChild (loc, child_alloc_id_opt) ->
+          let cstr = entry.raw_node in
+          let cls = entry.childlinks in
+          let offset = cls.childlinks_offset - childlink_size in
+          let children = Lazy.force entry.children in
+          cls.childlinks_offset <- offset;
+          Cstruct.blit (Cstruct.of_string key) 0 cstr offset P.key_size;
+          Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
+          KeyedMap.add_if_absent
+            children
+            (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size)
+            (Int64.of_int offset) ;
+          begin match child_alloc_id_opt with
+          |None -> ()
+          |Some child_alloc_id ->
+            KeyedMap.add_if_absent
+              entry.children_alloc_ids
               (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size)
-              (Int64.of_int offset) children;
-            ( match child_alloc_id_opt with
-            | None ->
-                ()
-            | Some child_alloc_id ->
-                KeyedMap.xadd
-                  (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size)
-                  child_alloc_id entry.children_alloc_ids );
-            ignore @@ _mark_dirty fs.node_cache alloc_id )
+              child_alloc_id
+          end;
+          ignore @@ _mark_dirty fs.node_cache alloc_id;
+      end
+    end
 
   let _split_point entry =
     if _has_children entry then
       let children = Lazy.force entry.children in
       let n = KeyedMap.length children in
-      let binds = keyedmap_keys children in
-      let median = List.nth binds @@ (n / 2) in
+      let binds = KeyedMap.keys children in
+      let median = List.nth binds @@ n/2 in
       median
     else
       let kdc = entry.logdata.logdata_contents in
       let n = KeyedMap.length kdc in
-      let binds = keyedmap_keys kdc in
-      let median = List.nth binds @@ (n / 2) in
+      let binds = KeyedMap.keys kdc in
+      let median = List.nth binds @@ n/2 in
       median
 
   let rec _check_live_integrity fs alloc_id depth =
     let fail = ref false in
     match lru_peek fs.node_cache.lru alloc_id with
-    | None ->
-        failwith "Missing LRU entry"
-    | Some entry ->
-        ( if
-            _has_children entry
-            && not
-                 ( String.equal entry.highest_key
-                 @@ fst
-                 @@ unwrap_opt
-                 @@ KeyedMap.max_binding
-                 @@ Lazy.force entry.children )
-          then (
-            string_dump @@ entry.highest_key;
-            string_dump
-            @@ fst
-            @@ unwrap_opt
-            @@ KeyedMap.max_binding
-            @@ Lazy.force entry.children;
-            Logs.err (fun m ->
-                m "_check_live_integrity %Ld invariant broken: highest_key"
-                  depth );
-            fail := true );
-          match entry.parent_key with
-          | None ->
-              ()
-          | Some parent_key -> (
+    |None -> failwith "Missing LRU entry"
+    |Some entry -> begin
+        if _has_children entry && not (
+          String.equal
+          entry.highest_key
+          @@ fst @@ KeyedMap.max_binding @@ Lazy.force entry.children)
+        then begin
+          string_dump @@ entry.highest_key;
+          string_dump @@ fst @@ KeyedMap.max_binding @@ Lazy.force entry.children;
+          Logs.err (fun m -> m "_check_live_integrity %Ld invariant broken: highest_key" depth);
+          fail := true;
+        end;
+        match entry.parent_key with
+        |None -> ()
+        |Some parent_key -> begin
+            match lru_peek fs.node_cache.lru parent_key with
+            |None -> failwith "Missing parent"
+            |Some parent_entry ->
+              let children = Lazy.force parent_entry.children in
+              match KeyedMap.find_opt children entry.highest_key with
+              |None ->
+                Logs.err (fun m -> m "_check_live_integrity %Ld invariant broken: lookup_parent_link" depth);
+                fail := true;
+              |Some _offset ->
+                assert (
+                  KeyedMap.find_opt
+                    parent_entry.children_alloc_ids
+                    entry.highest_key
+                  = Some alloc_id);
+          end;
+      end;
+
+      let vend = ref @@ header_size entry.cached_node in
+      KeyedMap.iter (fun _k va ->
+        vend := !vend + P.key_size + sizeof_datalen + String.length va
+                ) entry.logdata.logdata_contents;
+      if !vend != entry.logdata.value_end then begin
+        Logs.err (fun m -> m "Inconsistent value_end %Ld" depth);
+        fail := true;
+      end;
+
+      begin match entry.flush_info with
+      |Some flush_info -> begin
+          if KeyedMap.exists
+              (fun _k child_alloc_id -> child_alloc_id = alloc_id)
+              flush_info.flush_children then begin
+          Logs.err (fun m -> m "Self-pointing flush reference %Ld" depth);
+          fail := true;
+        end;
+        match entry.parent_key with
+        |None -> ()
+        |Some parent_key ->
             match lru_peek fs.node_cache.lru parent_key with
             | None ->
                 failwith "Missing parent"
@@ -1563,263 +1550,202 @@ struct
     (*Logs.debug (fun m -> m "_reserve_insert %Ld" depth);*)
     _check_live_integrity fs alloc_id depth;
     match lru_get fs.node_cache.lru alloc_id with
-    | None ->
-        failwith
-        @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
-    | Some entry -> (
-        if has_free_space entry space then (
-          _reserve_dirty fs.node_cache alloc_id 0L depth;
-          Lwt.return () )
-        else if (not split_path) && _has_children entry && _has_logdata entry
-        then (
-          (* log spilling *)
-          let children = Lazy.force entry.children in
-          let find_victim () =
-            let spill_score = ref 0 in
-            let best_spill_score = ref 0 in
-            (* an iterator on entry.children keys would be helpful here *)
-            let scored_key =
-              ref @@ fst @@ unwrap_opt @@ KeyedMap.min_binding children
-            in
-            let best_spill_key = ref !scored_key in
-            KeyedMap.iter
-              (fun k va ->
-                if String.compare k !scored_key > 0 then (
-                  if !spill_score > !best_spill_score then (
-                    best_spill_score := !spill_score;
-                    best_spill_key := !scored_key );
-                  spill_score := 0;
-                  match KeyedMap.find_first_opt k children with
-                  | None ->
-                      string_dump k;
-                      string_dump
-                      @@ fst
-                      @@ unwrap_opt
-                      @@ KeyedMap.max_binding children;
-                      string_dump entry.highest_key;
-                      failwith "children invariant broken"
-                  | Some (sk, _cl) ->
-                      scored_key := sk );
-                let len = String.length va in
-                let len1 = P.key_size + sizeof_datalen + len in
-                spill_score := !spill_score + len1 )
-              entry.logdata.logdata_contents;
-            if !spill_score > !best_spill_score then (
-              best_spill_score := !spill_score;
-              best_spill_key := !scored_key );
-            (!best_spill_score, !best_spill_key)
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
+    |Some entry ->
+      if has_free_space entry space then begin
+        _reserve_dirty fs.node_cache alloc_id 0L depth;
+        Lwt.return ()
+      end
+      else if not split_path && _has_children entry && _has_logdata entry then begin
+        (* log spilling *)
+        let children = Lazy.force entry.children in
+        let find_victim () =
+          let spill_score = ref 0 in
+          let best_spill_score = ref 0 in
+          (* an iterator on entry.children keys would be helpful here *)
+          let scored_key = ref @@ fst @@ KeyedMap.min_binding children in
+          let best_spill_key = ref !scored_key in
+          KeyedMap.iter (fun k va -> begin
+            if String.compare k !scored_key > 0 then begin
+              if !spill_score > !best_spill_score then begin
+                best_spill_score := !spill_score;
+                best_spill_key := !scored_key;
+              end;
+              spill_score := 0;
+              match KeyedMap.find_first_opt children k with
+              |None ->
+                string_dump k;
+                string_dump @@ fst @@ KeyedMap.max_binding children;
+                string_dump entry.highest_key;
+                failwith "children invariant broken"
+              |Some (sk, _cl) ->
+                scored_key := sk;
+            end;
+            let len = String.length va in
+            let len1 = P.key_size + sizeof_datalen + len in
+            spill_score := !spill_score + len1;
+          end) entry.logdata.logdata_contents;
+          if !spill_score > !best_spill_score then begin
+            best_spill_score := !spill_score;
+            best_spill_key := !scored_key;
+          end;
+          !best_spill_score, !best_spill_key
+        in
+        let best_spill_score, best_spill_key = find_victim () in
+        Logs.debug (fun m -> m "log spilling %Ld %Ld %d" depth alloc_id best_spill_score);
+        let offset = KeyedMap.find children best_spill_key in
+        let%lwt child_alloc_id, _ce = _preload_child fs alloc_id entry best_spill_key offset in begin
+        let clo = entry.childlinks.childlinks_offset in
+        let nko = entry.logdata.value_end in
+        (*Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.logdata.value_end);*)
+        _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score) false @@ Int64.succ depth >>= fun () -> begin
+        (*Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.logdata.value_end);*)
+        if clo = entry.childlinks.childlinks_offset && nko = entry.logdata.value_end then begin
+        (* _reserve_insert didn't split the child or the root *)
+          _reserve_dirty fs.node_cache child_alloc_id 0L @@ Int64.succ depth;
+          let before_bsk_succ = match KeyedMap.find_last_opt children best_spill_key with
+            |Some (before_bsk, _va) -> next_key before_bsk
+            |None -> zero_key
           in
-          let best_spill_score, best_spill_key = find_victim () in
-          Logs.debug (fun m ->
-              m "log spilling %Ld %Ld %d inserts:%d" depth alloc_id
-                best_spill_score fs.node_cache.statistics.inserts );
-          let offset = keyedmap_find best_spill_key children in
-          let%lwt child_alloc_id, _ce =
-            _preload_child fs alloc_id entry best_spill_key offset
-          in
-          let clo = entry.childlinks.childlinks_offset in
-          let nko = entry.logdata.value_end in
-          (*Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.logdata.value_end);*)
-          _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score)
-            false
-          @@ Int64.succ depth
-          >>= fun () ->
-          (*Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.logdata.value_end);*)
-          if
-            clo = entry.childlinks.childlinks_offset
-            && nko = entry.logdata.value_end
-          then (
-            (* _reserve_insert didn't split the child or the root *)
-            _reserve_dirty fs.node_cache child_alloc_id 0L @@ Int64.succ depth;
-            let before_bsk_succ =
-              match KeyedMap.find_last_opt best_spill_key children with
-              | Some (before_bsk, _va) ->
-                  next_key before_bsk
-              | None ->
-                  zero_key
-            in
-            (* which keys we will dispatch *)
-            let carved_map =
-              KeyedMap.carve_inclusive_range before_bsk_succ best_spill_key
-                entry.logdata.logdata_contents
-            in
-            (entry.logdata).value_end
-            <- entry.logdata.value_end - best_spill_score;
-            KeyedMap.iter
-              (fun key va ->
-                _fast_insert fs child_alloc_id key (InsValue va)
-                @@ Int64.succ depth )
-              carved_map );
-          _reserve_insert fs alloc_id space split_path depth )
-        else
-          match entry.parent_key with
-          | None ->
-              (* Node splitting (root) *)
-              assert (depth = 0L);
-              Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
-              let kc = entry.logdata.logdata_contents in
-              let children = Lazy.force entry.children in
-              _reserve_dirty fs.node_cache alloc_id 2L depth;
-              let di = _mark_dirty fs.node_cache alloc_id in
-              let median = _split_point entry in
-              let alloc1, entry1 =
-                _new_node fs 2 (Some alloc_id) median entry.rdepth
-              in
-              let alloc2, entry2 =
-                _new_node fs 2 (Some alloc_id) entry.highest_key entry.rdepth
-              in
-              let kc2 = KeyedMap.split_off_after median kc in
-              let cl2 = KeyedMap.split_off_after median children in
-              let ca2 =
-                KeyedMap.split_off_after median entry.children_alloc_ids
-              in
-              let fc2 = KeyedMap.split_off_after median di.flush_children in
-              let blit_cd_child k offset centry =
-                let cstr0 = entry.raw_node in
-                let cstr1 = centry.raw_node in
-                let offset1 =
-                  centry.childlinks.childlinks_offset - childlink_size
-                in
-                (centry.childlinks).childlinks_offset <- offset1;
-                Cstruct.blit cstr0 (Int64.to_int offset) cstr1 offset1
-                  childlink_size;
-                assert (Lazy.is_val centry.children);
-                let key1 =
-                  Cstruct.to_string @@ Cstruct.sub cstr1 offset1 P.key_size
-                in
-                Logs.debug (fun m ->
-                    m "Blitting %S (%S) from offset %Ld" key1 k offset );
-                assert (k = key1);
-                KeyedMap.xadd key1 (Int64.of_int offset1)
-                  (Lazy.force centry.children)
-              in
-              KeyedMap.iter
-                (fun _k va ->
-                  (entry1.logdata).value_end
-                  <- entry1.logdata.value_end
-                     + String.length va
-                     + P.key_size
-                     + sizeof_datalen )
-                kc;
-              KeyedMap.iter
-                (fun _k va ->
-                  (entry2.logdata).value_end
-                  <- entry2.logdata.value_end
-                     + String.length va
-                     + P.key_size
-                     + sizeof_datalen )
-                kc2;
-              KeyedMap.iter (fun k off -> blit_cd_child k off entry1) children;
-              KeyedMap.iter (fun k off -> blit_cd_child k off entry2) cl2;
-              KeyedMap.swap entry1.logdata.logdata_contents kc;
-              KeyedMap.swap entry2.logdata.logdata_contents kc2;
-              entry1.children_alloc_ids <- entry.children_alloc_ids;
-              entry2.children_alloc_ids <- ca2;
-              _reset_contents entry;
-              entry.rdepth <- Int32.succ entry.rdepth;
-              set_rootnode_hdr_depth entry.raw_node entry.rdepth;
-              entry.flush_info <- Some {flush_children = KeyedMap.create ()};
-              _fixup_parent_links fs.node_cache alloc1 entry1;
-              _fixup_parent_links fs.node_cache alloc2 entry2;
-              _add_child entry entry1 alloc1 fs.node_cache alloc_id;
-              _add_child entry entry2 alloc2 fs.node_cache alloc_id;
-              entry1.flush_info <- Some {flush_children = di.flush_children};
-              entry2.flush_info <- Some {flush_children = fc2};
-              Lwt.return_unit
-          | Some parent_key -> (
-              (* Node splitting (non root) *)
-              assert (Int64.compare depth 0L > 0);
-              Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
-              (* Set split_path to prevent spill/split recursion; will split towards the root *)
-              _reserve_insert fs parent_key (InsSpaceChild childlink_size)
-                true
-              @@ Int64.pred depth
-              >>= fun () ->
-              let _children = Lazy.force entry.children in
-              _reserve_dirty fs.node_cache alloc_id 1L depth;
-              let di = _mark_dirty fs.node_cache alloc_id in
-              let median = _split_point entry in
-              let alloc1, entry1 =
-                _new_node fs 2 (Some parent_key) median entry.rdepth
-              in
-              let to_remove = ref [] in
-              let remove_size = ref 0 in
-              let kc1 =
-                KeyedMap.split_off_after median entry.logdata.logdata_contents
-              in
-              KeyedMap.swap kc1 entry.logdata.logdata_contents;
-              KeyedMap.iter
-                (fun key va ->
-                  let len = String.length va in
-                  let len1 = len + P.key_size + sizeof_datalen in
-                  _fast_insert fs alloc1 key (InsValue va) depth;
-                  remove_size := !remove_size + len1;
-                  to_remove := key :: !to_remove )
-                kc1;
-              List.iter
-                (fun key -> KeyedMap.remove key entry.logdata.logdata_contents)
-                !to_remove;
-              (entry.logdata).value_end
-              <- entry.logdata.value_end - !remove_size;
-              let clo_out = ref block_end in
-              let clo_out1 = ref block_end in
-              let clo = ref @@ (block_end - childlink_size) in
-              let children = Lazy.force entry.children in
-              let children1 = KeyedMap.create () in
-              let fc1 = KeyedMap.create () in
-              while !clo >= entry.childlinks.childlinks_offset do
-                (* Move children data *)
-                let key1 =
-                  Cstruct.to_string
-                  @@ Cstruct.sub entry.raw_node !clo P.key_size
-                in
-                if String.compare key1 median <= 0 then (
-                  clo_out1 := !clo_out1 - childlink_size;
-                  Cstruct.blit entry.raw_node !clo entry1.raw_node !clo_out1
-                    childlink_size;
-                  ( match KeyedMap.find_opt key1 entry.children_alloc_ids with
-                  | Some alloc_id ->
-                      KeyedMap.remove key1 entry.children_alloc_ids;
-                      KeyedMap.xadd key1 alloc_id entry1.children_alloc_ids
-                  | None ->
-                      () );
-                  KeyedMap.remove key1 children;
-                  KeyedMap.xadd key1 (Int64.of_int !clo_out1) children1;
-                  if KeyedMap.mem key1 di.flush_children then (
-                    let child_alloc_id =
-                      keyedmap_find key1 di.flush_children
-                    in
-                    KeyedMap.remove key1 di.flush_children;
-                    KeyedMap.xadd key1 child_alloc_id fc1 ) )
-                else (
-                  clo_out := !clo_out - childlink_size;
-                  Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out
-                    childlink_size;
-                  let key1 =
-                    Cstruct.to_string
-                    @@ Cstruct.sub entry.raw_node !clo_out P.key_size
-                  in
-                  KeyedMap.update key1 (Int64.of_int !clo_out) children )
-              done;
-              (entry.childlinks).childlinks_offset <- !clo_out;
-              (entry1.childlinks).childlinks_offset <- !clo_out1;
-              entry1.children <- Lazy.from_val children1;
-              _fixup_parent_links fs.node_cache alloc1 entry1;
-              (* Hook new node into parent *)
-              match lru_peek fs.node_cache.lru parent_key with
-              | None ->
-                  failwith
-                  @@ Printf.sprintf "Missing LRU entry for %Ld (parent)"
-                       alloc_id
-              | Some parent ->
-                  ( _add_child parent entry1 alloc1 fs.node_cache parent_key;
-                    entry1.flush_info <- Some {flush_children = fc1};
-                    match parent.flush_info with
-                    | None ->
-                        failwith "Missing flush_info for parent"
-                    | Some di ->
-                        KeyedMap.add median alloc1 di.flush_children );
-                  _reserve_insert fs alloc_id space split_path depth ) )
+        (* which keys we will dispatch *)
+        let carved_list = KeyedMap.carve_inclusive_range entry.logdata.logdata_contents
+          before_bsk_succ best_spill_key
+        in
+        entry.logdata.value_end <- entry.logdata.value_end - best_spill_score;
+        List.iter (fun (key, va) ->
+          _fast_insert fs child_alloc_id key (InsValue va) @@
+          Int64.succ depth) carved_list;
+        end;
+        _reserve_insert fs alloc_id space split_path depth
+        end
+      end
+      end
+      else match entry.parent_key with
+        |None -> begin (* Node splitting (root) *)
+            assert (depth = 0L);
+            Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
+            let kc = entry.logdata.logdata_contents in
+            let children = Lazy.force entry.children in
+            _reserve_dirty fs.node_cache alloc_id 2L depth;
+            let di = _mark_dirty fs.node_cache alloc_id in
+            let median = _split_point entry in
+            let alloc1, entry1 = _new_node fs 2 (Some alloc_id) median entry.rdepth in
+            let alloc2, entry2 = _new_node fs 2 (Some alloc_id) entry.highest_key entry.rdepth in
+            let kc2 = KeyedMap.split_off_after kc median in
+            let cl2 = KeyedMap.split_off_after children median in
+            let ca2 = KeyedMap.split_off_after entry.children_alloc_ids median in
+            let fc2 = KeyedMap.split_off_after di.flush_children median in
+        let blit_cd_child k offset centry =
+          let cstr0 = entry.raw_node in
+          let cstr1 = centry.raw_node in
+          let offset1 = centry.childlinks.childlinks_offset - childlink_size in
+          centry.childlinks.childlinks_offset <- offset1;
+          Cstruct.blit cstr0 (Int64.to_int offset) cstr1 offset1 childlink_size;
+          assert (Lazy.is_val centry.children);
+          let key1 = Cstruct.to_string @@ Cstruct.sub cstr1 offset1 P.key_size in
+          Logs.debug (fun m -> m "Blitting %S (%S) from offset %Ld" key1 k offset);
+          assert (k = key1);
+          KeyedMap.add_if_absent (Lazy.force centry.children) key1 (Int64.of_int offset1);
+        in
+        KeyedMap.iter (fun _k va -> entry1.logdata.value_end <- entry1.logdata.value_end + String.length va + P.key_size + sizeof_datalen) kc;
+        KeyedMap.iter (fun _k va -> entry2.logdata.value_end <- entry2.logdata.value_end + String.length va + P.key_size + sizeof_datalen) kc2;
+        KeyedMap.iter (fun k off -> blit_cd_child k off entry1) children;
+        KeyedMap.iter (fun k off -> blit_cd_child k off entry2) cl2;
+        KeyedMap.swap entry1.logdata.logdata_contents kc;
+        KeyedMap.swap entry2.logdata.logdata_contents kc2;
+        entry1.children_alloc_ids <- entry.children_alloc_ids;
+        entry2.children_alloc_ids <- ca2;
+        _reset_contents entry;
+        entry.rdepth <- Int32.succ entry.rdepth;
+        set_rootnode_hdr_depth entry.raw_node entry.rdepth;
+        entry.flush_info <- Some { flush_children=KeyedMap.create () };
+        _fixup_parent_links fs.node_cache alloc1 entry1;
+        _fixup_parent_links fs.node_cache alloc2 entry2;
+        _add_child entry entry1 alloc1 fs.node_cache alloc_id;
+        _add_child entry entry2 alloc2 fs.node_cache alloc_id;
+        entry1.flush_info <- Some { flush_children=di.flush_children };
+        entry2.flush_info <- Some { flush_children=fc2 };
+        Lwt.return_unit
+      end
+      |Some parent_key -> begin (* Node splitting (non root) *)
+        assert (Int64.compare depth 0L > 0);
+        Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
+        (* Set split_path to prevent spill/split recursion; will split towards the root *)
+        _reserve_insert fs parent_key (InsSpaceChild childlink_size) true @@ Int64.pred depth >>= fun () ->
+        let _children = Lazy.force entry.children in
+        _reserve_dirty fs.node_cache alloc_id 1L depth;
+        let di = _mark_dirty fs.node_cache alloc_id in
+        let median = _split_point entry in
+        let alloc1, entry1 = _new_node fs 2 (Some parent_key) median entry.rdepth in begin
+
+        let to_remove = ref [] in
+        let remove_size = ref 0 in
+        let kc1 = KeyedMap.split_off_after
+          entry.logdata.logdata_contents median in
+        KeyedMap.swap kc1 entry.logdata.logdata_contents;
+        KeyedMap.iter (fun key va ->
+            let len = String.length va in
+            let len1 = len + P.key_size + sizeof_datalen in
+            _fast_insert fs alloc1 key (InsValue va) depth;
+            remove_size := !remove_size + len1;
+            to_remove := key::!to_remove;
+          ) kc1;
+        List.iter (fun key ->
+            KeyedMap.remove entry.logdata.logdata_contents key
+          ) !to_remove;
+        entry.logdata.value_end <- entry.logdata.value_end - !remove_size;
+
+        let clo_out = ref block_end in
+        let clo_out1 = ref block_end in
+        let clo = ref @@ block_end - childlink_size in
+        let children = Lazy.force entry.children in
+        let children1 = KeyedMap.create () in
+        let fc1 = KeyedMap.create () in
+        while !clo >= entry.childlinks.childlinks_offset do
+        (* Move children data *)
+          let key1 = Cstruct.to_string @@ Cstruct.sub entry.raw_node !clo P.key_size in
+          if String.compare key1 median <= 0 then begin
+            clo_out1 := !clo_out1 - childlink_size;
+            Cstruct.blit entry.raw_node !clo entry1.raw_node !clo_out1 childlink_size;
+            begin match KeyedMap.find_opt entry.children_alloc_ids key1 with
+            |Some alloc_id ->
+              KeyedMap.remove entry.children_alloc_ids key1;
+              KeyedMap.add_if_absent entry1.children_alloc_ids key1 alloc_id ;
+            |None ->
+              ()
+            end;
+            KeyedMap.remove children key1;
+            KeyedMap.add_if_absent children1 key1 (Int64.of_int !clo_out1);
+            if KeyedMap.mem di.flush_children key1 then begin
+              let child_alloc_id = KeyedMap.find di.flush_children key1 in
+              KeyedMap.remove di.flush_children key1;
+              KeyedMap.add_if_absent fc1 key1 child_alloc_id;
+            end
+          end else begin
+            clo_out := !clo_out - childlink_size;
+            Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out childlink_size;
+            let key1 = Cstruct.to_string @@ Cstruct.sub entry.raw_node !clo_out P.key_size in
+            KeyedMap.replace_if_present children key1 (Int64.of_int !clo_out)
+          end
+        done;
+        entry.childlinks.childlinks_offset <- !clo_out;
+        entry1.childlinks.childlinks_offset <- !clo_out1;
+        entry1.children <- Lazy.from_val children1;
+        _fixup_parent_links fs.node_cache alloc1 entry1;
+        (* Hook new node into parent *)
+        match lru_peek fs.node_cache.lru parent_key with
+        |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (parent)" alloc_id
+        |Some parent -> begin
+          _add_child parent entry1 alloc1 fs.node_cache parent_key;
+          entry1.flush_info <- Some { flush_children = fc1 };
+          match parent.flush_info with
+          |None -> failwith "Missing flush_info for parent"
+          |Some di ->
+              KeyedMap.add di.flush_children median alloc1;
+          end;
+        _reserve_insert fs alloc_id space split_path depth;
+      end
+      end
 
   let insert root key value =
     (*Logs.debug (fun m -> m "insert");*)
@@ -1838,50 +1764,39 @@ struct
   let rec _lookup open_fs alloc_id key =
     Logs.debug (fun m -> m "_lookup");
     match lru_get open_fs.node_cache.lru alloc_id with
-    | None ->
-        Logs.err (fun m -> m "Missing LRU entry for %Ld (lookup)" alloc_id);
-        failwith
-        @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" alloc_id
-    | Some entry -> (
-      match KeyedMap.find_opt key entry.logdata.logdata_contents with
-      | Some va ->
-          (*Logs.debug (fun m -> m "Found");*)
-          if _is_value open_fs.filesystem va then Lwt.return_some va
+    |None ->
+      Logs.err (fun m -> m "Missing LRU entry for %Ld (lookup)" alloc_id);
+      failwith @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" alloc_id
+    |Some entry ->
+      match
+        KeyedMap.find_opt entry.logdata.logdata_contents key
+      with
+        |Some va ->
+          Logs.debug (fun m -> m "Found");
+          if _is_value open_fs.filesystem va
+          then Lwt.return_some va
           else Lwt.return_none
-      | None ->
-          if not @@ _has_children entry then Lwt.return_none
-          else
-            let key1, offset =
-              unwrap_opt
-              @@ KeyedMap.find_first_opt key
-              @@ Lazy.force entry.children
-            in
-            let%lwt child_alloc_id, _ce =
-              _preload_child open_fs alloc_id entry key1 offset
-            in
-            _lookup open_fs child_alloc_id key )
+        |None ->
+          if not @@ _has_children entry then Lwt.return_none else
+            let key1, offset = KeyedMap.find_first (Lazy.force entry.children) key in
+            let%lwt child_alloc_id, _ce = _preload_child open_fs alloc_id entry key1 offset in
+            _lookup open_fs child_alloc_id key
 
   let rec _mem open_fs alloc_id key =
     match lru_get open_fs.node_cache.lru alloc_id with
-    | None ->
-        failwith @@ Printf.sprintf "Missing LRU entry for %Ld (mem)" alloc_id
-    | Some entry -> (
-      match KeyedMap.find_opt key entry.logdata.logdata_contents with
-      | Some va ->
-          Lwt.return @@ _is_value open_fs.filesystem va
-      | None ->
-          Logs.debug (fun m -> m "_mem");
-          if not @@ _has_children entry then Lwt.return_false
-          else
-            let key1, offset =
-              unwrap_opt
-              @@ KeyedMap.find_first_opt key
-              @@ Lazy.force entry.children
-            in
-            let%lwt child_alloc_id, _ce =
-              _preload_child open_fs alloc_id entry key1 offset
-            in
-            _mem open_fs child_alloc_id key )
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (mem)" alloc_id
+    |Some entry ->
+      match
+        KeyedMap.find_opt entry.logdata.logdata_contents key
+      with
+        |Some va ->
+            Lwt.return @@ _is_value open_fs.filesystem va
+        |None ->
+            Logs.debug (fun m -> m "_mem");
+            if not @@ _has_children entry then Lwt.return_false else
+            let key1, offset = KeyedMap.find_first (Lazy.force entry.children) key in
+            let%lwt child_alloc_id, _ce = _preload_child open_fs alloc_id entry key1 offset in
+            _mem open_fs child_alloc_id key
 
   let lookup root key =
     let stats = root.open_fs.node_cache.statistics in
@@ -1895,33 +1810,21 @@ struct
 
   let rec _search_range open_fs alloc_id start end_ seen callback =
     match lru_get open_fs.node_cache.lru alloc_id with
-    | None ->
-        failwith
-        @@ Printf.sprintf "Missing LRU entry for %Ld (search_range)" alloc_id
-    | Some entry ->
-        let seen1 = ref seen in
-        let lwt_queue = ref [] in
-        (* The range from start inclusive to end_ exclusive *)
-        KeyedMap.iter_range start end_
-          (fun k va ->
-            ( match _value_at open_fs.filesystem va with
-            | Some v ->
-                callback k v
-            | None ->
-                () );
-            seen1 := KeyedSet.add k !seen1 )
-          entry.logdata.logdata_contents;
-        (* As above, but end at end_ inclusive *)
-        KeyedMap.iter_inclusive_range start end_ (fun key1 offset ->
-            lwt_queue := (key1, offset) :: !lwt_queue )
-        @@ Lazy.force entry.children;
-        Lwt_list.iter_s
-          (fun (key1, offset) ->
-            let%lwt child_alloc_id, _ce =
-              _preload_child open_fs alloc_id entry key1 offset
-            in
-            _search_range open_fs child_alloc_id start end_ !seen1 callback )
-          !lwt_queue
+    |None -> failwith @@ Printf.sprintf "Missing LRU entry for %Ld (search_range)" alloc_id
+    |Some entry ->
+      let seen1 = ref seen in
+      let lwt_queue = ref [] in
+      (* The range from start inclusive to end_ exclusive *)
+      KeyedMap.iter_range (fun k va -> (match _value_at open_fs.filesystem va with Some v -> callback k v|None ->() ); seen1 := KeyedSet.add k !seen1)
+      entry.logdata.logdata_contents start end_ ;
+      (* As above, but end at end_ inclusive *)
+      KeyedMap.iter_inclusive_range (fun key1 offset ->
+        lwt_queue := (key1, offset)::!lwt_queue)
+      (Lazy.force entry.children) start end_ ;
+      Lwt_list.iter_s (fun (key1, offset) ->
+          let%lwt child_alloc_id, _ce =
+            _preload_child open_fs alloc_id entry key1 offset in
+          _search_range open_fs child_alloc_id start end_ !seen1 callback) !lwt_queue
 
   (* The range from start inclusive to end_ exclusive
      Results are in no particular order. *)
