@@ -6,7 +6,7 @@ open Stdcompat
 module FMap = Wodan_map_407.Make(String)
 
 type 'a t = ('a FMap.t) ref
-exception AlreadyExists
+exception AlreadyExists of string
 
 let create () = ref FMap.empty
 let length m = FMap.cardinal !m
@@ -20,7 +20,7 @@ let map1 k f m =
 let update k v m =
   m := FMap.update k (function Some _ -> Some v | None -> raise Not_found) !m
 let xadd k v m =
-  m := FMap.update k (function Some _ -> raise AlreadyExists | None -> Some v) !m
+  m := FMap.update k (function Some _ -> raise @@ AlreadyExists k | None -> Some v) !m
 let remove k m =
   m := FMap.remove k !m
 let iter f m = 
