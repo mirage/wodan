@@ -778,6 +778,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         Cstruct.blit_from_string va 0 entry.raw_node (!offset + P.key_size + sizeof_datalen) len;
         offset := !offset + len1;
       ) entry.logdata.logdata_contents;
+    assert (!offset = entry.logdata.value_end);
     begin if entry.logdata.value_end < entry.logdata.old_value_end then
       let len = entry.logdata.old_value_end - entry.logdata.value_end in
       Cstruct.blit (Cstruct.create len) 0 entry.raw_node entry.logdata.value_end len
