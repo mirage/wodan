@@ -202,6 +202,7 @@ end
 type logdata_index = {
   mutable logdata_contents: string KeyedMap.t;
   mutable value_end: int;
+  (* The last value_end that was read from or written to disk *)
   mutable old_value_end: int;
 }
 
