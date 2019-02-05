@@ -1,3 +1,5 @@
+open Stdcompat
+
 module type OrderedType = sig
   type t
 
@@ -31,12 +33,22 @@ module Make (Ord : OrderedType) = struct
 
   let replace_if_present m k v =
     m :=
-      M.update k (function Some _ -> Some v | None -> raise Not_found) !m
+      M.update k
+        (function
+          | Some _ ->
+              Some v
+          | None ->
+              raise Not_found)
+        !m
 
   let add_if_absent m k v =
     m :=
       M.update k
-        (function Some _ -> raise Already_exists | None -> Some v)
+        (function
+          | Some _ ->
+              raise Already_exists
+          | None ->
+              Some v)
         !m
 
   let remove m k = m := M.remove k !m
@@ -68,8 +80,7 @@ module Make (Ord : OrderedType) = struct
   let find_first_opt m k =
     M.find_first_opt (fun k' -> Ord.compare k k' <= 0) !m
 
-  let find_last_opt m k =
-    M.find_last_opt (fun k' -> Ord.compare k' k < 0) !m
+  let find_last_opt m k = M.find_last_opt (fun k' -> Ord.compare k' k < 0) !m
 
   let find_first m k = M.find_first (fun k' -> Ord.compare k k' <= 0) !m
 
@@ -77,23 +88,26 @@ module Make (Ord : OrderedType) = struct
 
   let split_off_after m k =
     let m1, m2 = M.partition (fun k' _v -> Ord.compare k k' >= 0) !m in
-    m := m1 ;
+    m := m1;
     ref m2
 
   let carve_inclusive_range m start end_incl =
     let m1, m2 =
       M.partition
-        (fun k _v ->
-          Ord.compare start k > 0 || Ord.compare k end_incl > 0 )
+        (fun k _v -> Ord.compare start k > 0 || Ord.compare k end_incl > 0)
         !m
     in
-    m := m1 ;
+    m := m1;
     M.bindings m2
 
   let keys m = fold (fun k _v acc -> k :: acc) m []
 
   let swap m1 m2 =
     let m = !m1 in
-    m1 := !m2 ;
+    m1 := !m2;
     m2 := m
+
+  let copy_in m1 m2 =
+    let () = clear m2 in
+    M.iter (add m2) !m1
 end

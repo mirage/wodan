@@ -5,12 +5,11 @@ module type OrderedType = sig
 end
 
 module Make (Ord : OrderedType) : sig
-
-  type 'a t
   (** The type for maps  *)
+  type 'a t
 
-  type key = Ord.t
   (** The type for keys  *)
+  type key = Ord.t
 
   val create : unit -> 'a t
   (** Creates a new empty map *)
@@ -94,8 +93,7 @@ module Make (Ord : OrderedType) : sig
   (** [iter f m start stop] applies [f] to all bindings [(x, d)] in [m] such
       that start <= x < stop *)
 
-  val iter_inclusive_range :
-    (key -> 'a -> unit) -> 'a t -> key -> key -> unit
+  val iter_inclusive_range : (key -> 'a -> unit) -> 'a t -> key -> key -> unit
   (** [iter f m start stop] applies [f] to all bindings [(x, d)] in [m] such
       that start <= x <= stop *)
 
@@ -107,8 +105,9 @@ module Make (Ord : OrderedType) : sig
   (** [carve_inclusive_range m start stop] removes all the bindings [(x, v)] in
       [m] such that [x < start] or [stop < x] and returns them in a list *)
 
-
   val swap : 'a t -> 'a t -> unit
   (** [swap m1 m2] swaps the bindings of [m1] and [m2] *)
 
+  val copy_in : 'a t -> 'a t -> unit
+  (** [copy_in m1 m2] clears [m2] and copies the contents of [m1] in it *)
 end
