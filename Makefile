@@ -14,6 +14,10 @@ sync:
 	git submodule sync --recursive
 	git submodule update --init --recursive
 
+format:
+	# Use the master version of ocamlformat for matching results
+	git ls-files -- 'src/*.ml' 'src/*.mli' |grep -v 407 |xargs ocamlformat --inplace
+
 %.opam.locked: %.opam
 	opam lock $^
 	# Workaround https://github.com/AltGr/opam-lock/issues/2
