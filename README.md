@@ -120,6 +120,18 @@ echo performance |sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 make fuzz
 ```
 
+## Contributing
+
+The code is formatted using `ocamlformat` and complies to the options described
+in `.ocamlformat` used with the development version of `ocamlformat` (until the
+next release).
+
+Please pin the package to their git repository :
+`https://github.com/ocaml_ppx/ocamlformat`
+
+And make sure the code is well formatted before any commit by executing
+`make ocamlformat`.
+
 [opam]: https://opam.ocaml.org/
 [dune]: https://github.com/ocaml/dune#installation
 [mirage]: https://mirage.io/
