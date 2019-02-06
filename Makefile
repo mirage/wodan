@@ -7,8 +7,7 @@ build:
 
 deps:
 	git submodule update --init --recursive
-	opam install -y dune opam-lock lwt_ppx
-	dune external-lib-deps --missing @@default
+	opam install --deps-only -y .
 
 sync:
 	git submodule sync --recursive

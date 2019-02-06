@@ -1,9 +1,9 @@
 opam-version: "1.2"
 maintainer: "g2p.code@gmail.com"
-authors: [ "Gabriel de Perthuis"]
-homepage: "https://github.com/g2p/wodan"
-dev-repo: "https://github.com/g2p/wodan.git"
-bug-reports: "https://github.com/g2p/wodan/issues"
+authors: [ "Gabriel de Perthuis" ]
+homepage: "https://github.com/mirage/wodan"
+dev-repo: "https://github.com/mirage/wodan.git"
+bug-reports: "https://github.com/mirage/wodan/issues"
 name: "wodan-unix"
 version: "dev"
 
@@ -12,15 +12,40 @@ build: [
   [ "dune" "build" "-p" name "-j" jobs ]
 ]
 
+build-test: [
+  [ "dune" "runtest" "-p" name ]
+]
+
 depends: [
   "ocamlfind" {build}
   "dune"  {build}
-  "wodan"
+
+  "alcotest" {test}
+  "bos" {test}
+  "cstruct" {test}
+  "diet" {test}
+  "ezjsonm" {test}
+  "io-page" {test}
+  "logs" {test}
+  "lwt" {test}
+  "mirage-block-unix" {test}
+  "ounit" {test}
+  "ocaml-migrate-parsetree" {test}
+  "ppx_sexp_conv" {test}
+  "yaml" {test}
+
   "afl-persistent"
+  "base64" {< "3.0.0"}
   "benchmark"
-  "base64"
+  "checkseum"
   "cmdliner"
+  "csv"
+  "io-page-unix"
+  "lwt_ppx"
   "mirage-block-ramdisk"
+  "mirage-block-unix"
+  "nocrypto"
+  "wodan"
 ]
 
 available: [ocaml-version >= "4.06.0"]

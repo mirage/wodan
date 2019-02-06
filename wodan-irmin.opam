@@ -1,9 +1,9 @@
 opam-version: "1.2"
 maintainer: "g2p.code@gmail.com"
-authors: [ "Gabriel de Perthuis"]
-homepage: "https://github.com/g2p/wodan"
-dev-repo: "https://github.com/g2p/wodan.git"
-bug-reports: "https://github.com/g2p/wodan/issues"
+authors: [ "Gabriel de Perthuis" ]
+homepage: "https://github.com/mirage/wodan"
+dev-repo: "https://github.com/mirage/wodan.git"
+bug-reports: "https://github.com/mirage/wodan/issues"
 name: "wodan-irmin"
 version: "dev"
 
@@ -12,54 +12,42 @@ build: [
   [ "dune" "build" "-p" name "-j" jobs ]
 ]
 
+build-test: [
+  [ "dune" "runtest" "-p" name ]
+]
+
 depends: [
   "ocamlfind" {build}
   "dune"  {build}
-  "wodan"
+
+  "alcotest" {test}
+  "bos" {test}
+  "cstruct" {test}
+  "diet" {test}
+  "ezjsonm" {test}
+  "io-page" {test}
+  "irmin-mem" {test}
+  "irmin-test" {test}
+  "logs" {test}
+  "lwt" {test}
+  "mirage-block-unix" {test}
+  "ounit" {test}
+  "ocaml-migrate-parsetree" {test}
+  "ppx_sexp_conv" {test}
+  "yaml" {test}
+
   "checkseum" {>= "0.0.2"}
-  "cohttp-lwt-unix"
-  "mtime"
-  "hex"
-  "alcotest"
-  "angstrom"
-  "cohttp-mirage"
-  "duff"
-  "encore"
-  "eqaf"
-  "fpath"
-  "irmin-watcher"
-  "mirage-conduit"
-  "optint"
-  "webmachine"
-  "yaml"
-  "ppx_cstruct"
-  "sexplib"
-  "mirage-types"
-  "mirage-logs"
-  "io-page"
-  "lru"
-  "logs"
-  "bitv"
-  "lwt" {>= "3.1.0"}
-  "lwt_ppx"
+  "digestif"
   "io-page-unix"
-  "afl-persistent"
-  "base64"
-  "cmdliner"
-  "mirage-block-unix"
-  "nocrypto"
-  "mirage-block-ramdisk"
-  "irmin-unix"
-  "irmin-test"
-  "irmin-mem"
-  "rresult"
   "irmin"
   "irmin-chunk"
-  "diet" {>= "0.2"}
-  "mirage-types-lwt" {>= "3.0.5"}
-  "ocaml-migrate-parsetree"
-  "stdcompat"
-  "csv" {>= "2.0"}
+  "irmin-git"
+  "irmin-unix"
+  "lwt_ppx"
+  "mirage-block-ramdisk"
+  "mirage-block-unix"
+  "nocrypto"
+  "wodan"
 ]
 
 available: [ocaml-version >= "4.06.0"]
