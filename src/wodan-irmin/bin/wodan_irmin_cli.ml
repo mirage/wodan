@@ -19,22 +19,30 @@ open Irmin_unix
 
 module RamBlockCon = struct
   include Ramdisk
+
   let connect name = Ramdisk.connect ~name
-  let discard _ _ _  =
-    Lwt.return @@ Ok ()
+
+  let discard _ _ _ = Lwt.return @@ Ok ()
 end
 
-module DB_ram = Wodan_irmin.DB_BUILDER(RamBlockCon)(Wodan.StandardSuperblockParams)
+module DB_ram =
+  Wodan_irmin.DB_BUILDER (RamBlockCon) (Wodan.StandardSuperblockParams)
 
 module FileBlockCon = struct
   include Block
+
   let connect name = Block.connect name
 end
 
-module DB_fs = Wodan_irmin.DB_BUILDER(FileBlockCon)(Wodan.StandardSuperblockParams)
+module DB_fs =
+  Wodan_irmin.DB_BUILDER (FileBlockCon) (Wodan.StandardSuperblockParams)
 
 let _ =
-  Resolver.Store.add "wodan-mem" (fun contents -> Resolver.Store.v ?remote:None (module Wodan_irmin.KV(DB_ram)(val contents) : Irmin.S));
-  Resolver.Store.add "wodan" ~default:true (fun contents -> Resolver.Store.v ?remote:None (module Wodan_irmin.KV(DB_fs)(val contents) : Irmin.S))
+  Resolver.Store.add "wodan-mem" (fun contents ->
+      Resolver.Store.v ?remote:None
+        (module Wodan_irmin.KV (DB_ram) ((val contents)) : Irmin.S) );
+  Resolver.Store.add "wodan" ~default:true (fun contents ->
+      Resolver.Store.v ?remote:None
+        (module Wodan_irmin.KV (DB_fs) ((val contents)) : Irmin.S) )
 
 let () = Cli.(run ~default commands)

@@ -11,6 +11,10 @@ sync:
 	git submodule sync --recursive
 	git submodule update --init --recursive
 
+ocamlformat:
+	# Use the master version of ocamlformat for matching results
+	git ls-files -- 'src/*.ml' 'src/*.mli' |grep -v 407 |xargs ocamlformat --inplace
+
 fuzz:
 	dune build src/wodan-unix/wodanc.exe
 	afl-fuzz -i afl/input -o afl/output -- \
@@ -28,4 +32,4 @@ uninstall:
 clean:
 	rm -rf _build _opam
 
-.PHONY: build deps fuzz test install uninstall clean
+.PHONY: build deps ocamlformat fuzz test install uninstall clean
