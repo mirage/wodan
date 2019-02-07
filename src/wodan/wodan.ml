@@ -609,6 +609,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
 
   let childlink_size = P.key_size + sizeof_logical
 
+  (* TODO Fuzz this (was buggy) *)
   let next_key key =
     if key = top_key then invalid_arg "Already at top key";
     let r = Bytes.make P.key_size '\000' in
@@ -616,7 +617,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
     for i = P.key_size - 1 downto 0 do
       let code = (!state + Char.code key.[i]) mod 256 in
       Bytes.set r i @@ Char.chr code;
-      state := if code = 0 then 1 else 0;
+      state := if !state <> 0 && code = 0 then 1 else 0;
     done;
     Bytes.to_string r
 
