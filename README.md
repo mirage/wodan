@@ -60,13 +60,6 @@ make deps
 make
 ```
 
-Alternatively, you can do:
-```
-make locked
-```
-to build a local Opam switch with known good versions of all
-dependencies.
-
 ## CLI usage
 
 ```

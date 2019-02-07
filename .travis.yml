@@ -1,17 +1,26 @@
 language: c
 sudo: required
-script:
-  - bash -ex .travis-ocaml.sh
-  - make locked-travis
-  - eval $(opam env)
-  - dune external-lib-deps --missing @@default || true
-  - make test
+install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
+script: bash -ex .travis-opam.sh
+env:
+  global:
+  - ALCOTEST_SHOW_ERRORS=1
+  - PINS="wodan.dev:. irmin.dev:vendor/irmin irmin-chunk.dev:vendor/irmin irmin-git.dev:vendor/irmin irmin-unix:vendor/irmin irmin-http:vendor/irmin irmin-test:vendor/irmin irmin-fs:vendor/irmin irmin-mem:vendor/irmin"
+
 matrix:
   include:
   - env: OCAML_VERSION=4.07 PACKAGE=wodan
+  - env: OCAML_VERSION=4.07 PACKAGE=wodan-unix
+  - env: OCAML_VERSION=4.07 PACKAGE=wodan-irmin
   - env: OCAML_VERSION=4.06 PACKAGE=wodan
-  - env: OCAML_VERSION=4.05 PACKAGE=wodan
+  - env: OCAML_VERSION=4.06 PACKAGE=wodan-unix
+  - env: OCAML_VERSION=4.06 PACKAGE=wodan-irmin
+  #- env: OCAML_VERSION=4.05 PACKAGE=wodan
+  #- env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
+  #- env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
   allow_failures:
   - env: OCAML_VERSION=4.05 PACKAGE=wodan
+  - env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
+  - env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
 os:
   - linux

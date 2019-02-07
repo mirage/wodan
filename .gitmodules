@@ -7,9 +7,6 @@
 [submodule "vendor/irmin"]
 	path = vendor/irmin
 	url = https://github.com/mirage/irmin.git
-[submodule "vendor/ocaml-ci-scripts"]
-	path = vendor/ocaml-ci-scripts
-	url = https://github.com/ocaml/ocaml-ci-scripts.git
 [submodule "vendor/ocaml-yaml"]
 	path = vendor/ocaml-yaml
 	url = https://github.com/g2p/ocaml-yaml.git

@@ -1,39 +1,51 @@
 opam-version: "1.2"
 maintainer: "g2p.code@gmail.com"
-authors: [ "Gabriel de Perthuis"]
-homepage: "https://github.com/g2p/wodan"
-dev-repo: "https://github.com/g2p/wodan.git"
-bug-reports: "https://github.com/g2p/wodan/issues"
+authors: [ "Gabriel de Perthuis" ]
+homepage: "https://github.com/mirage/wodan"
+dev-repo: "https://github.com/mirage/wodan.git"
+bug-reports: "https://github.com/mirage/wodan/issues"
 name: "wodan"
 version: "dev"
 
 
 build: [
-  [ "dune" "build" "-p" name "-j" jobs ]
+  [ "dune" "build" "-p" name ]
+]
+
+build-test: [
+  [ "dune" "runtest" "-p" name ]
 ]
 
 depends: [
   "ocamlfind" {build}
-  "dune"  {build}
-  "cstruct"
-  "checkseum" {>= "0.0.2"}
-  "ppx_cstruct"
-  "sexplib"
-  "mirage-types"
-  "mirage-logs"
-  "io-page"
-  "lru"
-  "logs"
+  "dune" {build}
+
+  "alcotest" {test}
+  "bos" {test}
+  "ezjsonm" {test}
+  "mirage-block-unix" {test}
+  "ounit" {test}
+  "ocaml-migrate-parsetree" {test}
+  "ppx_sexp_conv" {test}
+  "yaml" {test}
+
   "bitv"
+  "checkseum" {>= "0.0.2"}
+  "cstruct"
+  "diet" {>= "0.2"}
+  "io-page"
+  "logs"
+  "lru"
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
-  "io-page-unix"
-  "nocrypto"
-  "rresult"
-  "diet" {>= "0.2"}
+  "mirage-logs"
+  "mirage-types"
   "mirage-types-lwt" {>= "3.0.5"}
+  "nocrypto"
+  "ppx_cstruct"
+  "rresult"
+  "sexplib"
   "stdcompat"
-  "csv" {>= "2.0"}
 ]
 
 available: [ocaml-version >= "4.06.0"]
