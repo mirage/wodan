@@ -1164,7 +1164,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
         vend := !vend + P.key_size + sizeof_datalen + String.length va
                 ) entry.logdata.logdata_contents;
       if !vend != entry.logdata.value_end then begin
-        Logs.err (fun m -> m "Inconsistent value_end %Ld" depth);
+        Logs.err (fun m -> m "Inconsistent value_end depth:%Ld expected:%d actual:%d inserts:%d" depth !vend entry.logdata.value_end fs.node_cache.statistics.inserts);
         fail := true;
       end;
 
@@ -1284,7 +1284,7 @@ module Make(B: EXTBLOCK)(P: SUPERBLOCK_PARAMS) : (S with type disk = B.t) = stru
           !best_spill_score, !best_spill_key
         in
         let best_spill_score, best_spill_key = find_victim () in
-        Logs.debug (fun m -> m "log spilling %Ld %Ld %d" depth alloc_id best_spill_score);
+        Logs.debug (fun m -> m "log spilling %Ld %Ld %d inserts:%d" depth alloc_id best_spill_score fs.node_cache.statistics.inserts);
         let offset = keyedmap_find best_spill_key children in
         let%lwt child_alloc_id, _ce = _preload_child fs alloc_id entry best_spill_key offset in begin
         let clo = entry.childlinks.childlinks_offset in
