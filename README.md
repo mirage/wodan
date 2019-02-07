@@ -100,7 +100,7 @@ The following commands create a zeroed image of size 512M named `disk.img`.
 
 ```
 touch disk.img
-fallocate -z -l 512m
+fallocate -z -l 512m disk.img
 ```
 
 ### Micro-benchmarking
