@@ -15,9 +15,9 @@ matrix:
   - env: OCAML_VERSION=4.06 PACKAGE=wodan
   - env: OCAML_VERSION=4.06 PACKAGE=wodan-unix
   - env: OCAML_VERSION=4.06 PACKAGE=wodan-irmin
-  - env: OCAML_VERSION=4.05 PACKAGE=wodan
-  - env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
-  - env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
+  #- env: OCAML_VERSION=4.05 PACKAGE=wodan
+  #- env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
+  #- env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
   allow_failures:
   - env: OCAML_VERSION=4.05 PACKAGE=wodan
   - env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
