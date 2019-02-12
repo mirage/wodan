@@ -127,7 +127,7 @@ in `.ocamlformat` used with the development version of `ocamlformat` (until the
 next release).
 
 Please pin the package to their git repository :
-`https://github.com/ocaml_ppx/ocamlformat`
+<https://github.com/ocaml-ppx/ocamlformat>
 
 And make sure the code is well formatted before any commit by executing
 `make ocamlformat`.
