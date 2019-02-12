@@ -222,6 +222,7 @@ end
 
 type logdata_index = {
   logdata_contents : string KeyedMap.t;
+  (* The last value_end that was read from or written to disk *)
   mutable value_end : int;
   mutable old_value_end : int
 }
@@ -236,7 +237,7 @@ type lru_entry = {
   mutable flush_children : int64 KeyedMap.t option;
   (* Use offsets so that data isn't duplicated *)
   mutable children : int64 KeyedMap.t Lazy.t;
-  (* Don't reference nodes directly, always go through
+  (* Don't reference nodes directly, always go through the
  * LRU to bump recently accessed nodes *)
   children_alloc_ids : int64 KeyedMap.t;
   mutable highest_key : string;
@@ -462,8 +463,7 @@ let rec _mark_dirty cache alloc_id =
                 failwith "missing parent_entry"
             | Some _parent_entry ->
                 let parent_di = _mark_dirty cache parent_key in
-                KeyedMap.add_if_absent parent_di
-                  entry.highest_key alloc_id )
+                KeyedMap.xadd parent_di entry.highest_key alloc_id )
           | None ->
               failwith "entry.parent_key inconsistent (no parent)" ) );
         let di = KeyedMap.create () in
@@ -487,7 +487,7 @@ let rec _mark_dirty cache alloc_id =
                   cache.free_count)
               > 0
             then failwith "Out of space" );
-         di )
+        di )
 
 let _get_superblock_io () =
   (* This will only work on Unix, which has buffered IO instead of direct IO.
@@ -773,7 +773,7 @@ struct
           Cstruct.to_string
           @@ Cstruct.sub cstr (off + P.key_size + sizeof_datalen) len
         in
-        KeyedMap.add_if_absent r.logdata_contents key va;
+        KeyedMap.xadd r.logdata_contents key va;
         r.value_end <- off + P.key_size + sizeof_datalen + len;
         scan r.value_end @@ pred value_count
     in
@@ -793,7 +793,7 @@ struct
         let key =
           Cstruct.to_string @@ Cstruct.sub entry.raw_node off P.key_size
         in
-        KeyedMap.add_if_absent r key (Int64.of_int off) )
+        KeyedMap.xadd r key (Int64.of_int off) )
       (_gen_childlink_offsets entry.childlinks.childlinks_offset);
     r
 
@@ -1018,8 +1018,7 @@ struct
               failwith "Flushed but missing flush_info"
           | Some di ->
               let completion_list =
-                KeyedMap.fold (flush_rec alloc_id) di
-                  completion_list
+                KeyedMap.fold (flush_rec alloc_id) di completion_list
               in
               entry.flush_children <- None;
               _write_node open_fs alloc_id :: completion_list )
@@ -1165,10 +1164,10 @@ struct
       (Cstruct.of_string child.highest_key)
       0 parent.raw_node off P.key_size;
     (parent.childlinks).childlinks_offset <- off;
-    KeyedMap.add_if_absent children
+    KeyedMap.xadd children
       (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size)
       (Int64.of_int off);
-    KeyedMap.add_if_absent parent.children_alloc_ids
+    KeyedMap.xadd parent.children_alloc_ids
       (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size)
       alloc_id;
     (*ignore @@ _mark_dirty cache parent_key;*)
@@ -1287,7 +1286,7 @@ struct
           _load_child_node_at open_fs logical child_key entry_key rdepth
         in
         let alloc_id = next_alloc_id cache in
-        KeyedMap.add_if_absent entry.children_alloc_ids child_key alloc_id;
+        KeyedMap.xadd entry.children_alloc_ids child_key alloc_id;
         lru_xset cache.lru alloc_id child_entry;
         Lwt.return (alloc_id, child_entry)
     | Some alloc_id -> (
@@ -1342,14 +1341,14 @@ struct
             cls.childlinks_offset <- offset;
             Cstruct.blit (Cstruct.of_string key) 0 cstr offset P.key_size;
             Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
-            KeyedMap.add_if_absent children
+            KeyedMap.xadd children
               (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size)
               (Int64.of_int offset);
             ( match child_alloc_id_opt with
             | None ->
                 ()
             | Some child_alloc_id ->
-                KeyedMap.add_if_absent entry.children_alloc_ids
+                KeyedMap.xadd entry.children_alloc_ids
                   (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size)
                   child_alloc_id );
             ignore @@ _mark_dirty fs.node_cache alloc_id )
@@ -1480,11 +1479,7 @@ struct
               | None ->
                   ()
               | Some di ->
-                  if
-                    KeyedMap.exists
-                      (fun _k el -> el = alloc_id)
-                      di
-                  then (
+                  if KeyedMap.exists (fun _k el -> el = alloc_id) di then (
                     Logs.err (fun m ->
                         m
                           "Not dirty but registered in \
@@ -1612,8 +1607,8 @@ struct
             in
             (entry.logdata).value_end
             <- entry.logdata.value_end - best_spill_score;
-            List.iter
-              (fun (key, va) ->
+            KeyedMap.iter
+              (fun key va ->
                 _fast_insert fs child_alloc_id key (InsValue va)
                 @@ Int64.succ depth )
               carved_list );
@@ -1657,7 +1652,7 @@ struct
                 Logs.debug (fun m ->
                     m "Blitting %S (%S) from offset %Ld" key1 k offset );
                 assert (k = key1);
-                KeyedMap.add_if_absent
+                KeyedMap.xadd
                   (Lazy.force centry.children)
                   key1 (Int64.of_int offset1)
               in
@@ -1681,9 +1676,8 @@ struct
               KeyedMap.iter (fun k off -> blit_cd_child k off entry2) cl2;
               KeyedMap.swap entry1.logdata.logdata_contents kc;
               KeyedMap.swap entry2.logdata.logdata_contents kc2;
-              KeyedMap.copy_in entry.children_alloc_ids
-                entry1.children_alloc_ids;
-              KeyedMap.copy_in ca2 entry2.children_alloc_ids;
+              KeyedMap.swap entry1.children_alloc_ids entry.children_alloc_ids;
+              KeyedMap.swap ca2 entry2.children_alloc_ids;
               _reset_contents entry;
               entry.rdepth <- Int32.succ entry.rdepth;
               set_rootnode_hdr_depth entry.raw_node entry.rdepth;
@@ -1749,19 +1743,15 @@ struct
                   ( match KeyedMap.find_opt entry.children_alloc_ids key1 with
                   | Some alloc_id ->
                       KeyedMap.remove entry.children_alloc_ids key1;
-                      KeyedMap.add_if_absent entry1.children_alloc_ids key1
-                        alloc_id
+                      KeyedMap.xadd entry1.children_alloc_ids key1 alloc_id
                   | None ->
                       () );
                   KeyedMap.remove children key1;
-                  KeyedMap.add_if_absent children1 key1
-                    (Int64.of_int !clo_out1);
+                  KeyedMap.xadd children1 key1 (Int64.of_int !clo_out1);
                   if KeyedMap.mem di key1 then (
-                    let child_alloc_id =
-                      KeyedMap.find di key1
-                    in
+                    let child_alloc_id = KeyedMap.find di key1 in
                     KeyedMap.remove di key1;
-                    KeyedMap.add_if_absent fc1 key1 child_alloc_id ) )
+                    KeyedMap.xadd fc1 key1 child_alloc_id ) )
                 else (
                   clo_out := !clo_out - childlink_size;
                   Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out
@@ -1770,7 +1760,7 @@ struct
                     Cstruct.to_string
                     @@ Cstruct.sub entry.raw_node !clo_out P.key_size
                   in
-                  KeyedMap.replace_if_present children key1
+                  KeyedMap.replace_existing children key1
                     (Int64.of_int !clo_out) )
               done;
               (entry.childlinks).childlinks_offset <- !clo_out;

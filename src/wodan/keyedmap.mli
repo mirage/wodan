@@ -28,10 +28,12 @@ module Make (Ord : OrderedType) : sig
   (** Same as [find] but wrapped in an option  *)
 
   val min_binding : 'a t -> key * 'a
-  (** Returns the binding with the minimum key *)
+  (** Returns the binding with the minimum key, or raises Not_found if the map
+      is empty. *)
 
   val max_binding : 'a t -> key * 'a
-  (** Returns the binding with the maximum key *)
+  (** Returns the binding with the maximum key, or raises Not_found if the map
+      is empty. *)
 
   val find_first : 'a t -> key -> key * 'a
   (** [find_first_opt m k] finds the binding with the smallest key that
@@ -61,12 +63,12 @@ module Make (Ord : OrderedType) : sig
   val remove : 'a t -> key -> unit
   (** [remove m k] removes the binding of [k] in [m] *)
 
-  val replace_if_present : 'a t -> key -> 'a -> unit
-  (** [replace_if_present m k v] replaces the binding of [k] in
+  val replace_existing : 'a t -> key -> 'a -> unit
+  (** [replace_existing m k v] replaces the binding of [k] in
       [m] with the value [v] if any, otherwise raises [Not_found] *)
 
-  val add_if_absent : 'a t -> key -> 'a -> unit
-  (** [add_if_absent m k v] adds a binding from [k] to [v], or raises
+  val xadd : 'a t -> key -> 'a -> unit
+  (** [xadd m k v] adds a binding from [k] to [v], or raises
       [Already_exists] if there is already one *)
 
   val update : 'a t -> key -> ('a option -> 'a option) -> unit
@@ -101,9 +103,9 @@ module Make (Ord : OrderedType) : sig
   (** [split_off_after m k] removes all the bindings [(x, v)] in [m] such
       that [x > k] and returns them in a new map *)
 
-  val carve_inclusive_range : 'a t -> key -> key -> (key * 'a) list
+  val carve_inclusive_range : 'a t -> key -> key -> 'a t
   (** [carve_inclusive_range m start stop] removes all the bindings [(x, v)] in
-      [m] such that [x < start] or [stop < x] and returns them in a list *)
+      [m] such that [x < start] or [stop < x] and returns them in a new map *)
 
   val swap : 'a t -> 'a t -> unit
   (** [swap m1 m2] swaps the bindings of [m1] and [m2] *)

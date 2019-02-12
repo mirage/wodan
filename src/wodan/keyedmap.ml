@@ -31,7 +31,7 @@ module Make (Ord : OrderedType) = struct
 
   let update m k f = m := M.update k f !m
 
-  let replace_if_present m k v =
+  let replace_existing m k v =
     m :=
       M.update k
         (function
@@ -41,7 +41,7 @@ module Make (Ord : OrderedType) = struct
               raise Not_found)
         !m
 
-  let add_if_absent m k v =
+  let xadd m k v =
     m :=
       M.update k
         (function
@@ -98,7 +98,7 @@ module Make (Ord : OrderedType) = struct
         !m
     in
     m := m1;
-    M.bindings m2
+    ref m2
 
   let keys m = fold (fun k _v acc -> k :: acc) m []
 
