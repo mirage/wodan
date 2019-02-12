@@ -226,8 +226,6 @@ type logdata_index = {
   mutable old_value_end : int
 }
 
-type flush_info = {flush_children : int64 KeyedMap.t}
-
 type lru_entry = {
   cached_node : node;
   mutable parent_key : LRUKey.t option;
@@ -235,10 +233,10 @@ type lru_entry = {
      through a flush_children map.
      We use an option here to make checking for flushability faster.
      A flushable node is either new or dirty, but not both. *)
-  mutable flush_info : flush_info option;
+  mutable flush_children : int64 KeyedMap.t option;
   (* Use offsets so that data isn't duplicated *)
   mutable children : int64 KeyedMap.t Lazy.t;
-  (* Don't reference nodes directly, always go through the
+  (* Don't reference nodes directly, always go through
  * LRU to bump recently accessed nodes *)
   children_alloc_ids : int64 KeyedMap.t;
   mutable highest_key : string;
@@ -287,7 +285,7 @@ let lru_xset lru alloc_id value =
   ( if would_discard then
     match LRU.lru lru with
     | Some (_alloc_id, entry)
-      when entry.flush_info <> None ->
+      when entry.flush_children <> None ->
         failwith "Would discard dirty data"
         (* TODO expose this as a proper API value *)
     | Some (_alloc_id, entry) -> (
@@ -388,7 +386,7 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
   | None ->
       failwith "Missing LRU key"
   | Some entry -> (
-    match entry.flush_info with
+    match entry.flush_children with
     | Some _di ->
         ()
     | None -> (
@@ -439,13 +437,13 @@ let _reserve_dirty cache alloc_id new_count depth =
 
 (* flush if you like, but retrying will not succeed *)
 
-let rec _mark_dirty cache alloc_id : flush_info =
+let rec _mark_dirty cache alloc_id =
   (*Logs.debug (fun m -> m "_mark_dirty %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   | None ->
       failwith "Missing LRU key"
   | Some entry -> (
-    match entry.flush_info with
+    match entry.flush_children with
     | Some di ->
         di
     | None ->
@@ -464,12 +462,12 @@ let rec _mark_dirty cache alloc_id : flush_info =
                 failwith "missing parent_entry"
             | Some _parent_entry ->
                 let parent_di = _mark_dirty cache parent_key in
-                KeyedMap.add_if_absent parent_di.flush_children
+                KeyedMap.add_if_absent parent_di
                   entry.highest_key alloc_id )
           | None ->
               failwith "entry.parent_key inconsistent (no parent)" ) );
-        let di = {flush_children = KeyedMap.create ()} in
-        entry.flush_info <- Some di;
+        let di = KeyedMap.create () in
+        entry.flush_children <- Some di;
         ( match entry.prev_logical with
         | None ->
             cache.new_count <- Int64.succ cache.new_count;
@@ -489,7 +487,7 @@ let rec _mark_dirty cache alloc_id : flush_info =
                   cache.free_count)
               > 0
             then failwith "Out of space" );
-        di )
+         di )
 
 let _get_superblock_io () =
   (* This will only work on Unix, which has buffered IO instead of direct IO.
@@ -820,7 +818,7 @@ struct
         rdepth;
         io_data;
         logdata;
-        flush_info = None;
+        flush_children = None;
         children = lazy (_compute_children entry);
         children_alloc_ids = KeyedMap.create ();
         highest_key = top_key;
@@ -852,7 +850,7 @@ struct
         rdepth;
         io_data;
         logdata;
-        flush_info = None;
+        flush_children = None;
         children = lazy (_compute_children entry);
         children_alloc_ids = KeyedMap.create ();
         highest_key;
@@ -1014,16 +1012,16 @@ struct
       | Some entry -> (
           Logs.debug (fun m ->
               m "collecting %Ld parent %Ld" alloc_id parent_key );
-          match entry.flush_info with
+          match entry.flush_children with
           (* Can happen with a diamond pattern *)
           | None ->
               failwith "Flushed but missing flush_info"
           | Some di ->
               let completion_list =
-                KeyedMap.fold (flush_rec alloc_id) di.flush_children
+                KeyedMap.fold (flush_rec alloc_id) di
                   completion_list
               in
-              entry.flush_info <- None;
+              entry.flush_children <- None;
               _write_node open_fs alloc_id :: completion_list )
     in
     let r =
@@ -1134,7 +1132,7 @@ struct
         rdepth;
         io_data;
         logdata;
-        flush_info = None;
+        flush_children = None;
         children = Lazy.from_val @@ KeyedMap.create ();
         children_alloc_ids = KeyedMap.create ();
         highest_key;
@@ -1428,12 +1426,12 @@ struct
                 depth !vend entry.logdata.value_end
                 fs.node_cache.statistics.inserts );
           fail := true );
-        ( match entry.flush_info with
-        | Some flush_info -> (
+        ( match entry.flush_children with
+        | Some di -> (
             if
               KeyedMap.exists
                 (fun _k child_alloc_id -> child_alloc_id = alloc_id)
-                flush_info.flush_children
+                di
             then (
               Logs.err (fun m -> m "Self-pointing flush reference %Ld" depth);
               fail := true );
@@ -1445,7 +1443,7 @@ struct
               | None ->
                   failwith "Missing parent"
               | Some parent_entry -> (
-                match parent_entry.flush_info with
+                match parent_entry.flush_children with
                 | None ->
                     failwith "Missing parent_entry.flush_info"
                 | Some di ->
@@ -1453,7 +1451,7 @@ struct
                       KeyedMap.fold
                         (fun _k el acc ->
                           if el = alloc_id then succ acc else acc )
-                        di.flush_children 0
+                        di 0
                     in
                     if n = 0 then (
                       Logs.err (fun m ->
@@ -1478,14 +1476,14 @@ struct
             | None ->
                 failwith "Missing parent"
             | Some parent_entry -> (
-              match parent_entry.flush_info with
+              match parent_entry.flush_children with
               | None ->
                   ()
               | Some di ->
                   if
                     KeyedMap.exists
                       (fun _k el -> el = alloc_id)
-                      di.flush_children
+                      di
                   then (
                     Logs.err (fun m ->
                         m
@@ -1642,7 +1640,7 @@ struct
               let ca2 =
                 KeyedMap.split_off_after entry.children_alloc_ids median
               in
-              let fc2 = KeyedMap.split_off_after di.flush_children median in
+              let fc2 = KeyedMap.split_off_after di median in
               let blit_cd_child k offset centry =
                 let cstr0 = entry.raw_node in
                 let cstr1 = centry.raw_node in
@@ -1689,13 +1687,13 @@ struct
               _reset_contents entry;
               entry.rdepth <- Int32.succ entry.rdepth;
               set_rootnode_hdr_depth entry.raw_node entry.rdepth;
-              entry.flush_info <- Some {flush_children = KeyedMap.create ()};
+              entry.flush_children <- Some (KeyedMap.create ());
               _fixup_parent_links fs.node_cache alloc1 entry1;
               _fixup_parent_links fs.node_cache alloc2 entry2;
               _add_child entry entry1 alloc1 fs.node_cache alloc_id;
               _add_child entry entry2 alloc2 fs.node_cache alloc_id;
-              entry1.flush_info <- Some {flush_children = di.flush_children};
-              entry2.flush_info <- Some {flush_children = fc2};
+              entry1.flush_children <- Some di;
+              entry2.flush_children <- Some fc2;
               Lwt.return_unit
           | Some parent_key -> (
               (* Node splitting (non root) *)
@@ -1758,11 +1756,11 @@ struct
                   KeyedMap.remove children key1;
                   KeyedMap.add_if_absent children1 key1
                     (Int64.of_int !clo_out1);
-                  if KeyedMap.mem di.flush_children key1 then (
+                  if KeyedMap.mem di key1 then (
                     let child_alloc_id =
-                      KeyedMap.find di.flush_children key1
+                      KeyedMap.find di key1
                     in
-                    KeyedMap.remove di.flush_children key1;
+                    KeyedMap.remove di key1;
                     KeyedMap.add_if_absent fc1 key1 child_alloc_id ) )
                 else (
                   clo_out := !clo_out - childlink_size;
@@ -1787,12 +1785,12 @@ struct
                        alloc_id
               | Some parent ->
                   ( _add_child parent entry1 alloc1 fs.node_cache parent_key;
-                    entry1.flush_info <- Some {flush_children = fc1};
-                    match parent.flush_info with
+                    entry1.flush_children <- Some fc1;
+                    match parent.flush_children with
                     | None ->
                         failwith "Missing flush_info for parent"
                     | Some di ->
-                        KeyedMap.add di.flush_children median alloc1 );
+                        KeyedMap.add di median alloc1 );
                   _reserve_insert fs alloc_id space split_path depth ) )
 
   let insert root key value =
