@@ -50,6 +50,8 @@ exception BadNodeType of int
 
 exception BadNodeFSID of string
 
+exception MissingLRUEntry of int64
+
 module type EXTBLOCK = sig
   include Mirage_types_lwt.BLOCK
 
@@ -285,7 +287,7 @@ let lookup_parent_link lru entry =
   | Some parent_key -> (
     match lru_peek lru parent_key with
     | None ->
-        failwith "Missing parent"
+        raise @@ MissingLRUEntry parent_key
     | Some parent_entry ->
         let children = Lazy.force parent_entry.children in
         let offset = keyedmap_find entry.highest_key children in
@@ -400,7 +402,7 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
   (*Logs.debug (fun m -> m "_reserve_dirty_rec %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   | None ->
-      failwith "Missing LRU key"
+      raise @@ MissingLRUEntry alloc_id
   | Some entry -> (
     match entry.flush_info with
     | Some _di ->
@@ -414,7 +416,7 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
           | Some parent_key -> (
             match lru_get cache.lru parent_key with
             | None ->
-                failwith "missing parent_entry"
+                raise @@ MissingLRUEntry parent_key
             | Some _parent_entry ->
                 _reserve_dirty_rec cache parent_key new_count dirty_count )
           | None ->
@@ -457,7 +459,7 @@ let rec _mark_dirty cache alloc_id : flush_info =
   (*Logs.debug (fun m -> m "_mark_dirty %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   | None ->
-      failwith "Missing LRU key"
+      raise @@ MissingLRUEntry alloc_id
   | Some entry -> (
     match entry.flush_info with
     | Some di ->
@@ -475,7 +477,7 @@ let rec _mark_dirty cache alloc_id : flush_info =
           | Some parent_key -> (
             match lru_get cache.lru parent_key with
             | None ->
-                failwith "missing parent_entry"
+                raise @@ MissingLRUEntry parent_key
             | Some _parent_entry ->
                 let parent_di = _mark_dirty cache parent_key in
                 if
@@ -905,7 +907,7 @@ struct
     let cache = open_fs.node_cache in
     match lru_get cache.lru alloc_id with
     | None ->
-        failwith "missing lru entry in _write_node"
+        raise @@ MissingLRUEntry alloc_id
     | Some entry -> (
         let gen = next_generation open_fs.node_cache in
         set_anynode_hdr_generation entry.raw_node gen;
@@ -1030,7 +1032,7 @@ struct
         failwith "Reference loop" );
       match lru_get cache.lru alloc_id with
       | None ->
-          failwith "missing alloc_id"
+          raise @@ MissingLRUEntry alloc_id
       | Some entry -> (
           Logs.debug (fun m ->
               m "collecting %Ld parent %Ld" alloc_id parent_key );
@@ -1334,8 +1336,7 @@ struct
     (*Logs.debug (fun m -> m "_fast_insert %Ld" _depth);*)
     match lru_get fs.node_cache.lru alloc_id with
     | None ->
-        failwith
-        @@ Printf.sprintf "Missing LRU entry for %Ld (_fast_insert)" alloc_id
+        raise @@ MissingLRUEntry alloc_id
     | Some entry -> (
         assert (String.compare key entry.highest_key <= 0);
         assert (has_free_space entry @@ _ins_req_space insertable);
@@ -1397,7 +1398,7 @@ struct
     let fail = ref false in
     match lru_peek fs.node_cache.lru alloc_id with
     | None ->
-        failwith "Missing LRU entry"
+        raise @@ MissingLRUEntry alloc_id
     | Some entry ->
         ( if
             _has_children entry
@@ -1424,7 +1425,7 @@ struct
           | Some parent_key -> (
             match lru_peek fs.node_cache.lru parent_key with
             | None ->
-                failwith "Missing parent"
+                raise @@ MissingLRUEntry parent_key
             | Some parent_entry -> (
                 let children = Lazy.force parent_entry.children in
                 match KeyedMap.find_opt entry.highest_key children with
@@ -1468,7 +1469,7 @@ struct
             | Some parent_key -> (
               match lru_peek fs.node_cache.lru parent_key with
               | None ->
-                  failwith "Missing parent"
+                  raise @@ MissingLRUEntry parent_key
               | Some parent_entry -> (
                 match parent_entry.flush_info with
                 | None ->
@@ -1501,7 +1502,7 @@ struct
           | Some parent_key -> (
             match lru_peek fs.node_cache.lru parent_key with
             | None ->
-                failwith "Missing parent"
+                raise @@ MissingLRUEntry parent_key
             | Some parent_entry -> (
               match parent_entry.flush_info with
               | None ->
@@ -1543,7 +1544,7 @@ struct
       (fun _k child_alloc_id ->
         match lru_peek cache.lru child_alloc_id with
         | None ->
-            failwith "Missing LRU entry"
+            raise @@ MissingLRUEntry child_alloc_id
         | Some centry ->
             centry.parent_key <- Some alloc_id )
       entry.children_alloc_ids
@@ -1564,8 +1565,7 @@ struct
     _check_live_integrity fs alloc_id depth;
     match lru_get fs.node_cache.lru alloc_id with
     | None ->
-        failwith
-        @@ Printf.sprintf "Missing LRU entry for %Ld (insert)" alloc_id
+        raise @@ MissingLRUEntry alloc_id
     | Some entry -> (
         if has_free_space entry space then (
           _reserve_dirty fs.node_cache alloc_id 0L depth;
@@ -1808,9 +1808,9 @@ struct
               (* Hook new node into parent *)
               match lru_peek fs.node_cache.lru parent_key with
               | None ->
-                  failwith
-                  @@ Printf.sprintf "Missing LRU entry for %Ld (parent)"
-                       alloc_id
+                  Logs.err (fun m ->
+                      m "Missing LRU entry for %Ld (parent)" alloc_id );
+                  raise @@ MissingLRUEntry parent_key
               | Some parent ->
                   ( _add_child parent entry1 alloc1 fs.node_cache parent_key;
                     entry1.flush_info <- Some {flush_children = fc1};
@@ -1839,9 +1839,7 @@ struct
     Logs.debug (fun m -> m "_lookup");
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        Logs.err (fun m -> m "Missing LRU entry for %Ld (lookup)" alloc_id);
-        failwith
-        @@ Printf.sprintf "Missing LRU entry for %Ld (lookup)" alloc_id
+        raise @@ MissingLRUEntry alloc_id
     | Some entry -> (
       match KeyedMap.find_opt key entry.logdata.logdata_contents with
       | Some va ->
@@ -1864,7 +1862,7 @@ struct
   let rec _mem open_fs alloc_id key =
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        failwith @@ Printf.sprintf "Missing LRU entry for %Ld (mem)" alloc_id
+        raise @@ MissingLRUEntry alloc_id
     | Some entry -> (
       match KeyedMap.find_opt key entry.logdata.logdata_contents with
       | Some va ->
@@ -1896,8 +1894,7 @@ struct
   let rec _search_range open_fs alloc_id start end_ seen callback =
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        failwith
-        @@ Printf.sprintf "Missing LRU entry for %Ld (search_range)" alloc_id
+        raise @@ MissingLRUEntry alloc_id
     | Some entry ->
         let seen1 = ref seen in
         let lwt_queue = ref [] in
@@ -1934,7 +1931,7 @@ struct
   let rec _iter open_fs alloc_id callback =
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        failwith @@ Printf.sprintf "Missing LRU entry for %Ld (iter)" alloc_id
+        raise @@ MissingLRUEntry alloc_id
     | Some entry ->
         let lwt_queue = ref [] in
         KeyedMap.iter
