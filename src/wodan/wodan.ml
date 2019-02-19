@@ -172,11 +172,6 @@ let make_fanned_io_list size cstr =
 
 let _sb_io block_io = Cstruct.sub block_io 0 sizeof_superblock
 
-type childlinks = {
-  (* starts at block_size - sizeof_crc, if there are no children *)
-  mutable childlinks_offset : int
-}
-
 let string_dump key = Cstruct.hexdump (Cstruct.of_string key)
 
 let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
@@ -237,7 +232,8 @@ type lru_entry = {
   raw_node : Cstruct.t;
   io_data : Cstruct.t list;
   logdata : logdata_index;
-  childlinks : childlinks;
+  (* starts at block_size - sizeof_crc, if there are no children *)
+  mutable childlinks_offset : int;
   mutable prev_logical : int64 option;
   (* depth counted from the leaves; mutable on the root only *)
   mutable rdepth : int32
@@ -761,7 +757,7 @@ struct
           Cstruct.to_string (Cstruct.sub entry.raw_node off P.key_size)
         in
         KeyedMap.xadd r key (Int64.of_int off) )
-      (_gen_childlink_offsets entry.childlinks.childlinks_offset);
+      (_gen_childlink_offsets entry.childlinks_offset);
     r
 
   let _load_root_node_at open_fs logical =
@@ -789,9 +785,7 @@ struct
         children_alloc_ids = KeyedMap.create ();
         highest_key = top_key;
         prev_logical = Some logical;
-        childlinks =
-          {childlinks_offset = _find_childlinks_offset cstr logdata.value_end}
-      }
+        childlinks_offset = _find_childlinks_offset cstr logdata.value_end }
     in
     lru_xset cache.lru alloc_id entry;
     Lwt.return (alloc_id, entry)
@@ -820,21 +814,17 @@ struct
         children_alloc_ids = KeyedMap.create ();
         highest_key;
         prev_logical = Some logical;
-        childlinks =
-          {childlinks_offset = _find_childlinks_offset cstr logdata.value_end}
-      }
+        childlinks_offset = _find_childlinks_offset cstr logdata.value_end }
     in
     lru_xset cache.lru alloc_id entry;
     Lwt.return entry
 
-  let _has_children entry = entry.childlinks.childlinks_offset <> block_end
+  let _has_children entry = entry.childlinks_offset <> block_end
 
   let has_free_space entry space =
     match space with
     | InsSpaceChild size ->
-        let refsize =
-          entry.childlinks.childlinks_offset - (P.block_size / 2)
-        in
+        let refsize = entry.childlinks_offset - (P.block_size / 2) in
         refsize >= size
     | InsSpaceValue size ->
         let refsize =
@@ -1095,7 +1085,7 @@ struct
         children_alloc_ids = KeyedMap.create ();
         highest_key;
         prev_logical = None;
-        childlinks = {childlinks_offset = block_end} }
+        childlinks_offset = block_end }
     in
     lru_xset cache.lru alloc_id entry;
     (alloc_id, entry)
@@ -1107,7 +1097,7 @@ struct
     (entry.logdata).value_end <- hdrsize;
     (entry.logdata).old_value_end <- hdrsize;
     KeyedMap.clear entry.logdata.contents;
-    (entry.childlinks).childlinks_offset <- block_end;
+    entry.childlinks_offset <- block_end;
     entry.children <- Lazy.from_val (KeyedMap.create ());
     KeyedMap.clear entry.children_alloc_ids;
     Cstruct.blit zero_data 0 entry.raw_node hdrsize (block_end - hdrsize)
@@ -1115,14 +1105,14 @@ struct
   let _add_child parent child alloc_id cache parent_key =
     Logs.debug (fun m -> m "_add_child");
     let child_key = alloc_id in
-    let off = parent.childlinks.childlinks_offset - childlink_size in
+    let off = parent.childlinks_offset - childlink_size in
     let children = Lazy.force parent.children in
     (* Force *before* blitting *)
     child.meta <- Child parent_key;
     Cstruct.blit
       (Cstruct.of_string child.highest_key)
       0 parent.raw_node off P.key_size;
-    (parent.childlinks).childlinks_offset <- off;
+    parent.childlinks_offset <- off;
     KeyedMap.xadd children
       (Cstruct.to_string (Cstruct.sub parent.raw_node off P.key_size))
       (Int64.of_int off);
@@ -1291,10 +1281,9 @@ struct
             ignore (_mark_dirty fs.node_cache alloc_id)
         | InsChild (loc, child_alloc_id_opt) ->
             let cstr = entry.raw_node in
-            let cls = entry.childlinks in
-            let offset = cls.childlinks_offset - childlink_size in
+            let offset = entry.childlinks_offset - childlink_size in
             let children = Lazy.force entry.children in
-            cls.childlinks_offset <- offset;
+            entry.childlinks_offset <- offset;
             Cstruct.blit (Cstruct.of_string key) 0 cstr offset P.key_size;
             Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
             KeyedMap.xadd children
@@ -1528,16 +1517,14 @@ struct
           let%lwt child_alloc_id, _ =
             _preload_child fs alloc_id entry best_spill_key offset
           in
-          let clo = entry.childlinks.childlinks_offset in
+          let clo = entry.childlinks_offset in
           let nko = entry.logdata.value_end in
           (*Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.logdata.value_end);*)
           _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score)
             false (Int64.succ depth)
           >>= fun () ->
           (*Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.logdata.value_end);*)
-          if
-            clo = entry.childlinks.childlinks_offset
-            && nko = entry.logdata.value_end
+          if clo = entry.childlinks_offset && nko = entry.logdata.value_end
           then (
             (* _reserve_insert didn't split the child or the root *)
             _reserve_dirty fs.node_cache child_alloc_id 0L (Int64.succ depth);
@@ -1587,10 +1574,8 @@ struct
               let blit_cd_child k offset centry =
                 let cstr0 = entry.raw_node in
                 let cstr1 = centry.raw_node in
-                let offset1 =
-                  centry.childlinks.childlinks_offset - childlink_size
-                in
-                (centry.childlinks).childlinks_offset <- offset1;
+                let offset1 = centry.childlinks_offset - childlink_size in
+                centry.childlinks_offset <- offset1;
                 Cstruct.blit cstr0 (Int64.to_int offset) cstr1 offset1
                   childlink_size;
                 assert (Lazy.is_val centry.children);
@@ -1686,7 +1671,7 @@ struct
               let children = Lazy.force entry.children in
               let children1 = KeyedMap.create () in
               let fc1 = KeyedMap.create () in
-              while !clo >= entry.childlinks.childlinks_offset do
+              while !clo >= entry.childlinks_offset do
                 (* Move children data *)
                 let key1 =
                   Cstruct.to_string
@@ -1719,8 +1704,8 @@ struct
                   KeyedMap.replace_existing children key1
                     (Int64.of_int !clo_out) )
               done;
-              (entry.childlinks).childlinks_offset <- !clo_out;
-              (entry1.childlinks).childlinks_offset <- !clo_out1;
+              entry.childlinks_offset <- !clo_out;
+              entry1.childlinks_offset <- !clo_out1;
               entry1.children <- Lazy.from_val children1;
               _fixup_parent_links fs.node_cache alloc1 entry1;
               (* Hook new node into parent *)
