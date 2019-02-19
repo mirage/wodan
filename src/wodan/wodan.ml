@@ -220,13 +220,13 @@ type logdata_index = {
 }
 
 type node_ty =
-  | Root of int (* depth *)
+  | Root
   | Child of LRUKey.t
 
 (* parent key *)
 
 let header_size = function
-  | Root _ ->
+  | Root ->
       sizeof_rootnode_hdr
   | Child _ ->
       sizeof_childnode_hdr
@@ -269,7 +269,7 @@ exception AlreadyCached of LRUKey.t
 
 let lookup_parent_link lru entry =
   match entry.ty with
-  | Root _ ->
+  | Root ->
       None
   | Child parent_key -> (
     match lru_peek lru parent_key with
@@ -395,7 +395,7 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
         ()
     | None -> (
         ( match entry.ty with
-        | Root _ ->
+        | Root ->
             ()
         | Child parent_key -> (
           match lru_get cache.lru parent_key with
@@ -448,7 +448,7 @@ let rec _mark_dirty cache alloc_id =
         di
     | None ->
         ( match entry.ty with
-        | Root _ -> (
+        | Root -> (
           match cache.flush_root with
           | None ->
               cache.flush_root <- Some alloc_id
@@ -802,8 +802,7 @@ struct
     let ty, logdata =
       match get_anynode_hdr_nodetype cstr with
       | 1 ->
-          ( Root (Int32.to_int (get_rootnode_hdr_depth cstr)),
-            _index_logdata cstr sizeof_rootnode_hdr )
+          (Root, _index_logdata cstr sizeof_rootnode_hdr)
       | ty ->
           raise @@ BadNodeType ty
     in
@@ -1108,7 +1107,7 @@ struct
     let ty =
       match (tycode, parent_key) with
       | 1, None ->
-          Root (Int32.to_int rdepth)
+          Root
       | 2, Some parent_key ->
           Child parent_key
       | ty, _ ->
@@ -1384,7 +1383,7 @@ struct
                   depth );
             fail := true );
           match entry.ty with
-          | Root _ ->
+          | Root ->
               ()
           | Child parent_key -> (
             match lru_peek fs.node_cache.lru parent_key with
@@ -1428,7 +1427,7 @@ struct
               Logs.err (fun m -> m "Self-pointing flush reference %Ld" depth);
               fail := true );
             match entry.ty with
-            | Root _ ->
+            | Root ->
                 ()
             | Child parent_key -> (
               match lru_peek fs.node_cache.lru parent_key with
@@ -1461,7 +1460,7 @@ struct
                       fail := true ) ) ) )
         | None -> (
           match entry.ty with
-          | Root _ ->
+          | Root ->
               ()
           | Child parent_key -> (
             match lru_peek fs.node_cache.lru parent_key with
@@ -1607,7 +1606,7 @@ struct
           _reserve_insert fs alloc_id space split_path depth )
         else
           match entry.ty with
-          | Root _ ->
+          | Root ->
               (* Node splitting (root) *)
               assert (depth = 0L);
               Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
