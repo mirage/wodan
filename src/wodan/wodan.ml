@@ -203,7 +203,7 @@ module LRUKey = struct
 end
 
 type logdata_index = {
-  logdata_contents : string KeyedMap.t;
+  contents : string KeyedMap.t;
   (* The last value_end that was read from or written to disk *)
   mutable value_end : int;
   mutable old_value_end : int
@@ -729,9 +729,7 @@ struct
     let value_count = Int32.to_int (get_anynode_hdr_value_count cstr) in
     Logs.debug (fun m -> m "_index_logdata value_count:%d" value_count);
     let r =
-      { logdata_contents = KeyedMap.create ();
-        value_end = hdrsize;
-        old_value_end = 0 }
+      {contents = KeyedMap.create (); value_end = hdrsize; old_value_end = 0}
     in
     let rec scan off value_count =
       if value_count <= 0 then ()
@@ -742,7 +740,7 @@ struct
           Cstruct.to_string
             (Cstruct.sub cstr (off + P.key_size + sizeof_datalen) len)
         in
-        KeyedMap.xadd r.logdata_contents key va;
+        KeyedMap.xadd r.contents key va;
         r.value_end <- off + P.key_size + sizeof_datalen + len;
         scan r.value_end (pred value_count)
     in
@@ -855,12 +853,12 @@ struct
         let gen = next_generation open_fs.node_cache in
         set_anynode_hdr_generation entry.raw_node gen;
         set_anynode_hdr_value_count entry.raw_node
-          (Int32.of_int (KeyedMap.length entry.logdata.logdata_contents));
+          (Int32.of_int (KeyedMap.length entry.logdata.contents));
         let logical = next_logical_alloc_valid cache in
         Logs.debug (fun m ->
             m "_write_node logical:%Ld gen:%Ld vlen:%d value_end:%d" logical
               gen
-              (KeyedMap.length entry.logdata.logdata_contents)
+              (KeyedMap.length entry.logdata.contents)
               entry.logdata.value_end );
         ( match lookup_parent_link cache.lru entry with
         | Some (parent_key, parent_entry, offset) ->
@@ -888,7 +886,7 @@ struct
               (!offset + P.key_size + sizeof_datalen)
               len;
             offset := !offset + len1 )
-          entry.logdata.logdata_contents;
+          entry.logdata.contents;
         assert (!offset = entry.logdata.value_end);
         ( if entry.logdata.value_end < entry.logdata.old_value_end then
           let len = entry.logdata.old_value_end - entry.logdata.value_end in
@@ -1084,9 +1082,7 @@ struct
     in
     let value_end = header_size meta in
     let logdata =
-      { logdata_contents = KeyedMap.create ();
-        value_end;
-        old_value_end = value_end }
+      {contents = KeyedMap.create (); value_end; old_value_end = value_end}
     in
     let entry =
       { meta;
@@ -1110,7 +1106,7 @@ struct
     let hdrsize = header_size entry.meta in
     (entry.logdata).value_end <- hdrsize;
     (entry.logdata).old_value_end <- hdrsize;
-    KeyedMap.clear entry.logdata.logdata_contents;
+    KeyedMap.clear entry.logdata.contents;
     (entry.childlinks).childlinks_offset <- block_end;
     entry.children <- Lazy.from_val (KeyedMap.create ());
     KeyedMap.clear entry.children_alloc_ids;
@@ -1283,7 +1279,7 @@ struct
             let len1 = P.key_size + sizeof_datalen + len in
             let kd = entry.logdata in
             (* TODO optionally optimize storing tombstones on leaf nodes *)
-            KeyedMap.update kd.logdata_contents key (function
+            KeyedMap.update kd.contents key (function
               | None ->
                   (* Padded length *)
                   kd.value_end <- kd.value_end + len1;
@@ -1321,7 +1317,7 @@ struct
       let median = List.nth binds (n / 2) in
       median
     else
-      let kdc = entry.logdata.logdata_contents in
+      let kdc = entry.logdata.contents in
       let n = KeyedMap.length kdc in
       let binds = KeyedMap.keys kdc in
       let median = List.nth binds (n / 2) in
@@ -1372,7 +1368,7 @@ struct
         KeyedMap.iter
           (fun _ va ->
             vend := !vend + P.key_size + sizeof_datalen + String.length va )
-          entry.logdata.logdata_contents;
+          entry.logdata.contents;
         if !vend != entry.logdata.value_end then (
           Logs.err (fun m ->
               m "Inconsistent value_end depth:%Ld expected:%d actual:%d %a"
@@ -1519,7 +1515,7 @@ struct
                 let len = String.length va in
                 let len1 = P.key_size + sizeof_datalen + len in
                 spill_score := !spill_score + len1 )
-              entry.logdata.logdata_contents;
+              entry.logdata.contents;
             if !spill_score > !best_spill_score then (
               best_spill_score := !spill_score;
               best_spill_key := !scored_key );
@@ -1554,7 +1550,7 @@ struct
             in
             (* which keys we will dispatch *)
             let carved_list =
-              KeyedMap.carve_inclusive_range entry.logdata.logdata_contents
+              KeyedMap.carve_inclusive_range entry.logdata.contents
                 before_bsk_succ best_spill_key
             in
             (entry.logdata).value_end
@@ -1571,7 +1567,7 @@ struct
               (* Node splitting (root) *)
               assert (depth = 0L);
               Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
-              let kc = entry.logdata.logdata_contents in
+              let kc = entry.logdata.contents in
               let children = Lazy.force entry.children in
               _reserve_dirty fs.node_cache alloc_id 2L depth;
               let di = _mark_dirty fs.node_cache alloc_id in
@@ -1626,8 +1622,8 @@ struct
                 kc2;
               KeyedMap.iter (fun k off -> blit_cd_child k off entry1) children;
               KeyedMap.iter (fun k off -> blit_cd_child k off entry2) cl2;
-              KeyedMap.swap entry1.logdata.logdata_contents kc;
-              KeyedMap.swap entry2.logdata.logdata_contents kc2;
+              KeyedMap.swap entry1.logdata.contents kc;
+              KeyedMap.swap entry2.logdata.contents kc2;
               KeyedMap.swap entry1.children_alloc_ids entry.children_alloc_ids;
               KeyedMap.swap ca2 entry2.children_alloc_ids;
               _reset_contents entry;
@@ -1668,9 +1664,9 @@ struct
               let to_remove = ref [] in
               let remove_size = ref 0 in
               let kc1 =
-                KeyedMap.split_off_after entry.logdata.logdata_contents median
+                KeyedMap.split_off_after entry.logdata.contents median
               in
-              KeyedMap.swap kc1 entry.logdata.logdata_contents;
+              KeyedMap.swap kc1 entry.logdata.contents;
               KeyedMap.iter
                 (fun key va ->
                   let len = String.length va in
@@ -1680,7 +1676,7 @@ struct
                   to_remove := key :: !to_remove )
                 kc1;
               List.iter
-                (fun key -> KeyedMap.remove entry.logdata.logdata_contents key)
+                (fun key -> KeyedMap.remove entry.logdata.contents key)
                 !to_remove;
               (entry.logdata).value_end
               <- entry.logdata.value_end - !remove_size;
@@ -1761,7 +1757,7 @@ struct
     | None ->
         raise (MissingLRUEntry alloc_id)
     | Some entry -> (
-      match KeyedMap.find_opt entry.logdata.logdata_contents key with
+      match KeyedMap.find_opt entry.logdata.contents key with
       | Some va ->
           Logs.debug (fun m -> m "Found");
           if _is_value open_fs.filesystem va then Lwt.return_some va
@@ -1782,7 +1778,7 @@ struct
     | None ->
         raise (MissingLRUEntry alloc_id)
     | Some entry -> (
-      match KeyedMap.find_opt entry.logdata.logdata_contents key with
+      match KeyedMap.find_opt entry.logdata.contents key with
       | Some va ->
           Lwt.return (_is_value open_fs.filesystem va)
       | None ->
@@ -1821,7 +1817,7 @@ struct
             | None ->
                 () );
             seen1 := KeyedSet.add k !seen1 )
-          entry.logdata.logdata_contents start end_;
+          entry.logdata.contents start end_;
         (* As above, but end at end_ inclusive *)
         KeyedMap.iter_inclusive_range
           (fun key1 offset -> lwt_queue := (key1, offset) :: !lwt_queue)
@@ -1855,7 +1851,7 @@ struct
                 callback k v
             | None ->
                 () )
-          entry.logdata.logdata_contents;
+          entry.logdata.contents;
         KeyedMap.iter
           (fun key1 offset -> lwt_queue := (key1, offset) :: !lwt_queue)
           (Lazy.force entry.children);
