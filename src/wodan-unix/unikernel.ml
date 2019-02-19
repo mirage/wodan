@@ -288,9 +288,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
         let cstr_cond_reset str =
           let crcoffset = Cstruct.len str - 4 in
           let crc = Cstruct.sub str crcoffset 4 in
-          if Cstruct.equal crc magiccrc then (
-            Wodan_crc32c.cstruct_reset str;
-            true )
+          if Cstruct.equal crc magiccrc then ( Crc32c.cstruct_reset str; true )
           else false
         in
         let%lwt info = B.get_info disk in

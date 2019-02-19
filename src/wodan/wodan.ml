@@ -584,7 +584,7 @@ let read_superblock_params (type disk)
               raise BadVersion
             else if get_superblock_incompat_flags sb <> sb_required_incompat
             then raise BadFlags
-            else if not (Wodan_crc32c.cstruct_valid sb) then raise (BadCRC 0L)
+            else if not (Crc32c.cstruct_valid sb) then raise (BadCRC 0L)
             else
               let block_size = Int32.to_int (get_superblock_block_size sb) in
               let key_size = get_superblock_key_size sb in
@@ -711,7 +711,7 @@ struct
           | Result.Error _ ->
               raise ReadError
           | Result.Ok () ->
-              if not (Wodan_crc32c.cstruct_valid cstr) then
+              if not (Crc32c.cstruct_valid cstr) then
                 raise (BadCRC logical)
               else (cstr, io_data) )
 
@@ -893,7 +893,7 @@ struct
           Cstruct.blit (Cstruct.create len) 0 entry.raw_node
             entry.logdata.value_end len );
         (entry.logdata).old_value_end <- entry.logdata.value_end;
-        Wodan_crc32c.cstruct_reset entry.raw_node;
+        Crc32c.cstruct_reset entry.raw_node;
         ( match entry.prev_logical with
         | Some plog ->
             Logs.debug (fun m -> m "Decreasing dirty_count");
@@ -1882,7 +1882,7 @@ struct
                 raise BadVersion
               else if get_superblock_incompat_flags sb <> sb_required_incompat
               then raise BadFlags
-              else if not (Wodan_crc32c.cstruct_valid sb) then
+              else if not (Crc32c.cstruct_valid sb) then
                 raise (BadCRC 0L)
               else if
                 get_superblock_block_size sb <> Int32.of_int P.block_size
@@ -1920,7 +1920,7 @@ struct
     set_superblock_first_block_written sb first_block_written;
     set_superblock_logical_size sb logical_size;
     set_superblock_fsid fsid 0 sb;
-    Wodan_crc32c.cstruct_reset sb;
+    Crc32c.cstruct_reset sb;
     B.write open_fs.filesystem.disk 0L block_io_fanned
     >>= function
     | Result.Ok () ->
@@ -1966,7 +1966,7 @@ struct
     let is_valid_root () =
       get_anynode_hdr_nodetype cstr = 1
       && Cstruct.to_string (get_anynode_hdr_fsid cstr) = fsid
-      && Wodan_crc32c.cstruct_valid cstr
+      && Crc32c.cstruct_valid cstr
     in
     let rec _scan_range start end_opt =
       if Some start = end_opt then
