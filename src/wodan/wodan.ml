@@ -216,7 +216,7 @@ let header_size = function
   | Child _ ->
       sizeof_childnode_hdr
 
-type lru_entry = {
+type node = {
   mutable meta : node_meta;
   (* A node is flushable iff it's referenced from flush_root
      through a flush_children map.
@@ -240,7 +240,7 @@ type lru_entry = {
 }
 
 module LRUValue = struct
-  type t = lru_entry
+  type t = node
 
   let weight _val = 1
 end
@@ -291,7 +291,7 @@ let lru_xset lru alloc_id value =
 let lru_create capacity = LRU.create capacity
 
 type node_cache = {
-  (* LRUKey.t -> lru_entry
+  (* LRUKey.t -> node
    * all nodes are keyed by their alloc_id *)
   lru : LRU.t;
   mutable flush_root : LRUKey.t option;
