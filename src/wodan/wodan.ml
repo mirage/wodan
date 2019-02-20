@@ -62,7 +62,7 @@ module BlockCompat (B : Mirage_types_lwt.BLOCK) : EXTBLOCK with type t = B.t =
 struct
   include B
 
-  let discard _ _ _ = Lwt.return @@ Ok ()
+  let discard _ _ _ = Lwt.return (Ok ())
 end
 
 (* Incompatibility flags *)
@@ -74,7 +74,7 @@ let sb_incompat_value_count = 4l
 
 let sb_required_incompat =
   Int32.logor sb_incompat_rdepth
-  @@ Int32.logor sb_incompat_fsid sb_incompat_value_count
+    (Int32.logor sb_incompat_fsid sb_incompat_value_count)
 
 [@@@warning "-32"]
 
@@ -187,7 +187,7 @@ type childlinks = {
   mutable childlinks_offset : int
 }
 
-let string_dump key = Cstruct.hexdump @@ Cstruct.of_string key
+let string_dump key = Cstruct.hexdump (Cstruct.of_string key)
 
 let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
 
@@ -274,14 +274,14 @@ let lookup_parent_link lru entry =
   | Child parent_key -> (
     match lru_peek lru parent_key with
     | None ->
-        raise @@ MissingLRUEntry parent_key
+        raise (MissingLRUEntry parent_key)
     | Some parent_entry ->
         let children = Lazy.force parent_entry.children in
         let offset = KeyedMap.find children entry.highest_key in
         Some (parent_key, parent_entry, offset) )
 
 let lru_xset lru alloc_id value =
-  if LRU.mem alloc_id lru then raise @@ AlreadyCached alloc_id;
+  if LRU.mem alloc_id lru then raise (AlreadyCached alloc_id);
   let would_discard =
     LRU.size lru + LRUValue.weight value > LRU.capacity lru
   in
@@ -340,7 +340,7 @@ let bitv_get64 vec off = Bitv.get vec (Int64.to_int off)
 
 (* Safe as long as bitv_create64 is used *)
 
-let bitv_len64 vec = Int64.of_int @@ Bitv.length vec
+let bitv_len64 vec = Int64.of_int (Bitv.length vec)
 
 let next_logical_novalid cache logical =
   let log1 = Int64.succ logical in
@@ -350,8 +350,8 @@ let next_logical_alloc_valid cache =
   if cache.free_count = 0L then failwith "Out of space";
   (* Not the same as OutOfSpace *)
   let rec after log =
-    if not @@ bitv_get64 cache.space_map log then log
-    else after @@ next_logical_novalid cache log
+    if not (bitv_get64 cache.space_map log) then log
+    else after (next_logical_novalid cache log)
   in
   let loc = after cache.next_logical_alloc in
   cache.next_logical_alloc <- next_logical_novalid cache loc;
@@ -388,7 +388,7 @@ let rec _reserve_dirty_rec cache alloc_id new_count dirty_count =
   (*Logs.debug (fun m -> m "_reserve_dirty_rec %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   | None ->
-      raise @@ MissingLRUEntry alloc_id
+      raise (MissingLRUEntry alloc_id)
   | Some entry -> (
     match entry.flush_children with
     | Some _di ->
@@ -419,18 +419,15 @@ let _reserve_dirty cache alloc_id new_count depth =
   if
     Int64.(
       compare cache.free_count
-      @@ add cache.dirty_count
-      @@ add !dirty_count
-      @@ add cache.new_count !new_count)
+        (add cache.dirty_count
+           (add !dirty_count (add cache.new_count !new_count))))
     < 0
   then
     if
       Int64.(
         compare cache.free_count
-        @@ add !dirty_count
-        @@ add cache.new_count
-        @@ add !new_count
-        @@ succ depth)
+          (add !dirty_count
+             (add cache.new_count (add !new_count (succ depth)))))
       >= 0
     then raise NeedsFlush (* flush and retry, it will succeed *)
     else raise OutOfSpace
@@ -441,7 +438,7 @@ let rec _mark_dirty cache alloc_id =
   (*Logs.debug (fun m -> m "_mark_dirty %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   | None ->
-      raise @@ MissingLRUEntry alloc_id
+      raise (MissingLRUEntry alloc_id)
   | Some entry -> (
     match entry.flush_children with
     | Some di ->
@@ -612,10 +609,9 @@ let read_superblock_params (type disk)
               raise BadVersion
             else if get_superblock_incompat_flags sb <> sb_required_incompat
             then raise BadFlags
-            else if not @@ Wodan_crc32c.cstruct_valid sb then
-              raise @@ BadCRC 0L
+            else if not (Wodan_crc32c.cstruct_valid sb) then raise (BadCRC 0L)
             else
-              let block_size = Int32.to_int @@ get_superblock_block_size sb in
+              let block_size = Int32.to_int (get_superblock_block_size sb) in
               let key_size = get_superblock_key_size sb in
               ( module struct
                 let block_size = block_size
@@ -642,14 +638,14 @@ struct
 
   let key_of_cstruct key =
     if Cstruct.len key <> P.key_size then
-      raise @@ BadKey (Cstruct.to_string key)
+      raise (BadKey (Cstruct.to_string key))
     else Cstruct.to_string key
 
   let key_of_string key =
-    if String.length key <> P.key_size then raise @@ BadKey key else key
+    if String.length key <> P.key_size then raise (BadKey key) else key
 
   let key_of_string_padded key =
-    if String.length key > P.key_size then raise @@ BadKey key
+    if String.length key > P.key_size then raise (BadKey key)
     else key ^ String.make (P.key_size - String.length key) '\000'
 
   let cstruct_of_key key = Cstruct.of_string key
@@ -658,9 +654,9 @@ struct
 
   let value_of_string value =
     let len = String.length value in
-    if len >= 65536 then raise @@ ValueTooLarge value else value
+    if len >= 65536 then raise (ValueTooLarge value) else value
 
-  let value_of_cstruct value = value_of_string @@ Cstruct.to_string value
+  let value_of_cstruct value = value_of_string (Cstruct.to_string value)
 
   let value_equal = String.equal
 
@@ -695,7 +691,7 @@ struct
     let state = ref 1 in
     for i = P.key_size - 1 downto 0 do
       let code = (!state + Char.code key.[i]) mod 256 in
-      Bytes.set r i @@ Char.chr code;
+      Bytes.set r i (Char.chr code);
       state := if !state <> 0 && code = 0 then 1 else 0
     done;
     Bytes.to_string r
@@ -732,15 +728,16 @@ struct
     let io_data = make_fanned_io_list filesystem.sector_size cstr in
     B.read filesystem.disk
       Int64.(
-        div (mul logical @@ of_int P.block_size)
-        @@ of_int filesystem.other_sector_size)
+        div
+          (mul logical (of_int P.block_size))
+          (of_int filesystem.other_sector_size))
       io_data
     >>= Lwt.wrap1 (function
           | Result.Error _ ->
               raise ReadError
           | Result.Ok () ->
-              if not @@ Wodan_crc32c.cstruct_valid cstr then
-                raise @@ BadCRC logical
+              if not (Wodan_crc32c.cstruct_valid cstr) then
+                raise (BadCRC logical)
               else (cstr, io_data) )
 
   let _find_childlinks_offset cstr value_end =
@@ -754,7 +751,7 @@ struct
 
   (* build a logdata_index *)
   let _index_logdata cstr hdrsize =
-    let value_count = Int32.to_int @@ get_anynode_hdr_value_count cstr in
+    let value_count = Int32.to_int (get_anynode_hdr_value_count cstr) in
     Logs.debug (fun m -> m "_index_logdata value_count:%d" value_count);
     let r =
       { logdata_contents = KeyedMap.create ();
@@ -764,15 +761,15 @@ struct
     let rec scan off value_count =
       if value_count <= 0 then ()
       else
-        let key = Cstruct.to_string @@ Cstruct.sub cstr off P.key_size in
+        let key = Cstruct.to_string (Cstruct.sub cstr off P.key_size) in
         let len = Cstruct.LE.get_uint16 cstr (off + P.key_size) in
         let va =
           Cstruct.to_string
-          @@ Cstruct.sub cstr (off + P.key_size + sizeof_datalen) len
+            (Cstruct.sub cstr (off + P.key_size + sizeof_datalen) len)
         in
         KeyedMap.xadd r.logdata_contents key va;
         r.value_end <- off + P.key_size + sizeof_datalen + len;
-        scan r.value_end @@ pred value_count
+        scan r.value_end (pred value_count)
     in
     scan hdrsize value_count;
     r.old_value_end <- r.value_end;
@@ -780,7 +777,7 @@ struct
 
   let rec _gen_childlink_offsets start =
     if start >= block_end then []
-    else start :: (_gen_childlink_offsets @@ (start + childlink_size))
+    else start :: _gen_childlink_offsets (start + childlink_size)
 
   let _compute_children entry =
     Logs.debug (fun m -> m "_compute_children");
@@ -788,7 +785,7 @@ struct
     List.iter
       (fun off ->
         let key =
-          Cstruct.to_string @@ Cstruct.sub entry.raw_node off P.key_size
+          Cstruct.to_string (Cstruct.sub entry.raw_node off P.key_size)
         in
         KeyedMap.xadd r key (Int64.of_int off) )
       (_gen_childlink_offsets entry.childlinks.childlinks_offset);
@@ -804,7 +801,7 @@ struct
       | 1 ->
           (Root, _index_logdata cstr sizeof_rootnode_hdr)
       | ty ->
-          raise @@ BadNodeType ty
+          raise (BadNodeType ty)
     in
     let alloc_id = next_alloc_id cache in
     let rdepth = get_rootnode_hdr_depth cstr in
@@ -836,7 +833,7 @@ struct
       | 2 ->
           (Child parent_key, _index_logdata cstr sizeof_childnode_hdr)
       | ty ->
-          raise @@ BadNodeType ty
+          raise (BadNodeType ty)
     in
     let alloc_id = next_alloc_id cache in
     let rec entry =
@@ -878,13 +875,12 @@ struct
     let cache = open_fs.node_cache in
     match lru_get cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry -> (
         let gen = next_generation open_fs.node_cache in
         set_anynode_hdr_generation entry.raw_node gen;
         set_anynode_hdr_value_count entry.raw_node
-        @@ Int32.of_int
-        @@ KeyedMap.length entry.logdata.logdata_contents;
+          (Int32.of_int (KeyedMap.length entry.logdata.logdata_contents));
         let logical = next_logical_alloc_valid cache in
         Logs.debug (fun m ->
             m "_write_node logical:%Ld gen:%Ld vlen:%d value_end:%d" logical
@@ -905,7 +901,7 @@ struct
               ()
           | Some scan_map ->
               bitv_set64 scan_map logical true );
-        let offset = ref @@ header_size entry.meta in
+        let offset = ref (header_size entry.meta) in
         (* XXX Writes in sorted order *)
         KeyedMap.iter
           (fun key va ->
@@ -949,8 +945,9 @@ struct
         entry.prev_logical <- Some logical;
         B.write open_fs.filesystem.disk
           Int64.(
-            div (mul logical @@ of_int P.block_size)
-            @@ of_int open_fs.filesystem.other_sector_size)
+            div
+              (mul logical (of_int P.block_size))
+              (of_int open_fs.filesystem.other_sector_size))
           entry.io_data
         >>= function
         | Result.Ok () ->
@@ -966,7 +963,7 @@ struct
     (* Don't count the superblock as a node *)
     Logs.debug (fun m -> m "Decreasing free_count to log stats");
     let nstored =
-      int64_pred_nowrap @@ Int64.sub logical_size cache.free_count
+      int64_pred_nowrap (Int64.sub logical_size cache.free_count)
     in
     let ndirty = cache.dirty_count in
     let nnew = cache.new_count in
@@ -991,8 +988,7 @@ struct
               1 ) );
     _log_statistics cache;
     if
-      Int64.(
-        compare cache.free_count @@ add cache.new_count cache.dirty_count)
+      Int64.(compare cache.free_count (add cache.new_count cache.dirty_count))
       < 0
     then failwith "Out of space";
     let rec flush_rec parent_key _key alloc_id
@@ -1003,7 +999,7 @@ struct
         failwith "Reference loop" );
       match lru_get cache.lru alloc_id with
       | None ->
-          raise @@ MissingLRUEntry alloc_id
+          raise (MissingLRUEntry alloc_id)
       | Some entry -> (
           Logs.debug (fun m ->
               m "collecting %Ld parent %Ld" alloc_id parent_key );
@@ -1029,16 +1025,18 @@ struct
     cache.flush_root <- None;
     assert (cache.new_count = 0L);
     assert (cache.dirty_count = 0L);
-    r >>= fun () -> Lwt.return @@ Int64.pred cache.next_generation
+    r >>= fun () -> Lwt.return (Int64.pred cache.next_generation)
 
   let _discard_block_range open_fs logical n =
     B.discard open_fs.filesystem.disk
       Int64.(
-        div (mul logical @@ of_int P.block_size)
-        @@ of_int open_fs.filesystem.other_sector_size)
+        div
+          (mul logical (of_int P.block_size))
+          (of_int open_fs.filesystem.other_sector_size))
       Int64.(
-        div (mul n @@ of_int P.block_size)
-        @@ of_int open_fs.filesystem.other_sector_size)
+        div
+          (mul n (of_int P.block_size))
+          (of_int open_fs.filesystem.other_sector_size))
     >|= function
     | res ->
         Rresult.R.get_ok res
@@ -1055,7 +1053,7 @@ struct
         | None, false ->
             unused_start := Some i
         | Some start, true ->
-            let range_block_count = Int64.of_int @@ (i - start) in
+            let range_block_count = Int64.of_int (i - start) in
             to_discard := (start, range_block_count) :: !to_discard;
             discard_count := Int64.add !discard_count range_block_count;
             unused_start := None
@@ -1065,7 +1063,7 @@ struct
     ( match !unused_start with
     | Some start ->
         let range_block_count =
-          Int64.sub cache.logical_size @@ Int64.of_int start
+          Int64.sub cache.logical_size (Int64.of_int start)
         in
         to_discard := (start, range_block_count) :: !to_discard
     | _ ->
@@ -1084,7 +1082,7 @@ struct
     BlockIntervals.iter
       (fun iv ->
         let start = BlockIntervals.Interval.x iv in
-        let exclend = Int64.succ @@ BlockIntervals.Interval.y iv in
+        let exclend = Int64.succ (BlockIntervals.Interval.y iv) in
         let range_block_count = Int64.sub exclend start in
         discard_count := Int64.add !discard_count range_block_count;
         to_discard := (start, range_block_count) :: !to_discard )
@@ -1111,7 +1109,7 @@ struct
       | 2, Some parent_key ->
           Child parent_key
       | ty, _ ->
-          raise @@ BadNodeType ty
+          raise (BadNodeType ty)
     in
     let value_end = header_size meta in
     let logdata =
@@ -1126,7 +1124,7 @@ struct
         io_data;
         logdata;
         flush_children = None;
-        children = Lazy.from_val @@ KeyedMap.create ();
+        children = Lazy.from_val (KeyedMap.create ());
         children_alloc_ids = KeyedMap.create ();
         highest_key;
         prev_logical = None;
@@ -1159,13 +1157,13 @@ struct
       0 parent.raw_node off P.key_size;
     (parent.childlinks).childlinks_offset <- off;
     KeyedMap.xadd children
-      (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size)
+      (Cstruct.to_string (Cstruct.sub parent.raw_node off P.key_size))
       (Int64.of_int off);
     KeyedMap.xadd parent.children_alloc_ids
-      (Cstruct.to_string @@ Cstruct.sub parent.raw_node off P.key_size)
+      (Cstruct.to_string (Cstruct.sub parent.raw_node off P.key_size))
       alloc_id;
-    (*ignore @@ _mark_dirty cache parent_key;*)
-    ignore @@ _mark_dirty cache child_key
+    (*ignore (_mark_dirty cache parent_key);*)
+    ignore (_mark_dirty cache child_key)
 
   let _has_logdata entry = entry.logdata.value_end <> header_size entry.meta
 
@@ -1196,27 +1194,27 @@ struct
         when not expect_root ->
           sizeof_childnode_hdr
       | ty ->
-          raise @@ BadNodeType ty
+          raise (BadNodeType ty)
     in
-    let fsid = Cstruct.to_string @@ get_anynode_hdr_fsid cstr in
+    let fsid = Cstruct.to_string (get_anynode_hdr_fsid cstr) in
     if fsid <> cache.fsid then raise (BadNodeFSID fsid);
     let gen = get_anynode_hdr_generation cstr in
     (* prevents cycles *)
     if gen >= parent_gen then
       failwith "generation is not lower than for parent";
-    let value_count = Int32.to_int @@ get_anynode_hdr_value_count cstr in
+    let value_count = Int32.to_int (get_anynode_hdr_value_count cstr) in
     let rec scan_kd off value_count =
       if value_count <= 0 then off
       else
         let off1 = off + P.key_size + sizeof_datalen in
         if off1 > block_end then failwith "data bleeding past end of node";
         (* TODO check for key unicity in scan_kd and scan_cl *)
-        let _key = Cstruct.to_string @@ Cstruct.sub cstr off P.key_size in
+        let _key = Cstruct.to_string (Cstruct.sub cstr off P.key_size) in
         let len = Cstruct.LE.get_uint16 cstr (off + P.key_size) in
         let len1 = len + P.key_size + sizeof_datalen in
         let off2 = off + len1 in
         if off2 > block_end then failwith "data bleeding past end of node";
-        scan_kd off2 @@ pred value_count
+        scan_kd off2 (pred value_count)
     in
     let value_end = scan_kd hdrsize value_count in
     let rec scan_cl off =
@@ -1266,8 +1264,7 @@ struct
               assert false
           | Some scan_map ->
               if%lwt
-                Lwt.return
-                  (rdepth = 0l && (not @@ bitv_get64 scan_map logical))
+                Lwt.return (rdepth = 0l && not (bitv_get64 scan_map logical))
               then
                 (* generation may not be fresh, but is always initialised in this branch,
                so this is not a problem *)
@@ -1286,9 +1283,9 @@ struct
       match lru_get cache.lru alloc_id with
       | None ->
           Lwt.fail
-          @@ Failure
+            (Failure
                (Printf.sprintf "Missing LRU entry for loaded child %Ld %Ld"
-                  offset alloc_id)
+                  offset alloc_id))
       | Some child_entry ->
           Lwt.return (alloc_id, child_entry) )
 
@@ -1304,10 +1301,10 @@ struct
     (*Logs.debug (fun m -> m "_fast_insert %Ld" _depth);*)
     match lru_get fs.node_cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry -> (
         assert (String.compare key entry.highest_key <= 0);
-        assert (has_free_space entry @@ _ins_req_space insertable);
+        assert (has_free_space entry (_ins_req_space insertable));
         (* Simple insertion *)
         match insertable with
         | InsValue value ->
@@ -1324,7 +1321,7 @@ struct
                   (* No need to pad lengths *)
                   kd.value_end <- kd.value_end - String.length prev_val + len;
                   Some value );
-            ignore @@ _mark_dirty fs.node_cache alloc_id
+            ignore (_mark_dirty fs.node_cache alloc_id)
         | InsChild (loc, child_alloc_id_opt) ->
             let cstr = entry.raw_node in
             let cls = entry.childlinks in
@@ -1334,50 +1331,46 @@ struct
             Cstruct.blit (Cstruct.of_string key) 0 cstr offset P.key_size;
             Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
             KeyedMap.xadd children
-              (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size)
+              (Cstruct.to_string (Cstruct.sub cstr offset P.key_size))
               (Int64.of_int offset);
             ( match child_alloc_id_opt with
             | None ->
                 ()
             | Some child_alloc_id ->
                 KeyedMap.xadd entry.children_alloc_ids
-                  (Cstruct.to_string @@ Cstruct.sub cstr offset P.key_size)
+                  (Cstruct.to_string (Cstruct.sub cstr offset P.key_size))
                   child_alloc_id );
-            ignore @@ _mark_dirty fs.node_cache alloc_id )
+            ignore (_mark_dirty fs.node_cache alloc_id) )
 
   let _split_point entry =
     if _has_children entry then
       let children = Lazy.force entry.children in
       let n = KeyedMap.length children in
       let binds = KeyedMap.keys children in
-      let median = List.nth binds @@ (n / 2) in
+      let median = List.nth binds (n / 2) in
       median
     else
       let kdc = entry.logdata.logdata_contents in
       let n = KeyedMap.length kdc in
       let binds = KeyedMap.keys kdc in
-      let median = List.nth binds @@ (n / 2) in
+      let median = List.nth binds (n / 2) in
       median
 
   let rec _check_live_integrity fs alloc_id depth =
     let fail = ref false in
     match lru_peek fs.node_cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry ->
         ( if
             _has_children entry
             && not
-                 ( String.equal entry.highest_key
-                 @@ fst
-                 @@ KeyedMap.max_binding
-                 @@ Lazy.force entry.children )
+                 (String.equal entry.highest_key
+                    (fst (KeyedMap.max_binding (Lazy.force entry.children))))
           then (
-            string_dump @@ entry.highest_key;
+            string_dump entry.highest_key;
             string_dump
-            @@ fst
-            @@ KeyedMap.max_binding
-            @@ Lazy.force entry.children;
+              (fst (KeyedMap.max_binding (Lazy.force entry.children)));
             Logs.err (fun m ->
                 m "_check_live_integrity %Ld invariant broken: highest_key"
                   depth );
@@ -1388,7 +1381,7 @@ struct
           | Child parent_key -> (
             match lru_peek fs.node_cache.lru parent_key with
             | None ->
-                raise @@ MissingLRUEntry parent_key
+                raise (MissingLRUEntry parent_key)
             | Some parent_entry -> (
                 let children = Lazy.force parent_entry.children in
                 match KeyedMap.find_opt children entry.highest_key with
@@ -1404,7 +1397,7 @@ struct
                       KeyedMap.find_opt parent_entry.children_alloc_ids
                         entry.highest_key
                       = Some alloc_id ) ) ) );
-        let vend = ref @@ header_size entry.meta in
+        let vend = ref (header_size entry.meta) in
         KeyedMap.iter
           (fun _k va ->
             vend := !vend + P.key_size + sizeof_datalen + String.length va )
@@ -1432,7 +1425,7 @@ struct
             | Child parent_key -> (
               match lru_peek fs.node_cache.lru parent_key with
               | None ->
-                  raise @@ MissingLRUEntry parent_key
+                  raise (MissingLRUEntry parent_key)
               | Some parent_entry -> (
                 match parent_entry.flush_children with
                 | None ->
@@ -1465,7 +1458,7 @@ struct
           | Child parent_key -> (
             match lru_peek fs.node_cache.lru parent_key with
             | None ->
-                raise @@ MissingLRUEntry parent_key
+                raise (MissingLRUEntry parent_key)
             | Some parent_entry -> (
               match parent_entry.flush_children with
               | None ->
@@ -1478,21 +1471,21 @@ struct
                            parent_entry.flush_info %Ld"
                           depth );
                     fail := true ) ) ) ) );
-        KeyedMap.iter (fun k offset ->
+        KeyedMap.iter
+          (fun k offset ->
             let cstr = entry.raw_node in
             let key =
               Cstruct.to_string
-              @@ Cstruct.sub cstr (Int64.to_int offset) P.key_size
+                (Cstruct.sub cstr (Int64.to_int offset) P.key_size)
             in
             assert (k = key) )
-        @@ Lazy.force entry.children;
+          (Lazy.force entry.children);
         KeyedMap.iter
           (fun _k child_alloc_id ->
             if child_alloc_id = alloc_id then (
               Logs.err (fun m -> m "Self-pointing node %Ld" depth);
               fail := true )
-            else _check_live_integrity fs child_alloc_id @@ Int64.succ depth
-            )
+            else _check_live_integrity fs child_alloc_id (Int64.succ depth) )
           entry.children_alloc_ids;
         if !fail then failwith "Integrity errors"
 
@@ -1503,7 +1496,7 @@ struct
       (fun _k child_alloc_id ->
         match lru_peek cache.lru child_alloc_id with
         | None ->
-            raise @@ MissingLRUEntry child_alloc_id
+            raise (MissingLRUEntry child_alloc_id)
         | Some centry ->
             centry.meta <- Child alloc_id )
       entry.children_alloc_ids
@@ -1524,7 +1517,7 @@ struct
     _check_live_integrity fs alloc_id depth;
     match lru_get fs.node_cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry -> (
         if has_free_space entry space then (
           _reserve_dirty fs.node_cache alloc_id 0L depth;
@@ -1537,7 +1530,7 @@ struct
             let spill_score = ref 0 in
             let best_spill_score = ref 0 in
             (* an iterator on entry.children keys would be helpful here *)
-            let scored_key = ref @@ fst @@ KeyedMap.min_binding children in
+            let scored_key = ref (fst (KeyedMap.min_binding children)) in
             let best_spill_key = ref !scored_key in
             KeyedMap.iter
               (fun k va ->
@@ -1549,7 +1542,7 @@ struct
                   match KeyedMap.find_first_opt children k with
                   | None ->
                       string_dump k;
-                      string_dump @@ fst @@ KeyedMap.max_binding children;
+                      string_dump (fst (KeyedMap.max_binding children));
                       string_dump entry.highest_key;
                       failwith "children invariant broken"
                   | Some (sk, _cl) ->
@@ -1574,8 +1567,7 @@ struct
           let nko = entry.logdata.value_end in
           (*Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.logdata.value_end);*)
           _reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score)
-            false
-          @@ Int64.succ depth
+            false (Int64.succ depth)
           >>= fun () ->
           (*Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.logdata.value_end);*)
           if
@@ -1583,7 +1575,7 @@ struct
             && nko = entry.logdata.value_end
           then (
             (* _reserve_insert didn't split the child or the root *)
-            _reserve_dirty fs.node_cache child_alloc_id 0L @@ Int64.succ depth;
+            _reserve_dirty fs.node_cache child_alloc_id 0L (Int64.succ depth);
             let before_bsk_succ =
               match KeyedMap.find_last_opt children best_spill_key with
               | Some (before_bsk, _va) ->
@@ -1601,7 +1593,7 @@ struct
             KeyedMap.iter
               (fun key va ->
                 _fast_insert fs child_alloc_id key (InsValue va)
-                @@ Int64.succ depth )
+                  (Int64.succ depth) )
               carved_list );
           _reserve_insert fs alloc_id space split_path depth )
         else
@@ -1638,7 +1630,7 @@ struct
                   childlink_size;
                 assert (Lazy.is_val centry.children);
                 let key1 =
-                  Cstruct.to_string @@ Cstruct.sub cstr1 offset1 P.key_size
+                  Cstruct.to_string (Cstruct.sub cstr1 offset1 P.key_size)
                 in
                 Logs.debug (fun m ->
                     m "Blitting %S (%S) from offset %Ld" key1 k offset );
@@ -1686,8 +1678,7 @@ struct
               Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
               (* Set split_path to prevent spill/split recursion; will split towards the root *)
               _reserve_insert fs parent_key (InsSpaceChild childlink_size)
-                true
-              @@ Int64.pred depth
+                true (Int64.pred depth)
               >>= fun () ->
               let _children = Lazy.force entry.children in
               _reserve_dirty fs.node_cache alloc_id 1L depth;
@@ -1717,7 +1708,7 @@ struct
               <- entry.logdata.value_end - !remove_size;
               let clo_out = ref block_end in
               let clo_out1 = ref block_end in
-              let clo = ref @@ (block_end - childlink_size) in
+              let clo = ref (block_end - childlink_size) in
               let children = Lazy.force entry.children in
               let children1 = KeyedMap.create () in
               let fc1 = KeyedMap.create () in
@@ -1725,7 +1716,7 @@ struct
                 (* Move children data *)
                 let key1 =
                   Cstruct.to_string
-                  @@ Cstruct.sub entry.raw_node !clo P.key_size
+                    (Cstruct.sub entry.raw_node !clo P.key_size)
                 in
                 if String.compare key1 median <= 0 then (
                   clo_out1 := !clo_out1 - childlink_size;
@@ -1749,7 +1740,7 @@ struct
                     childlink_size;
                   let key1 =
                     Cstruct.to_string
-                    @@ Cstruct.sub entry.raw_node !clo_out P.key_size
+                      (Cstruct.sub entry.raw_node !clo_out P.key_size)
                   in
                   KeyedMap.replace_existing children key1
                     (Int64.of_int !clo_out) )
@@ -1763,7 +1754,7 @@ struct
               | None ->
                   Logs.err (fun m ->
                       m "Missing LRU entry for %Ld (parent)" alloc_id );
-                  raise @@ MissingLRUEntry parent_key
+                  raise (MissingLRUEntry parent_key)
               | Some parent ->
                   ( _add_child parent entry1 alloc1 fs.node_cache parent_key;
                     entry1.flush_children <- Some fc1;
@@ -1780,7 +1771,7 @@ struct
     stats.inserts <- succ stats.inserts;
     _check_live_integrity root.open_fs root.root_key 0L;
     _reserve_insert root.open_fs root.root_key
-      (_ins_req_space @@ InsValue value)
+      (_ins_req_space (InsValue value))
       false 0L
     >>= fun () ->
     _check_live_integrity root.open_fs root.root_key 0L;
@@ -1792,7 +1783,7 @@ struct
     Logs.debug (fun m -> m "_lookup");
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry -> (
       match KeyedMap.find_opt entry.logdata.logdata_contents key with
       | Some va ->
@@ -1800,7 +1791,7 @@ struct
           if _is_value open_fs.filesystem va then Lwt.return_some va
           else Lwt.return_none
       | None ->
-          if not @@ _has_children entry then Lwt.return_none
+          if not (_has_children entry) then Lwt.return_none
           else
             let key1, offset =
               KeyedMap.find_first (Lazy.force entry.children) key
@@ -1813,14 +1804,14 @@ struct
   let rec _mem open_fs alloc_id key =
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry -> (
       match KeyedMap.find_opt entry.logdata.logdata_contents key with
       | Some va ->
-          Lwt.return @@ _is_value open_fs.filesystem va
+          Lwt.return (_is_value open_fs.filesystem va)
       | None ->
           Logs.debug (fun m -> m "_mem");
-          if not @@ _has_children entry then Lwt.return_false
+          if not (_has_children entry) then Lwt.return_false
           else
             let key1, offset =
               KeyedMap.find_first (Lazy.force entry.children) key
@@ -1843,7 +1834,7 @@ struct
   let rec _search_range open_fs alloc_id start end_ seen callback =
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry ->
         let seen1 = ref seen in
         let lwt_queue = ref [] in
@@ -1881,7 +1872,7 @@ struct
   let rec _iter open_fs alloc_id callback =
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
-        raise @@ MissingLRUEntry alloc_id
+        raise (MissingLRUEntry alloc_id)
     | Some entry ->
         let lwt_queue = ref [] in
         KeyedMap.iter
@@ -1892,9 +1883,9 @@ struct
             | None ->
                 () )
           entry.logdata.logdata_contents;
-        KeyedMap.iter (fun key1 offset ->
-            lwt_queue := (key1, offset) :: !lwt_queue )
-        @@ Lazy.force entry.children;
+        KeyedMap.iter
+          (fun key1 offset -> lwt_queue := (key1, offset) :: !lwt_queue)
+          (Lazy.force entry.children);
         Lwt_list.iter_s
           (fun (key1, offset) ->
             let%lwt child_alloc_id, _ce =
@@ -1923,8 +1914,8 @@ struct
                 raise BadVersion
               else if get_superblock_incompat_flags sb <> sb_required_incompat
               then raise BadFlags
-              else if not @@ Wodan_crc32c.cstruct_valid sb then
-                raise @@ BadCRC 0L
+              else if not (Wodan_crc32c.cstruct_valid sb) then
+                raise (BadCRC 0L)
               else if
                 get_superblock_block_size sb <> Int32.of_int P.block_size
               then (
@@ -1938,7 +1929,7 @@ struct
               else
                 ( get_superblock_first_block_written sb,
                   get_superblock_logical_size sb,
-                  Cstruct.to_string @@ get_superblock_fsid sb ) )
+                  Cstruct.to_string (get_superblock_fsid sb) ) )
 
   (* Requires the caller to discard the entire device first.
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
@@ -1990,8 +1981,9 @@ struct
     let read logical =
       B.read fs.disk
         Int64.(
-          div (mul logical @@ of_int P.block_size)
-          @@ of_int fs.other_sector_size)
+          div
+            (mul logical (of_int P.block_size))
+            (of_int fs.other_sector_size))
         io_data
       >>= function
       | Result.Error _ ->
@@ -2005,12 +1997,12 @@ struct
     in
     let is_valid_root () =
       get_anynode_hdr_nodetype cstr = 1
-      && Cstruct.to_string @@ get_anynode_hdr_fsid cstr = fsid
+      && Cstruct.to_string (get_anynode_hdr_fsid cstr) = fsid
       && Wodan_crc32c.cstruct_valid cstr
     in
     let rec _scan_range start end_opt =
       if Some start = end_opt then
-        Lwt.fail @@ Failure "Didn't find a valid root"
+        Lwt.fail (Failure "Didn't find a valid root")
       else
         let end_opt = if end_opt = None then Some start else end_opt in
         read start
@@ -2055,7 +2047,7 @@ struct
         let%lwt lroot = _scan_for_root fs fbw logical_size fsid in
         let%lwt cstr, _io_data = _load_data_at fs lroot in
         let typ = get_anynode_hdr_nodetype cstr in
-        if typ <> 1 then raise @@ BadNodeType typ;
+        if typ <> 1 then raise (BadNodeType typ);
         let root_generation = get_rootnode_hdr_generation cstr in
         let rdepth = get_rootnode_hdr_depth cstr in
         let space_map = bitv_create64 logical_size false in
@@ -2099,7 +2091,7 @@ struct
         let freed_intervals = BlockIntervals.empty in
         let free_count = Int64.pred logical_size in
         let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
-        let fsid = Cstruct.to_string @@ Nocrypto.Rng.generate 16 in
+        let fsid = Cstruct.to_string (Nocrypto.Rng.generate 16) in
         let node_cache =
           { lru = lru_create mount_options.cache_size;
             flush_root = None;
