@@ -20,7 +20,7 @@ open Irmin_test
 module BlockCon = struct
   include Ramdisk
   let connect name = Ramdisk.connect ~name
-  let discard _ _ _ = Lwt.return @@ Ok ()
+  let discard _ _ _ = Lwt.return (Ok ())
 end
 
 module DB_ram = Wodan_irmin.DB_BUILDER(BlockCon)(Wodan.StandardSuperblockParams)

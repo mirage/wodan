@@ -178,7 +178,7 @@ end = struct
   let add config t =
     let weak_t = Weak.create 1 in
     let key = X.key config in
-    Weak.set weak_t 0 @@ Some t;
+    Weak.set weak_t 0 (Some t);
     Gc.finalise (fun _ -> ValueTab.remove value_cache key) t;
     ValueTab.add value_cache key weak_t;
     ConfigTab.add config_cache t config
@@ -228,8 +228,9 @@ functor
                 if create then
                   Wodan.FormatEmptyDevice
                     Int64.(
-                      div (mul info.size_sectors @@ of_int info.sector_size)
-                      @@ of_int Wodan.StandardSuperblockParams.block_size)
+                      div
+                        (mul info.size_sectors (of_int info.sector_size))
+                        (of_int Wodan.StandardSuperblockParams.block_size))
                 else Wodan.OpenExistingDevice
               in
               Stor.prepare_io open_arg disk mount_options
@@ -265,7 +266,7 @@ functor
       assert (autoflush = autoflush');
       t
 
-    let flush db = Stor.flush @@ db_root db
+    let flush db = Stor.flush (db_root db)
   end
 
 module RO_BUILDER : functor
@@ -296,22 +297,18 @@ functor
     let find db k =
       Log.debug (fun l -> l "find %a" (Irmin.Type.pp K.t) k);
       Stor.lookup (db_root db)
-      @@ Stor.key_of_string
-      @@ Irmin.Type.encode_bin K.t k
+        (Stor.key_of_string (Irmin.Type.encode_bin K.t k))
       >>= function
       | None ->
           Lwt.return_none
       | Some v ->
           Lwt.return_some
-          @@ Rresult.R.get_ok
-          @@ Irmin.Type.decode_bin V.t
-          @@ Stor.string_of_value v
+            (Rresult.R.get_ok
+               (Irmin.Type.decode_bin V.t (Stor.string_of_value v)))
 
     let mem db k =
       Log.debug (fun l -> l "mem %a" (Irmin.Type.pp K.t) k);
-      Stor.mem (db_root db)
-      @@ Stor.key_of_string
-      @@ Irmin.Type.encode_bin K.t k
+      Stor.mem (db_root db) (Stor.key_of_string (Irmin.Type.encode_bin K.t k))
   end
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.AO_MAKER =
@@ -334,7 +331,7 @@ functor
       let root = db_root db in
       may_autoflush db (fun () ->
           Stor.insert root (Stor.key_of_string raw_k)
-          @@ Stor.value_of_string raw_v )
+            (Stor.value_of_string raw_v) )
       >>= function
       | () ->
           Lwt.return k
@@ -355,7 +352,7 @@ functor
       Log.debug (fun m -> m "LINK.add -> %a" (Irmin.Type.pp K.t) k);
       may_autoflush db (fun () ->
           Stor.insert root (Stor.key_of_string raw_k)
-          @@ Stor.value_of_string raw_v )
+            (Stor.value_of_string raw_v) )
   end
 
 module RW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin.RW_MAKER =
@@ -392,27 +389,23 @@ functor
 
     let key_to_inner_key k =
       Stor.key_of_string
-      @@ Irmin.Type.encode_bin H.t
-      @@ H.digest
-      @@ Irmin.Type.encode_bin K.t k
+        (Irmin.Type.encode_bin H.t (H.digest (Irmin.Type.encode_bin K.t k)))
 
     let val_to_inner_val va =
-      Stor.value_of_string @@ Irmin.Type.encode_bin V.t va
+      Stor.value_of_string (Irmin.Type.encode_bin V.t va)
 
     let key_to_inner_val k =
-      Stor.value_of_string @@ Irmin.Type.encode_bin K.t k
+      Stor.value_of_string (Irmin.Type.encode_bin K.t k)
 
     let key_of_inner_val va =
-      Rresult.R.get_ok @@ Irmin.Type.decode_bin K.t @@ Stor.string_of_value va
+      Rresult.R.get_ok (Irmin.Type.decode_bin K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Rresult.R.get_ok @@ Irmin.Type.decode_bin V.t @@ Stor.string_of_value va
+      Rresult.R.get_ok (Irmin.Type.decode_bin V.t (Stor.string_of_value va))
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
-      @@ Irmin.Type.encode_bin H.t
-      @@ H.digest
-      @@ Stor.string_of_value va
+        (Irmin.Type.encode_bin H.t (H.digest (Stor.string_of_value va)))
 
     let make ~list_key ~config =
       let%lwt db = BUILDER.v config in
@@ -463,8 +456,8 @@ functor
       t
 
     let set_and_list db ik iv ikv =
-      assert (not @@ Stor.is_tombstone (db_root db) iv);
-      ( if not @@ KeyHashtbl.mem db.keydata ik then (
+      assert (not (Stor.is_tombstone (db_root db) iv));
+      ( if not (KeyHashtbl.mem db.keydata ik) then (
         KeyHashtbl.add db.keydata ik db.magic_key;
         may_autoflush db (fun () -> Stor.insert (db_root db) db.magic_key ikv)
         >>= fun () ->
@@ -478,7 +471,7 @@ functor
       let ik = key_to_inner_key k in
       let iv = val_to_inner_val va in
       L.with_lock db.lock k (fun () ->
-          set_and_list db ik iv @@ key_to_inner_val k )
+          set_and_list db ik iv (key_to_inner_val k) )
       >>= fun () -> W.notify db.watches k (Some va)
 
     type watch = W.watch
@@ -511,17 +504,17 @@ functor
             None
       in
       L.with_lock db.lock k (fun () ->
-          Stor.lookup root @@ ik
+          Stor.lookup root ik
           >>= function
           | v0 ->
               if opt_equal Stor.value_equal v0 test then
                 ( match set with
                 | Some va ->
                     set_and_list db ik (val_to_inner_val va)
-                    @@ key_to_inner_val k
+                      (key_to_inner_val k)
                 | None ->
                     may_autoflush db (fun () ->
-                        Stor.insert root ik @@ Stor.value_of_string "" ) )
+                        Stor.insert root ik (Stor.value_of_string "") ) )
                 >>= fun () -> Lwt.return_true
               else Lwt.return_false )
       >>= fun updated ->
@@ -551,24 +544,23 @@ functor
                   Stor.lookup root mk
                   >>= function
                   | None ->
-                      Lwt.fail @@ Failure "Missing metadata key"
+                      Lwt.fail (Failure "Missing metadata key")
                   | Some iv ->
-                      Lwt.return @@ (key_of_inner_val iv :: l) )
+                      Lwt.return (key_of_inner_val iv :: l) )
               | false ->
                   Lwt.return l ) )
-        db.keydata
-      @@ Lwt.return []
+        db.keydata (Lwt.return [])
 
     let find db k =
       Log.debug (fun l -> l "RW.find %a" (Irmin.Type.pp K.t) k);
-      Stor.lookup (db_root db) @@ key_to_inner_key k
+      Stor.lookup (db_root db) (key_to_inner_key k)
       >>= function
       | None ->
           Lwt.return_none
       | Some va ->
-          Lwt.return_some @@ val_of_inner_val va
+          Lwt.return_some (val_of_inner_val va)
 
-    let mem db k = Stor.mem (db_root db) @@ key_to_inner_key k
+    let mem db k = Stor.mem (db_root db) (key_to_inner_key k)
   end
 
 module Make

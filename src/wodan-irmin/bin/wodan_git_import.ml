@@ -32,7 +32,7 @@ let wodan_config = Wodan_irmin.config ~path:"git-import.img" ~create:true ()
 
 module Git_S = Irmin_unix.Git.FS.KV (Irmin.Contents.String)
 
-(*let git_config = Irmin_git.config @@ Sys.getcwd ()*)
+(*let git_config = Irmin_git.config (Sys.getcwd ())*)
 (* Use a repo that doesn't have submodules *)
 let git_config = Irmin_git.config Sys.argv.(1)
 
@@ -64,9 +64,7 @@ let run () =
   Lwt.return_unit
 
 let () =
-  Logs.set_reporter @@ Logs.format_reporter ();
-  Logs.set_level @@ Some Logs.Info;
-  Logs.info
-  @@ fun m ->
-  m "Pwd %s" @@ Sys.getcwd ();
-  Lwt_main.run @@ run ()
+  Logs.set_reporter (Logs.format_reporter ());
+  Logs.set_level (Some Logs.Info);
+  Logs.info (fun m -> m "Pwd %s" (Sys.getcwd ()));
+  Lwt_main.run (run ())

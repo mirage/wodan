@@ -243,4 +243,4 @@ let cmds =
     fuzz_cmd;
     help_cmd ]
 
-let () = Term.(exit @@ eval_choice default_cmd cmds)
+let () = Term.(exit (eval_choice default_cmd cmds))

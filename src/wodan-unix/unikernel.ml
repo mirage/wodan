@@ -48,8 +48,9 @@ module Client (B : Wodan.EXTBLOCK) = struct
       Stor.prepare_io
         (Wodan.FormatEmptyDevice
            Int64.(
-             div (mul info.size_sectors @@ of_int info.sector_size)
-             @@ of_int Wodan.StandardSuperblockParams.block_size))
+             div
+               (mul info.size_sectors (of_int info.sector_size))
+               (of_int Wodan.StandardSuperblockParams.block_size)))
         disk Wodan.standard_mount_options
     in
     Lwt.return_unit
@@ -67,8 +68,8 @@ module Client (B : Wodan.EXTBLOCK) = struct
                 compl :=
                   ( try%lwt
                           Stor.insert root
-                            (Stor.key_of_string @@ B64.decode k)
-                            (Stor.value_of_string @@ B64.decode v)
+                            (Stor.key_of_string (B64.decode k))
+                            (Stor.value_of_string (B64.decode v))
                     with Wodan.NeedsFlush ->
                       let%lwt _gen = Stor.flush root in
                       Lwt.return_unit )
@@ -88,8 +89,8 @@ module Client (B : Wodan.EXTBLOCK) = struct
         let out_csv = Csv.to_channel ~separator:'\t' stdout in
         Stor.iter root (fun k v ->
             Csv.output_record out_csv
-              [ B64.encode @@ Stor.string_of_key k;
-                B64.encode @@ Stor.string_of_value v ] )
+              [ B64.encode (Stor.string_of_key k);
+                B64.encode (Stor.string_of_value v) ] )
         >>= fun () -> Csv.close_out out_csv; Lwt.return_unit
 
   let exercise disk block_size =
@@ -118,8 +119,9 @@ module Client (B : Wodan.EXTBLOCK) = struct
       Stor.prepare_io
         (Wodan.FormatEmptyDevice
            Int64.(
-             div (mul info.size_sectors @@ of_int info.sector_size)
-             @@ of_int Stor.P.block_size))
+             div
+               (mul info.size_sectors (of_int info.sector_size))
+               (of_int Stor.P.block_size)))
         disk Wodan.standard_mount_options
     in
     (let root = ref rootval in
@@ -158,9 +160,9 @@ module Client (B : Wodan.EXTBLOCK) = struct
                  time0 := Unix.gettimeofday ();
                  let should_continue = ref true in
                  while%lwt !should_continue do
-                   let key = Stor.key_of_cstruct @@ Nocrypto.Rng.generate 20
+                   let key = Stor.key_of_cstruct (Nocrypto.Rng.generate 20)
                    and cval =
-                     Stor.value_of_cstruct @@ Nocrypto.Rng.generate 40
+                     Stor.value_of_cstruct (Nocrypto.Rng.generate 40)
                    in
                    ( try%lwt
                        ios := succ !ios;
@@ -215,7 +217,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
     let module Ramdisk = struct
       include Ramdisk
 
-      let discard _ _ _ = Lwt.return @@ Ok ()
+      let discard _ _ _ = Lwt.return (Ok ())
     end in
     let module Stor =
       Wodan.Make
@@ -241,14 +243,14 @@ module Client (B : Wodan.EXTBLOCK) = struct
       Lwt.return (disk, info)
     in
     Nocrypto_entropy_unix.initialize ();
-    let disk, info = Lwt_main.run @@ init () in
+    let disk, info = Lwt_main.run (init ()) in
     let data =
       let rec gen count =
         if count = 0 then []
         else
-          ( Stor.key_of_cstruct @@ Nocrypto.Rng.generate Stor.P.key_size,
-            Stor.value_of_string @@ String.make value_size '\x00' )
-          :: (gen @@ pred count)
+          ( Stor.key_of_cstruct (Nocrypto.Rng.generate Stor.P.key_size),
+            Stor.value_of_string (String.make value_size '\x00') )
+          :: gen (pred count)
       in
       gen count
     in
@@ -257,8 +259,9 @@ module Client (B : Wodan.EXTBLOCK) = struct
         Stor.prepare_io
           (Wodan.FormatEmptyDevice
              Int64.(
-               div (mul info.size_sectors @@ of_int info.sector_size)
-               @@ of_int Stor.P.block_size))
+               div
+                 (mul info.size_sectors (of_int info.sector_size))
+                 (of_int Stor.P.block_size)))
           disk Wodan.standard_mount_options
       in
       (* Sequential, otherwise expect bugs *)
@@ -294,25 +297,23 @@ module Client (B : Wodan.EXTBLOCK) = struct
         let logical_size =
           Int64.(
             to_int
-            @@ div (mul info.size_sectors @@ of_int info.sector_size)
-            @@ of_int Stor.P.block_size)
+              (div
+                 (mul info.size_sectors (of_int info.sector_size))
+                 (of_int Stor.P.block_size)))
         in
         let cstr = Cstruct.create Stor.P.block_size in
         let%lwt _res = B.read disk 0L [cstr] in
         if%lwt
           Lwt.return
-          @@ cstr_cond_reset
-          @@ Cstruct.sub cstr 0 Wodan.sizeof_superblock
+            (cstr_cond_reset (Cstruct.sub cstr 0 Wodan.sizeof_superblock))
         then (
           B.write disk 0L [cstr]
           >|= ignore
           >>= fun _ ->
           for%lwt i = 1 to logical_size - 1 do
-            let doffset =
-              Int64.(mul (of_int i) @@ of_int Stor.P.block_size)
-            in
+            let doffset = Int64.(mul (of_int i) (of_int Stor.P.block_size)) in
             let%lwt _res = B.read disk doffset [cstr] in
-            if%lwt Lwt.return @@ cstr_cond_reset cstr then
+            if%lwt Lwt.return (cstr_cond_reset cstr) then
               B.write disk doffset [cstr] >|= ignore
           done
           >>= fun _ ->

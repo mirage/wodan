@@ -22,7 +22,7 @@ module RamBlockCon = struct
 
   let connect name = Ramdisk.connect ~name
 
-  let discard _ _ _ = Lwt.return @@ Ok ()
+  let discard _ _ _ = Lwt.return (Ok ())
 end
 
 module DB_ram =
