@@ -5,7 +5,8 @@ build:
 
 deps:
 	git submodule update --init --recursive
-	opam install --deps-only -y .
+	opam install --deps-only -y . vendor/*/
+	dune external-lib-deps --missing @@default
 
 sync:
 	git submodule sync --recursive
