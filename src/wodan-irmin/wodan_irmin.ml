@@ -322,7 +322,7 @@ functor
 
     let cast t = (t :> [`Read | `Write] t)
 
-    let batch t f = f @@ cast t
+    let batch t f = f (cast t)
   end
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER =
@@ -341,22 +341,19 @@ functor
     let find db k =
       Log.debug (fun l -> l "AO.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
-      @@ DB.Stor.key_of_string
-      @@ Irmin.Type.encode_bin K.t k
+        (DB.Stor.key_of_string (Irmin.Type.encode_bin K.t k))
       >>= function
       | None ->
           Lwt.return_none
       | Some v ->
           Lwt.return_some
-          @@ Rresult.R.get_ok
-          @@ Irmin.Type.decode_bin V.t
-          @@ DB.Stor.string_of_value v
+            (Rresult.R.get_ok
+               (Irmin.Type.decode_bin V.t (DB.Stor.string_of_value v)))
 
     let mem db k =
       Log.debug (fun l -> l "AO.mem %a" (Irmin.Type.pp K.t) k);
       DB.Stor.mem (DB.db_root db)
-      @@ DB.Stor.key_of_string
-      @@ Irmin.Type.encode_bin K.t k
+        (DB.Stor.key_of_string (Irmin.Type.encode_bin K.t k))
 
     let add db k va =
       let raw_v = Irmin.Type.encode_bin V.t va in
