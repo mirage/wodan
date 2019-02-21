@@ -35,7 +35,7 @@ depends: [
   "yaml" {test}
 
   "afl-persistent"
-  "base64" {< "3.0.0"}
+  "base64" {>= "3.0.0"}
   "benchmark"
   "checkseum"
   "cmdliner"
