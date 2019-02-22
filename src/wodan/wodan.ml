@@ -1682,10 +1682,14 @@ struct
               >>= fun () ->
               (* The parent _reserve_insert call may have split the root, causing the parent_key
                  to be updated *)
-              let parent_key = match entry.meta with
-                |Child parent_key -> parent_key
-                |_ -> assert false
-              in let _children = Lazy.force entry.children in
+              let parent_key =
+                match entry.meta with
+                | Child parent_key ->
+                    parent_key
+                | _ ->
+                    assert false
+              in
+              let _children = Lazy.force entry.children in
               _reserve_dirty fs.node_cache alloc_id 1L depth;
               let di = _mark_dirty fs.node_cache alloc_id in
               let median = _split_point entry in
