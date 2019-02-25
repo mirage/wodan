@@ -21,7 +21,7 @@ fuzz:
 		_build/default/src/wodan-unix/wodanc.exe fuzz @@
 
 test:
-	dune runtest irmin-tests
+	dune runtest
 
 install:
 	dune install
