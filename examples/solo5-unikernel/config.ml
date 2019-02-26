@@ -1,6 +1,7 @@
 open Mirage
 
 let stack = generic_stackv4 default_network
+
 (* set ~tls to false to get a plain-http server *)
 let http_srv = http_server @@ conduit_direct ~tls:false stack
 
@@ -9,15 +10,12 @@ let http_port =
   Key.(create "http_port" Arg.(opt int 8080 doc))
 
 let main =
-  let packages = [
-      package "uri";
-      package "wodan";
-      package ~sublibs:["ocaml"] "checkseum";
-  ] in
-  let keys = List.map Key.abstract [ http_port ] in
-  foreign
-    ~packages ~keys
-    "Dispatch.HTTP" (time @-> pclock @-> http @-> block @-> job)
+  let packages =
+    [package "uri"; package "wodan"; package ~sublibs:["ocaml"] "checkseum"]
+  in
+  let keys = List.map Key.abstract [http_port] in
+  foreign ~packages ~keys "Dispatch.HTTP"
+    (time @-> pclock @-> http @-> block @-> job)
 
 let img = block_of_file "disk.img"
 

@@ -67,9 +67,9 @@ module Client (B : Wodan.EXTBLOCK) = struct
             | [k; v] ->
                 compl :=
                   ( try%lwt
-                          Stor.insert root
-                            (Stor.key_of_string (Base64.decode_exn k))
-                            (Stor.value_of_string (Base64.decode_exn v))
+                      Stor.insert root
+                        (Stor.key_of_string (Base64.decode_exn k))
+                        (Stor.value_of_string (Base64.decode_exn v))
                     with Wodan.NeedsFlush ->
                       let%lwt _gen = Stor.flush root in
                       Lwt.return_unit )

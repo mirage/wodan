@@ -705,8 +705,7 @@ struct
           | Result.Error _ ->
               raise ReadError
           | Result.Ok () ->
-              if not (Crc32c.cstruct_valid cstr) then
-                raise (BadCRC logical)
+              if not (Crc32c.cstruct_valid cstr) then raise (BadCRC logical)
               else (cstr, io_data) )
 
   let find_childlinks_offset cstr value_end =
@@ -744,7 +743,7 @@ struct
 
   let rec gen_childlink_offsets start =
     if start >= block_end then []
-    else start :: (gen_childlink_offsets (start + childlink_size))
+    else start :: gen_childlink_offsets (start + childlink_size)
 
   let compute_children entry =
     Logs.debug (fun m -> m "compute_children");
@@ -1308,7 +1307,8 @@ struct
       let median = List.nth binds (n / 2) in
       median
 
-[@@@warning "-32"]
+  [@@@warning "-32"]
+
   let rec check_live_integrity fs alloc_id depth =
     let fail = ref false in
     match lru_peek fs.node_cache.lru alloc_id with
@@ -1439,7 +1439,8 @@ struct
             else check_live_integrity fs child_alloc_id (Int64.succ depth) )
           entry.children_alloc_ids;
         if !fail then failwith "Integrity errors"
-[@@@warning "+32"]
+
+  [@@@warning "+32"]
 
   (* This is equivalent to commenting out the above, while still having it typecheck *)
   let check_live_integrity _ _ _ = ()
@@ -1626,8 +1627,8 @@ struct
               assert (Int64.compare depth 0L > 0);
               Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
               (* Set split_path to prevent spill/split recursion; will split towards the root *)
-              reserve_insert fs parent_key (InsSpaceChild childlink_size)
-                true (Int64.pred depth)
+              reserve_insert fs parent_key (InsSpaceChild childlink_size) true
+                (Int64.pred depth)
               >>= fun () ->
               (* The parent _reserve_insert call may have split the root, causing the parent_key
                  to be updated *)
@@ -1866,8 +1867,7 @@ struct
                 raise BadVersion
               else if get_superblock_incompat_flags sb <> sb_required_incompat
               then raise BadFlags
-              else if not (Crc32c.cstruct_valid sb) then
-                raise (BadCRC 0L)
+              else if not (Crc32c.cstruct_valid sb) then raise (BadCRC 0L)
               else if
                 get_superblock_block_size sb <> Int32.of_int P.block_size
               then (
