@@ -2,7 +2,7 @@ language: c
 sudo: required
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
 script:
-- export PINS="$(for op in vendor/*/*.opam; do echo "$op" |sed -re 's#(vendor/.*/)(.*)\.opam#\2.dev:\1#'; done)"
+- export PINS="$(for op in vendor/*/*.opam; do echo "$op" |sed -re 's#(vendor/.*/)(.*)\.opam#\2.dev:\1#'; done |xargs)"
 - bash -ex .travis-opam.sh
 env:
   global:
