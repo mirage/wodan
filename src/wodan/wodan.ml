@@ -321,26 +321,11 @@ type node_cache = {
   fsid : string;
   logical_size : int64;
   (* Logical -> bit.  Zero iff free. *)
-  space_map : Bitv.t;
-  scan_map : Bitv.t option;
+  space_map : Bitv64.t;
+  scan_map : Bitv64.t option;
   mutable freed_intervals : BlockIntervals.t;
   statistics : statistics
 }
-
-let bitv_create64 off bit =
-  if Int64.compare off (Int64.of_int max_int) > 0 then
-    failwith (Printf.sprintf "Size %Ld too large for a Bitv" off);
-  Bitv.create (Int64.to_int off) bit
-
-let bitv_set64 vec off bit = Bitv.set vec (Int64.to_int off) bit
-
-(* Safe as long as bitv_create64 is used *)
-
-let bitv_get64 vec off = Bitv.get vec (Int64.to_int off)
-
-(* Safe as long as bitv_create64 is used *)
-
-let bitv_len64 vec = Int64.of_int (Bitv.length vec)
 
 let next_logical_novalid cache logical =
   let log1 = Int64.succ logical in
@@ -350,7 +335,7 @@ let next_logical_alloc_valid cache =
   if cache.free_count = 0L then failwith "Out of space";
   (* Not the same as OutOfSpace *)
   let rec after log =
-    if not (bitv_get64 cache.space_map log) then log
+    if not (Bitv64.get cache.space_map log) then log
     else after (next_logical_novalid cache log)
   in
   let loc = after cache.next_logical_alloc in
@@ -900,7 +885,7 @@ struct
           | None ->
               ()
           | Some scan_map ->
-              bitv_set64 scan_map logical true );
+              Bitv64.set scan_map logical true );
         let offset = ref (header_size entry.meta) in
         (* XXX Writes in sorted order *)
         KeyedMap.iter
@@ -925,7 +910,7 @@ struct
         | Some plog ->
             Logs.debug (fun m -> m "Decreasing dirty_count");
             cache.dirty_count <- int64_pred_nowrap cache.dirty_count;
-            bitv_set64 cache.space_map plog false;
+            Bitv64.set cache.space_map plog false;
             cache.freed_intervals
             <- BlockIntervals.add
                  (BlockIntervals.Interval.make plog plog)
@@ -937,7 +922,7 @@ struct
                 m "Decreasing new_count from %Ld" cache.new_count );
             cache.new_count <- int64_pred_nowrap cache.new_count
             (* XXX BUG sometimes wraps *) );
-        bitv_set64 cache.space_map logical true;
+        Bitv64.set cache.space_map logical true;
         cache.freed_intervals
         <- BlockIntervals.remove
              (BlockIntervals.Interval.make logical logical)
@@ -959,7 +944,7 @@ struct
     let stats = cache.statistics in
     Logs.info (fun m ->
         m "Ops: %d inserts %d lookups" stats.inserts stats.lookups );
-    let logical_size = bitv_len64 cache.space_map in
+    let logical_size = Bitv64.length cache.space_map in
     (* Don't count the superblock as a node *)
     Logs.debug (fun m -> m "Decreasing free_count to log stats");
     let nstored =
@@ -1047,13 +1032,13 @@ struct
     let discard_count = ref 0L in
     let unused_start = ref None in
     let to_discard = ref [] in
-    Bitv.iteri
+    Bitv64.iteri
       (fun i used ->
         match (!unused_start, used) with
         | None, false ->
             unused_start := Some i
         | Some start, true ->
-            let range_block_count = Int64.of_int (i - start) in
+            let range_block_count = Int64.sub i start in
             to_discard := (start, range_block_count) :: !to_discard;
             discard_count := Int64.add !discard_count range_block_count;
             unused_start := None
@@ -1062,15 +1047,13 @@ struct
       cache.space_map;
     ( match !unused_start with
     | Some start ->
-        let range_block_count =
-          Int64.sub cache.logical_size (Int64.of_int start)
-        in
+        let range_block_count = Int64.sub cache.logical_size start in
         to_discard := (start, range_block_count) :: !to_discard
     | _ ->
         () );
     Lwt_list.iter_s
       (fun (start, range_block_count) ->
-        _discard_block_range open_fs (Int64.of_int start) range_block_count )
+        _discard_block_range open_fs start range_block_count )
       !to_discard
     >|= fun () -> !discard_count
 
@@ -1168,12 +1151,12 @@ struct
   let _has_logdata entry = entry.logdata.value_end <> header_size entry.meta
 
   let _update_space_map cache logical expect_sm =
-    let sm = bitv_get64 cache.space_map logical in
+    let sm = Bitv64.get cache.space_map logical in
     if sm <> expect_sm then
       if expect_sm then failwith "logical address appeared out of thin air"
       else failwith "logical address referenced twice";
     if not expect_sm then (
-      bitv_set64 cache.space_map logical true;
+      Bitv64.set cache.space_map logical true;
       cache.free_count <- int64_pred_nowrap cache.free_count )
 
   let rec _scan_all_nodes open_fs logical expect_root rdepth parent_gen
@@ -1242,7 +1225,7 @@ struct
       | None ->
           ()
       | Some scan_map ->
-          bitv_set64 scan_map logical true );
+          Bitv64.set scan_map logical true );
     Lwt.return_unit
 
   let _logical_of_offset cstr offset =
@@ -1264,7 +1247,7 @@ struct
               assert false
           | Some scan_map ->
               if%lwt
-                Lwt.return (rdepth = 0l && not (bitv_get64 scan_map logical))
+                Lwt.return (rdepth = 0l && not (Bitv64.get scan_map logical))
               then
                 (* generation may not be fresh, but is always initialised in this branch,
                so this is not a problem *)
@@ -2059,11 +2042,11 @@ struct
         if typ <> 1 then raise (BadNodeType typ);
         let root_generation = get_rootnode_hdr_generation cstr in
         let rdepth = get_rootnode_hdr_depth cstr in
-        let space_map = bitv_create64 logical_size false in
-        Bitv.set space_map 0 true;
+        let space_map = Bitv64.create logical_size false in
+        Bitv64.set space_map 0L true;
         let scan_map =
           if mount_options.fast_scan then
-            Some (bitv_create64 logical_size false)
+            Some (Bitv64.create logical_size false)
           else None
         in
         let freed_intervals = BlockIntervals.empty in
@@ -2095,8 +2078,8 @@ struct
         Lwt.return (root, root_generation)
     | FormatEmptyDevice logical_size ->
         assert (logical_size >= 2L);
-        let space_map = bitv_create64 logical_size false in
-        Bitv.set space_map 0 true;
+        let space_map = Bitv64.create logical_size false in
+        Bitv64.set space_map 0L true;
         let freed_intervals = BlockIntervals.empty in
         let free_count = Int64.pred logical_size in
         let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
