@@ -198,8 +198,9 @@ end = struct
 
   let default = {inserts = 0; lookups = 0; range_searches = 0; iters = 0}
 
-  let pp fmt {inserts; lookups; _} =
-    Format.fprintf fmt "Ops: %d inserts %d lookups" inserts lookups
+  let pp fmt {inserts; lookups; range_searches; iters} =
+    Format.fprintf fmt "Ops: %d inserts %d lookups %d range searches %d iters"
+      inserts lookups range_searches iters
 
   let inserts t = t.inserts
 
