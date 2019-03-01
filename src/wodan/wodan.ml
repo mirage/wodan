@@ -172,43 +172,6 @@ let make_fanned_io_list size cstr =
 
 let _sb_io block_io = Cstruct.sub block_io 0 sizeof_superblock
 
-module Statistics : sig
-  type t
-
-  val create : unit -> t
-
-  val pp : Format.formatter -> t -> unit
-
-  val add_insert : t -> unit
-
-  val add_lookup : t -> unit
-
-  val add_range_search : t -> unit
-
-  val add_iter : t -> unit
-end = struct
-  type t = {
-    mutable inserts : int;
-    mutable lookups : int;
-    mutable range_searches : int;
-    mutable iters : int
-  }
-
-  let create () = {inserts = 0; lookups = 0; range_searches = 0; iters = 0}
-
-  let pp fmt {inserts; lookups; range_searches; iters} =
-    Format.fprintf fmt "Ops: %d inserts %d lookups %d range searches %d iters"
-      inserts lookups range_searches iters
-
-  let add_insert t = t.inserts <- succ t.inserts
-
-  let add_lookup t = t.lookups <- succ t.lookups
-
-  let add_range_search t = t.range_searches <- succ t.range_searches
-
-  let add_iter t = t.iters <- succ t.iters
-end
-
 type childlinks = {
   (* starts at block_size - sizeof_crc, if there are no children *)
   mutable childlinks_offset : int
@@ -351,7 +314,7 @@ type node_cache = {
   space_map : Bitv64.t;
   scan_map : Bitv64.t option;
   mutable freed_intervals : BlockIntervals.t;
-  statistics : Statistics.t
+  statistics : Wodan_statistics.t
 }
 
 let next_logical_novalid cache logical =
@@ -968,7 +931,7 @@ struct
             Lwt.fail WriteError )
 
   let _log_statistics cache =
-    Logs.info (fun m -> m "%a" Statistics.pp cache.statistics);
+    Logs.info (fun m -> m "%a" Wodan_statistics.pp cache.statistics);
     let logical_size = Bitv64.length cache.space_map in
     (* Don't count the superblock as a node *)
     Logs.debug (fun m -> m "Decreasing free_count to log stats");
@@ -1413,7 +1376,7 @@ struct
         if !vend != entry.logdata.value_end then (
           Logs.err (fun m ->
               m "Inconsistent value_end depth:%Ld expected:%d actual:%d %a"
-                depth !vend entry.logdata.value_end Statistics.pp
+                depth !vend entry.logdata.value_end Wodan_statistics.pp
                 fs.node_cache.statistics );
           fail := true );
         ( match entry.flush_children with
@@ -1781,7 +1744,7 @@ struct
                   _reserve_insert fs alloc_id space split_path depth ) )
 
   let insert root key value =
-    Statistics.add_insert root.open_fs.node_cache.statistics;
+    Wodan_statistics.add_insert root.open_fs.node_cache.statistics;
     _check_live_integrity root.open_fs root.root_key 0L;
     _reserve_insert root.open_fs root.root_key
       (_ins_req_space (InsValue value))
@@ -1835,11 +1798,11 @@ struct
             _mem open_fs child_alloc_id key )
 
   let lookup root key =
-    Statistics.add_lookup root.open_fs.node_cache.statistics;
+    Wodan_statistics.add_lookup root.open_fs.node_cache.statistics;
     _lookup root.open_fs root.root_key key
 
   let mem root key =
-    Statistics.add_lookup root.open_fs.node_cache.statistics;
+    Wodan_statistics.add_lookup root.open_fs.node_cache.statistics;
     _mem root.open_fs root.root_key key
 
   let rec _search_range open_fs alloc_id start end_ seen callback =
@@ -1876,7 +1839,7 @@ struct
      Results are in no particular order. *)
   let search_range root start end_ callback =
     let seen = KeyedSet.empty in
-    Statistics.add_range_search root.open_fs.node_cache.statistics;
+    Wodan_statistics.add_range_search root.open_fs.node_cache.statistics;
     _search_range root.open_fs root.root_key start end_ seen callback
 
   let rec _iter open_fs alloc_id callback =
@@ -1905,7 +1868,7 @@ struct
           !lwt_queue
 
   let iter root callback =
-    Statistics.add_iter root.open_fs.node_cache.statistics;
+    Wodan_statistics.add_iter root.open_fs.node_cache.statistics;
     _iter root.open_fs root.root_key callback
 
   let _read_superblock fs =
@@ -2083,7 +2046,7 @@ struct
             fsid;
             next_logical_alloc = lroot;
             (* in use, but that's okay *)
-            statistics = Statistics.create () }
+            statistics = Wodan_statistics.create () }
         in
         let open_fs = {filesystem = fs; node_cache} in
         (* TODO add more integrity checking *)
@@ -2115,7 +2078,7 @@ struct
             dirty_count = 0L;
             fsid;
             next_logical_alloc = first_block_written;
-            statistics = Statistics.create () }
+            statistics = Wodan_statistics.create () }
         in
         let open_fs = {filesystem = fs; node_cache} in
         _format open_fs logical_size first_block_written fsid
