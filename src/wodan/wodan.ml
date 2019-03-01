@@ -179,8 +179,6 @@ module Statistics : sig
 
   val pp : Format.formatter -> t -> unit
 
-  val inserts : t -> int
-
   val add_insert : t -> unit
 
   val add_lookup : t -> unit
@@ -201,8 +199,6 @@ end = struct
   let pp fmt {inserts; lookups; range_searches; iters} =
     Format.fprintf fmt "Ops: %d inserts %d lookups %d range searches %d iters"
       inserts lookups range_searches iters
-
-  let inserts t = t.inserts
 
   let add_insert t = t.inserts <- succ t.inserts
 
@@ -1416,11 +1412,9 @@ struct
           entry.logdata.logdata_contents;
         if !vend != entry.logdata.value_end then (
           Logs.err (fun m ->
-              m
-                "Inconsistent value_end depth:%Ld expected:%d actual:%d \
-                 inserts:%d"
-                depth !vend entry.logdata.value_end
-                (Statistics.inserts fs.node_cache.statistics) );
+              m "Inconsistent value_end depth:%Ld expected:%d actual:%d %a"
+                depth !vend entry.logdata.value_end Statistics.pp
+                fs.node_cache.statistics );
           fail := true );
         ( match entry.flush_children with
         | Some di -> (
