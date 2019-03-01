@@ -175,7 +175,7 @@ let _sb_io block_io = Cstruct.sub block_io 0 sizeof_superblock
 module Statistics : sig
   type t
 
-  val default : t
+  val create : unit -> t
 
   val pp : Format.formatter -> t -> unit
 
@@ -194,7 +194,7 @@ end = struct
     mutable iters : int
   }
 
-  let default = {inserts = 0; lookups = 0; range_searches = 0; iters = 0}
+  let create () = {inserts = 0; lookups = 0; range_searches = 0; iters = 0}
 
   let pp fmt {inserts; lookups; range_searches; iters} =
     Format.fprintf fmt "Ops: %d inserts %d lookups %d range searches %d iters"
@@ -2083,7 +2083,7 @@ struct
             fsid;
             next_logical_alloc = lroot;
             (* in use, but that's okay *)
-            statistics = Statistics.default }
+            statistics = Statistics.create () }
         in
         let open_fs = {filesystem = fs; node_cache} in
         (* TODO add more integrity checking *)
@@ -2115,7 +2115,7 @@ struct
             dirty_count = 0L;
             fsid;
             next_logical_alloc = first_block_written;
-            statistics = Statistics.default }
+            statistics = Statistics.create () }
         in
         let open_fs = {filesystem = fs; node_cache} in
         _format open_fs logical_size first_block_written fsid
