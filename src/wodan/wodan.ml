@@ -172,15 +172,45 @@ let make_fanned_io_list size cstr =
 
 let _sb_io block_io = Cstruct.sub block_io 0 sizeof_superblock
 
-type statistics = {
-  mutable inserts : int;
-  mutable lookups : int;
-  mutable range_searches : int;
-  mutable iters : int
-}
+module Statistics : sig
+  type t
 
-let default_statistics =
-  {inserts = 0; lookups = 0; range_searches = 0; iters = 0}
+  val default : t
+
+  val pp : Format.formatter -> t -> unit
+
+  val inserts : t -> int
+
+  val add_insert : t -> unit
+
+  val add_lookup : t -> unit
+
+  val add_range_search : t -> unit
+
+  val add_iter : t -> unit
+end = struct
+  type t = {
+    mutable inserts : int;
+    mutable lookups : int;
+    mutable range_searches : int;
+    mutable iters : int
+  }
+
+  let default = {inserts = 0; lookups = 0; range_searches = 0; iters = 0}
+
+  let pp fmt {inserts; lookups; _} =
+    Format.fprintf fmt "Ops: %d inserts %d lookups" inserts lookups
+
+  let inserts t = t.inserts
+
+  let add_insert t = t.inserts <- succ t.inserts
+
+  let add_lookup t = t.lookups <- succ t.lookups
+
+  let add_range_search t = t.range_searches <- succ t.range_searches
+
+  let add_iter t = t.iters <- succ t.iters
+end
 
 type childlinks = {
   (* starts at block_size - sizeof_crc, if there are no children *)
@@ -324,7 +354,7 @@ type node_cache = {
   space_map : Bitv64.t;
   scan_map : Bitv64.t option;
   mutable freed_intervals : BlockIntervals.t;
-  statistics : statistics
+  statistics : Statistics.t
 }
 
 let next_logical_novalid cache logical =
@@ -941,9 +971,7 @@ struct
             Lwt.fail WriteError )
 
   let _log_statistics cache =
-    let stats = cache.statistics in
-    Logs.info (fun m ->
-        m "Ops: %d inserts %d lookups" stats.inserts stats.lookups );
+    Logs.info (fun m -> m "%a" Statistics.pp cache.statistics);
     let logical_size = Bitv64.length cache.space_map in
     (* Don't count the superblock as a node *)
     Logs.debug (fun m -> m "Decreasing free_count to log stats");
@@ -1391,7 +1419,7 @@ struct
                 "Inconsistent value_end depth:%Ld expected:%d actual:%d \
                  inserts:%d"
                 depth !vend entry.logdata.value_end
-                fs.node_cache.statistics.inserts );
+                (Statistics.inserts fs.node_cache.statistics) );
           fail := true );
         ( match entry.flush_children with
         | Some di -> (
@@ -1758,9 +1786,7 @@ struct
                   _reserve_insert fs alloc_id space split_path depth ) )
 
   let insert root key value =
-    (*Logs.debug (fun m -> m "insert");*)
-    let stats = root.open_fs.node_cache.statistics in
-    stats.inserts <- succ stats.inserts;
+    Statistics.add_insert root.open_fs.node_cache.statistics;
     _check_live_integrity root.open_fs root.root_key 0L;
     _reserve_insert root.open_fs root.root_key
       (_ins_req_space (InsValue value))
@@ -1814,13 +1840,11 @@ struct
             _mem open_fs child_alloc_id key )
 
   let lookup root key =
-    let stats = root.open_fs.node_cache.statistics in
-    stats.lookups <- succ stats.lookups;
+    Statistics.add_lookup root.open_fs.node_cache.statistics;
     _lookup root.open_fs root.root_key key
 
   let mem root key =
-    let stats = root.open_fs.node_cache.statistics in
-    stats.lookups <- succ stats.lookups;
+    Statistics.add_lookup root.open_fs.node_cache.statistics;
     _mem root.open_fs root.root_key key
 
   let rec _search_range open_fs alloc_id start end_ seen callback =
@@ -1857,8 +1881,7 @@ struct
      Results are in no particular order. *)
   let search_range root start end_ callback =
     let seen = KeyedSet.empty in
-    let stats = root.open_fs.node_cache.statistics in
-    stats.range_searches <- succ stats.range_searches;
+    Statistics.add_range_search root.open_fs.node_cache.statistics;
     _search_range root.open_fs root.root_key start end_ seen callback
 
   let rec _iter open_fs alloc_id callback =
@@ -1887,8 +1910,7 @@ struct
           !lwt_queue
 
   let iter root callback =
-    let stats = root.open_fs.node_cache.statistics in
-    stats.iters <- succ stats.iters;
+    Statistics.add_iter root.open_fs.node_cache.statistics;
     _iter root.open_fs root.root_key callback
 
   let _read_superblock fs =
@@ -2066,7 +2088,7 @@ struct
             fsid;
             next_logical_alloc = lroot;
             (* in use, but that's okay *)
-            statistics = default_statistics }
+            statistics = Statistics.default }
         in
         let open_fs = {filesystem = fs; node_cache} in
         (* TODO add more integrity checking *)
@@ -2098,7 +2120,7 @@ struct
             dirty_count = 0L;
             fsid;
             next_logical_alloc = first_block_written;
-            statistics = default_statistics }
+            statistics = Statistics.default }
         in
         let open_fs = {filesystem = fs; node_cache} in
         _format open_fs logical_size first_block_written fsid
