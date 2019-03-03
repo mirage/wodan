@@ -68,8 +68,8 @@ module Client (B : Wodan.EXTBLOCK) = struct
                 compl :=
                   ( try%lwt
                           Stor.insert root
-                            (Stor.key_of_string (B64.decode k))
-                            (Stor.value_of_string (B64.decode v))
+                            (Stor.key_of_string (Base64.decode_exn k))
+                            (Stor.value_of_string (Base64.decode_exn v))
                     with Wodan.NeedsFlush ->
                       let%lwt _gen = Stor.flush root in
                       Lwt.return_unit )
@@ -89,8 +89,8 @@ module Client (B : Wodan.EXTBLOCK) = struct
         let out_csv = Csv.to_channel ~separator:'\t' stdout in
         Stor.iter root (fun k v ->
             Csv.output_record out_csv
-              [ B64.encode (Stor.string_of_key k);
-                B64.encode (Stor.string_of_value v) ] )
+              [ Base64.encode_exn (Stor.string_of_key k);
+                Base64.encode_exn (Stor.string_of_value v) ] )
         >>= fun () -> Csv.close_out out_csv; Lwt.return_unit
 
   let exercise disk block_size =
