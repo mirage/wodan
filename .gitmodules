@@ -19,9 +19,6 @@
 [submodule "vendor/mirage-block-ramdisk"]
 	path = vendor/mirage-block-ramdisk
 	url = https://github.com/g2p/mirage-block-ramdisk.git
-[submodule "vendor/mirage-block-solo5"]
-	path = vendor/mirage-block-solo5
-	url = https://github.com/g2p/mirage-block-solo5.git
 [submodule "vendor/mirage-block-xen"]
 	path = vendor/mirage-block-xen
 	url = https://github.com/g2p/mirage-block-xen.git
