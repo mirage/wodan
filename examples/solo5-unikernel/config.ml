@@ -3,7 +3,7 @@ open Mirage
 let stack = generic_stackv4 default_network
 
 (* set ~tls to false to get a plain-http server *)
-let http_srv = http_server @@ conduit_direct ~tls:false stack
+let http_srv = http_server (conduit_direct ~tls:false stack)
 
 let http_port =
   let doc = Key.Arg.info ~doc:"Listening HTTP port." ["http"] in

@@ -18,12 +18,12 @@ module Dispatch (Store : Wodan.S) (S : HTTP) = struct
     Store.lookup store key
     >>= function
     | Some counter ->
-        let c = Int64.of_string @@ Store.string_of_value counter in
+        let c = Int64.of_string (Store.string_of_value counter) in
         let c = Int64.succ c in
-        Store.insert store key @@ Store.value_of_string @@ Int64.to_string c
+        Store.insert store key (Store.value_of_string (Int64.to_string c))
         >>= fun () -> Lwt.return c
     | None ->
-        Store.insert store key @@ Store.value_of_string "1"
+        Store.insert store key (Store.value_of_string "1")
         >>= fun () -> Lwt.return 1L
 
   (* given a URI, find the appropriate file,
@@ -62,8 +62,8 @@ module Dispatch (Store : Wodan.S) (S : HTTP) = struct
     | str
       when str.[0] = '/' -> (
         let headers = Cohttp.Header.init_with "Content-Type" "text/plain" in
-        let head = String.sub str 1 @@ pred @@ String.length str in
-        let head = Hex.to_string @@ `Hex head in
+        let head = String.sub str 1 (pred (String.length str)) in
+        let head = Hex.to_string (`Hex head) in
         let head = Store.key_of_string head in
         Store.lookup store head
         >>= function
@@ -113,7 +113,7 @@ struct
       >>= fun (store, _) ->
       Lwt.async (fun () -> periodic_flush store);
       Http_log.info (fun f -> f "store done");
-      http tcp @@ D.serve (D.dispatcher store)
+      http tcp (D.serve (D.dispatcher store))
     in
     Lwt.join [http]
 end

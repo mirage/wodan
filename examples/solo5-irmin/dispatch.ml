@@ -14,7 +14,7 @@ module BlockCon = struct
 
   (* from mirage-block-solo5 *)
 
-  let discard _ _ _ = Lwt.return @@ Ok ()
+  let discard _ _ _ = Lwt.return (Ok ())
 end
 
 module DB = Wodan_irmin.DB_BUILDER (BlockCon) (Wodan.StandardSuperblockParams)
@@ -52,7 +52,7 @@ module Dispatch (S : HTTP) = struct
     | str
       when str.[0] = '/' ->
         let headers = Cohttp.Header.init_with "Content-Type" "text/plain" in
-        let head = String.sub str 1 @@ pred @@ String.length str in
+        let head = String.sub str 1 (pred (String.length str)) in
         let head = Irmin.Type.of_string Wodan_Git_KV.Commit.Hash.t head in
         let head =
           match head with
@@ -112,7 +112,7 @@ struct
       Wodan_Git_KV.Repo.v store_conf
       >>= fun repo ->
       Http_log.info (fun f -> f "repo ready");
-      http tcp @@ D.serve (D.dispatcher repo)
+      http tcp (D.serve (D.dispatcher repo))
     in
     Lwt.join [http]
 end
