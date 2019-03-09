@@ -1,15 +1,9 @@
 [submodule "afl/input"]
 	path = afl/input
 	url = https://github.com/g2p/wodan-fuzz-corpus.git
-[submodule "vendor/ocaml-git"]
-	path = vendor/ocaml-git
-	url = https://github.com/mirage/ocaml-git.git
 [submodule "vendor/irmin"]
 	path = vendor/irmin
 	url = https://github.com/mirage/irmin.git
-[submodule "vendor/ocaml-yaml"]
-	path = vendor/ocaml-yaml
-	url = https://github.com/g2p/ocaml-yaml.git
 [submodule "vendor/mirage-block"]
 	path = vendor/mirage-block
 	url = https://github.com/g2p/mirage-block.git
@@ -22,12 +16,6 @@
 [submodule "vendor/mirage-block-xen"]
 	path = vendor/mirage-block-xen
 	url = https://github.com/g2p/mirage-block-xen.git
-[submodule "vendor/mirage"]
-	path = vendor/mirage
-	url = https://github.com/mirage/mirage.git
-[submodule "vendor/ocaml-webmachine"]
-	path = vendor/ocaml-webmachine
-	url = https://github.com/inhabitedtype/ocaml-webmachine.git
 [submodule "vendor/ocaml-diet"]
 	path = vendor/ocaml-diet
 	url = https://github.com/g2p/ocaml-diet.git
