@@ -269,24 +269,14 @@ functor
     let flush db = Stor.flush (db_root db)
   end
 
-module RO_BUILDER : functor
-  (DB : DB)
-  (K : Irmin.Hash.S)
-  (V : Irmin.Type.S)
-  -> sig
-       include Irmin.RO
-
-       include DB with type t := t
-     end
-     with type key = K.t
-      and type value = V.t =
+module CA_BUILDER : functor (DB : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER =
 functor
   (DB : DB)
   (K : Irmin.Hash.S)
   (V : Irmin.Type.S)
   ->
   struct
-    include DB
+    type 'a t = DB.t
 
     type key = K.t
 
@@ -295,67 +285,94 @@ functor
     let () = assert (K.digest_size = DB.Stor.P.key_size)
 
     let find db k =
-      Log.debug (fun l -> l "find %a" (Irmin.Type.pp K.t) k);
-      Stor.lookup (db_root db)
-        (Stor.key_of_string (Irmin.Type.encode_bin K.t k))
+      Log.debug (fun l -> l "CA.find %a" (Irmin.Type.pp K.t) k);
+      DB.Stor.lookup (DB.db_root db)
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
       | None ->
           Lwt.return_none
       | Some v ->
           Lwt.return_some
             (Rresult.R.get_ok
-               (Irmin.Type.decode_bin V.t (Stor.string_of_value v)))
+               (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
 
     let mem db k =
-      Log.debug (fun l -> l "mem %a" (Irmin.Type.pp K.t) k);
-      Stor.mem (db_root db) (Stor.key_of_string (Irmin.Type.encode_bin K.t k))
-  end
-
-module AO_BUILDER : functor (_ : DB) -> Irmin.AO_MAKER =
-functor
-  (DB : DB)
-  (K : Irmin.Hash.S)
-  (V : Irmin.Type.S)
-  ->
-  struct
-    include RO_BUILDER (DB) (K) (V)
+      Log.debug (fun l -> l "CA.mem %a" (Irmin.Type.pp K.t) k);
+      DB.Stor.mem (DB.db_root db)
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
 
     let add db va =
-      let raw_v = Irmin.Type.encode_bin V.t va in
+      let raw_v = Irmin.Type.to_bin_string V.t va in
       let k = K.digest raw_v in
       Log.debug (fun m ->
-          m "AO.add -> %a (%d)" (Irmin.Type.pp K.t) k K.digest_size );
+          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.digest_size );
       (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.digest_size (Irmin.Type.pp V.t) va);*)
       (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.digest_size raw_v);*)
-      let raw_k = Irmin.Type.encode_bin K.t k in
-      let root = db_root db in
-      may_autoflush db (fun () ->
-          Stor.insert root (Stor.key_of_string raw_k)
-            (Stor.value_of_string raw_v) )
+      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let root = DB.db_root db in
+      DB.may_autoflush db (fun () ->
+          DB.Stor.insert root
+            (DB.Stor.key_of_string raw_k)
+            (DB.Stor.value_of_string raw_v) )
       >>= function
       | () ->
           Lwt.return k
+
+    let v = DB.v
+
+    let cast t = (t :> [`Read | `Write] t)
+
+    let batch t f = f (cast t)
   end
 
-module LINK_BUILDER : functor (_ : DB) -> Irmin.LINK_MAKER =
+module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER =
 functor
   (DB : DB)
-  (K : Irmin.Hash.S)
+  (K : Irmin.Type.S)
+  (V : Irmin.Type.S)
   ->
   struct
-    include RO_BUILDER (DB) (K) (K)
+    type 'a t = DB.t
+
+    type key = K.t
+
+    type value = V.t
+
+    let find db k =
+      Log.debug (fun l -> l "AO.find %a" (Irmin.Type.pp K.t) k);
+      DB.Stor.lookup (DB.db_root db)
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+      >>= function
+      | None ->
+          Lwt.return_none
+      | Some v ->
+          Lwt.return_some
+            (Rresult.R.get_ok
+               (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
+
+    let mem db k =
+      Log.debug (fun l -> l "AO.mem %a" (Irmin.Type.pp K.t) k);
+      DB.Stor.mem (DB.db_root db)
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
 
     let add db k va =
-      let raw_v = Irmin.Type.encode_bin K.t va in
-      let raw_k = Irmin.Type.encode_bin K.t k in
-      let root = db_root db in
-      Log.debug (fun m -> m "LINK.add -> %a" (Irmin.Type.pp K.t) k);
-      may_autoflush db (fun () ->
-          Stor.insert root (Stor.key_of_string raw_k)
-            (Stor.value_of_string raw_v) )
+      let raw_v = Irmin.Type.to_bin_string V.t va in
+      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let root = DB.db_root db in
+      DB.may_autoflush db (fun () ->
+          DB.Stor.insert root
+            (DB.Stor.key_of_string raw_k)
+            (DB.Stor.value_of_string raw_v) )
+
+    let v = DB.v
+
+    let cast t = (t :> [`Read | `Write] t)
+
+    let batch t f = f (cast t)
   end
 
-module RW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin.RW_MAKER =
+module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin
+                                                           .ATOMIC_WRITE_STORE_MAKER =
 functor
   (DB : DB)
   (H : Irmin.Hash.S)
@@ -389,23 +406,23 @@ functor
 
     let key_to_inner_key k =
       Stor.key_of_string
-        (Irmin.Type.encode_bin H.t (H.digest (Irmin.Type.encode_bin K.t k)))
+        (Irmin.Type.to_bin_string H.t (H.digest (Irmin.Type.to_bin_string K.t k)))
 
     let val_to_inner_val va =
-      Stor.value_of_string (Irmin.Type.encode_bin V.t va)
+      Stor.value_of_string (Irmin.Type.to_bin_string V.t va)
 
     let key_to_inner_val k =
-      Stor.value_of_string (Irmin.Type.encode_bin K.t k)
+      Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
 
     let key_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.decode_bin K.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.decode_bin V.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
-        (Irmin.Type.encode_bin H.t (H.digest (Stor.string_of_value va)))
+        (Irmin.Type.to_bin_string H.t (H.digest (Stor.string_of_value va)))
 
     let make ~list_key ~config =
       let%lwt db = BUILDER.v config in
@@ -467,7 +484,7 @@ functor
       >>= fun () -> may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
 
     let set db k va =
-      Log.debug (fun m -> m "RW.set -> %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun m -> m "AW.set -> %a" (Irmin.Type.pp K.t) k);
       let ik = key_to_inner_key k in
       let iv = val_to_inner_val va in
       L.with_lock db.lock k (fun () ->
@@ -493,7 +510,7 @@ functor
 
     (* XXX With autoflush, this might flush some data without finishing the insert *)
     let test_and_set db k ~test ~set =
-      Log.debug (fun m -> m "RW.test_and_set -> %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun m -> m "AW.test_and_set -> %a" (Irmin.Type.pp K.t) k);
       let ik = key_to_inner_key k in
       let root = db_root db in
       let test =
@@ -522,7 +539,7 @@ functor
       >>= fun () -> Lwt.return updated
 
     let remove db k =
-      Log.debug (fun l -> l "RW.remove %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun l -> l "AW.remove %a" (Irmin.Type.pp K.t) k);
       let ik = key_to_inner_key k in
       let va = Stor.value_of_string "" in
       let root = db_root db in
@@ -531,7 +548,7 @@ functor
       >>= fun () -> W.notify db.watches k None
 
     let list db =
-      Log.debug (fun l -> l "RW.list");
+      Log.debug (fun l -> l "AW.list");
       let root = db_root db in
       KeyHashtbl.fold
         (fun ik mk io ->
@@ -552,7 +569,7 @@ functor
         db.keydata (Lwt.return [])
 
     let find db k =
-      Log.debug (fun l -> l "RW.find %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun l -> l "AW.find %a" (Irmin.Type.pp K.t) k);
       Stor.lookup (db_root db) (key_to_inner_key k)
       >>= function
       | None ->
@@ -572,9 +589,9 @@ module Make
     (H : Irmin.Hash.S) =
 struct
   module DB = DB
-  module AO = AO_BUILDER (DB)
-  module RW = RW_BUILDER (DB) (H)
-  include Irmin.Make (AO) (RW) (M) (C) (P) (B) (H)
+  module CA = CA_BUILDER (DB)
+  module AW = AW_BUILDER (DB) (H)
+  include Irmin.Make (CA) (AW) (M) (C) (P) (B) (H)
 
   let flush = DB.flush
 end
@@ -588,10 +605,10 @@ module Make_chunked
     (B : Irmin.Branch.S)
     (H : Irmin.Hash.S) =
 struct
-  module AO = Irmin_chunk.AO (AO_BUILDER (DB))
+  module CA = Irmin_chunk.Content_addressable (AO_BUILDER (DB))
   module DB = DB
-  module RW = RW_BUILDER (DB) (H)
-  include Irmin.Make (AO) (RW) (M) (C) (P) (B) (H)
+  module AW = AW_BUILDER (DB) (H)
+  include Irmin.Make (CA) (AW) (M) (C) (P) (B) (H)
 
   let flush = DB.flush
 end
@@ -606,9 +623,9 @@ module KV_git (DB : DB) = struct
 
   (*module AO = AO_BUILDER(DB)*)
   (*module AO = Irmin_chunk.AO(AO_BUILDER(DB))*)
-  module AO = Irmin_chunk.AO_stable (LINK_BUILDER (DB)) (AO_BUILDER (DB))
-  module RW = RW_BUILDER (DB) (Irmin.Hash.SHA1)
-  include Irmin_git.Generic_KV (AO) (RW) (Irmin.Contents.String)
+  module CA = Irmin_chunk.Content_addressable (AO_BUILDER (DB))
+  module AW = AW_BUILDER (DB) (Irmin.Hash.SHA1)
+  include Irmin_git.Generic_KV (CA) (AW) (Irmin.Contents.String)
 
   let flush = DB.flush
 end

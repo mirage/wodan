@@ -15,7 +15,6 @@
  *)
 
 open Lwt.Infix
-open Irmin_test
 
 module BlockCon = struct
   include Ramdisk
@@ -25,7 +24,7 @@ end
 
 module DB_ram = Wodan_irmin.DB_BUILDER(BlockCon)(Wodan.StandardSuperblockParams)
 
-(*let store = store (module Wodan_irmin.Make) (module Irmin.Metadata.None)*)
+(* let store = Irmin_test.store (module Wodan_irmin.Make(DB_ram)) (module Irmin.Metadata.None) *)
 let store = (module
   Wodan_irmin.KV_chunked(DB_ram)(Irmin.Contents.String)
 : Irmin_test.S)
@@ -39,4 +38,4 @@ let clean () =
 
 let init () = Nocrypto_entropy_lwt.initialize ()
 let stats = None
-let suite = { name = "WODAN"; init; clean; config; store; stats }
+let suite = { Irmin_test.name = "WODAN"; init; clean; config; store; stats }
