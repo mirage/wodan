@@ -287,28 +287,28 @@ functor
     let find db k =
       Log.debug (fun l -> l "CA.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.encode_bin K.t k))
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
       | None ->
           Lwt.return_none
       | Some v ->
           Lwt.return_some
             (Rresult.R.get_ok
-               (Irmin.Type.decode_bin V.t (DB.Stor.string_of_value v)))
+               (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
 
     let mem db k =
       Log.debug (fun l -> l "CA.mem %a" (Irmin.Type.pp K.t) k);
       DB.Stor.mem (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.encode_bin K.t k))
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
 
     let add db va =
-      let raw_v = Irmin.Type.encode_bin V.t va in
+      let raw_v = Irmin.Type.to_bin_string V.t va in
       let k = K.digest raw_v in
       Log.debug (fun m ->
           m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.digest_size );
       (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.digest_size (Irmin.Type.pp V.t) va);*)
       (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.digest_size raw_v);*)
-      let raw_k = Irmin.Type.encode_bin K.t k in
+      let raw_k = Irmin.Type.to_bin_string K.t k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
@@ -341,23 +341,23 @@ functor
     let find db k =
       Log.debug (fun l -> l "AO.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.encode_bin K.t k))
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
       | None ->
           Lwt.return_none
       | Some v ->
           Lwt.return_some
             (Rresult.R.get_ok
-               (Irmin.Type.decode_bin V.t (DB.Stor.string_of_value v)))
+               (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
 
     let mem db k =
       Log.debug (fun l -> l "AO.mem %a" (Irmin.Type.pp K.t) k);
       DB.Stor.mem (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.encode_bin K.t k))
+        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
 
     let add db k va =
-      let raw_v = Irmin.Type.encode_bin V.t va in
-      let raw_k = Irmin.Type.encode_bin K.t k in
+      let raw_v = Irmin.Type.to_bin_string V.t va in
+      let raw_k = Irmin.Type.to_bin_string K.t k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
@@ -406,23 +406,23 @@ functor
 
     let key_to_inner_key k =
       Stor.key_of_string
-        (Irmin.Type.encode_bin H.t (H.digest (Irmin.Type.encode_bin K.t k)))
+        (Irmin.Type.to_bin_string H.t (H.digest (Irmin.Type.to_bin_string K.t k)))
 
     let val_to_inner_val va =
-      Stor.value_of_string (Irmin.Type.encode_bin V.t va)
+      Stor.value_of_string (Irmin.Type.to_bin_string V.t va)
 
     let key_to_inner_val k =
-      Stor.value_of_string (Irmin.Type.encode_bin K.t k)
+      Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
 
     let key_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.decode_bin K.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.decode_bin V.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
-        (Irmin.Type.encode_bin H.t (H.digest (Stor.string_of_value va)))
+        (Irmin.Type.to_bin_string H.t (H.digest (Stor.string_of_value va)))
 
     let make ~list_key ~config =
       let%lwt db = BUILDER.v config in
