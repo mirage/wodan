@@ -1,11 +1,12 @@
 language: c
 sudo: required
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
-script: bash -ex .travis-opam.sh
+script:
+- export PINS="$({ echo wodan.dev:.; for op in vendor/*/*.opam; do echo "$op" |sed -re 's#(vendor/.*/)(.*)\.opam#\2.dev:\1#'; done; } |xargs)"
+- bash -ex .travis-opam.sh
 env:
   global:
   - ALCOTEST_SHOW_ERRORS=1
-  - PINS="wodan.dev:. irmin.dev:vendor/irmin irmin-chunk.dev:vendor/irmin irmin-git.dev:vendor/irmin irmin-unix:vendor/irmin irmin-http:vendor/irmin irmin-test:vendor/irmin irmin-fs:vendor/irmin irmin-mem:vendor/irmin"
 
 matrix:
   include:

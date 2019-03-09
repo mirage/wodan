@@ -5,7 +5,7 @@ build:
 
 deps:
 	git submodule update --init --recursive
-	opam install --deps-only -y .
+	opam install --deps-only -y . vendor/*/
 
 sync:
 	git submodule sync --recursive
