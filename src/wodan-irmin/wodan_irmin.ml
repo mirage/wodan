@@ -406,7 +406,8 @@ functor
 
     let key_to_inner_key k =
       Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t (H.digest (Irmin.Type.to_bin_string K.t k)))
+        (Irmin.Type.to_bin_string H.t
+           (H.digest (Irmin.Type.to_bin_string K.t k)))
 
     let val_to_inner_val va =
       Stor.value_of_string (Irmin.Type.to_bin_string V.t va)
@@ -415,10 +416,12 @@ functor
       Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
 
     let key_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
+      Rresult.R.get_ok
+        (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
+      Rresult.R.get_ok
+        (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
@@ -437,17 +440,17 @@ functor
           lock = L.v () }
       in
       ( try%lwt
-              while%lwt true do
-                Stor.lookup root db.magic_key
-                >>= function
-                | None ->
-                    Lwt.fail Exit
-                | Some va ->
-                    let ik = inner_val_to_inner_key va in
-                    KeyHashtbl.add db.keydata ik db.magic_key;
-                    db.magic_key <- Stor.next_key db.magic_key;
-                    Lwt.return_unit
-              done
+          while%lwt true do
+            Stor.lookup root db.magic_key
+            >>= function
+            | None ->
+                Lwt.fail Exit
+            | Some va ->
+                let ik = inner_val_to_inner_key va in
+                KeyHashtbl.add db.keydata ik db.magic_key;
+                db.magic_key <- Stor.next_key db.magic_key;
+                Lwt.return_unit
+          done
         with Exit -> Lwt.return_unit )
       >|= fun () -> db
 

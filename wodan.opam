@@ -14,12 +14,14 @@ build: [
 
 build-test: [
   [ "dune" "runtest" "-p" name ]
+  [ "dune" "build" "@fmt" "-p" name ]
 ]
 
 depends: [
   "ocamlfind" {build}
-  "dune" {build & >= "1.3"}
+  "dune"  {build & >= "1.7"}
 
+  "ocamlformat" {test}
   "alcotest" {test}
   "bos" {test}
   "ezjsonm" {test}
