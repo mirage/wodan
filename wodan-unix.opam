@@ -18,7 +18,7 @@ build-test: [
 
 depends: [
   "ocamlfind" {build}
-  "dune"  {build}
+  "dune"  {build & >= "1.3"}
 
   "alcotest" {test}
   "bos" {test}

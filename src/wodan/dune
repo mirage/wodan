@@ -7,3 +7,4 @@
   (libraries rresult stdcompat cstruct sexplib mirage-types mirage-logs lwt io-page lru logs nocrypto bitv mirage-types-lwt diet checkseum)
   )
 
+(copy_files ../crc32c/crc32c.ml*)
