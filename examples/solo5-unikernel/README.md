@@ -30,9 +30,8 @@ to run:
     ip link set dev tap100 up
 
 (once to format image)
-    
+
     rm disk.img; touch disk.img ; fallocate -z -l $((256*1024*3)) disk.img
     wodanc format disk.img; echo $?
 
     ./solo5-hvt --net=tap100 --disk=disk.img  ./http.hvt --logs=wodan:debug
-

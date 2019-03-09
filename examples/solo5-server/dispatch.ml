@@ -15,7 +15,7 @@ module Dispatch (Store: Wodan.S) (S: HTTP) = struct
   let key = Store.key_of_string "12345678901234567890"
 
   let next_camel store =
-        Store.lookup store key >>= function 
+        Store.lookup store key >>= function
             Some counter ->
               let c = Int64.of_string @@ Store.string_of_value counter in
               let c = Int64.succ c in
@@ -53,6 +53,16 @@ module Dispatch (Store: Wodan.S) (S: HTTP) = struct
 |html} (counter)
       in
       S.respond_string ~status:`OK ~body ~headers ()
+    |str when str.[0] = '/' ->
+      let headers = Cohttp.Header.init_with "Content-Type" "text/plain" in
+      let head = String.sub str 1 @@ pred @@ String.length str in
+      let head = Hex.to_string @@ `Hex head in
+      let head = Store.key_of_string head in
+      Store.lookup store head >>= function
+      |None -> assert false
+      |Some x ->
+        let x = Store.string_of_value x in
+      S.respond_string ~status:`OK ~body:x ~headers ()
     | _ ->
       S.respond_not_found ()
 
