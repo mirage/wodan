@@ -11,6 +11,12 @@ sync:
 	git submodule sync --recursive
 	git submodule update --init --recursive
 
+refresh-dev-snapshots:
+	# Do this for unpatched snapshots only
+	git submodule update --init --recursive
+	cd vendor/irmin; git checkout origin/master --detach
+	cd vendor/mirage; git checkout origin/master --detach
+
 ocamlformat:
 	# Use the master version of ocamlformat for matching results
 	git ls-files -- 'src/*.ml' 'src/*.mli' |grep -v 407 |xargs ocamlformat --inplace
@@ -32,4 +38,4 @@ uninstall:
 clean:
 	rm -rf _build _opam
 
-.PHONY: build deps ocamlformat fuzz test install uninstall clean
+.PHONY: build deps sync refresh-dev-snapshots ocamlformat fuzz test install uninstall clean

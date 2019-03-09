@@ -3,6 +3,7 @@ sudo: required
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
 script:
 - export PINS="$({ echo wodan.dev:.; for op in vendor/*/*.opam; do echo "$op" |sed -re 's#(vendor/.*/)(.*)\.opam#\2.dev:\1#'; done; } |xargs)"
+- if [[ REFRESH_DEV_SNAPSHOTS -eq 1 ]]; then make refresh-dev-snapshots; fi
 - bash -ex .travis-opam.sh
 env:
   global:
@@ -10,6 +11,9 @@ env:
 
 matrix:
   include:
+  - env: OCAML_VERSION=4.07 PACKAGE=wodan REFRESH_DEV_SNAPSHOTS=1
+  - env: OCAML_VERSION=4.07 PACKAGE=wodan-unix REFRESH_DEV_SNAPSHOTS=1
+  - env: OCAML_VERSION=4.07 PACKAGE=wodan-irmin REFRESH_DEV_SNAPSHOTS=1
   - env: OCAML_VERSION=4.07 PACKAGE=wodan
   - env: OCAML_VERSION=4.07 PACKAGE=wodan-unix
   - env: OCAML_VERSION=4.07 PACKAGE=wodan-irmin
