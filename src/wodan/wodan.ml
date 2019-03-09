@@ -1308,6 +1308,7 @@ struct
       let median = List.nth binds (n / 2) in
       median
 
+[@@@warning "-32"]
   let rec check_live_integrity fs alloc_id depth =
     let fail = ref false in
     match lru_peek fs.node_cache.lru alloc_id with
@@ -1438,6 +1439,7 @@ struct
             else check_live_integrity fs child_alloc_id (Int64.succ depth) )
           entry.children_alloc_ids;
         if !fail then failwith "Integrity errors"
+[@@@warning "+32"]
 
   (* This is equivalent to commenting out the above, while still having it typecheck *)
   let check_live_integrity _ _ _ = ()
