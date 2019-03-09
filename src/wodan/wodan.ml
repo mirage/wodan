@@ -1439,6 +1439,9 @@ struct
           entry.children_alloc_ids;
         if !fail then failwith "Integrity errors"
 
+  (* This is equivalent to commenting out the above, while still having it typecheck *)
+  let check_live_integrity _ _ _ = ()
+
   let fixup_parent_links cache alloc_id entry =
     KeyedMap.iter
       (fun _k child_alloc_id ->
