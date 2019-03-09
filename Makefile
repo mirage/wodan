@@ -18,8 +18,8 @@ refresh-dev-snapshots:
 	cd vendor/mirage; git checkout origin/master --detach
 
 ocamlformat:
-	# Use the master version of ocamlformat for matching results
-	git ls-files -- 'src/*.ml' 'src/*.mli' |grep -v 407 |xargs ocamlformat --inplace
+	# Use 2de7c5f version of ocamlformat
+	dune build @fmt --auto-promote
 
 fuzz:
 	dune build src/wodan-unix/wodanc.exe
