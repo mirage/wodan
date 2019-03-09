@@ -10,9 +10,8 @@ let http_src = Logs.Src.create "http" ~doc:"HTTP server"
 module Http_log = (val Logs.src_log http_src : Logs.LOG)
 
 module BlockCon = struct
-  include Block
-
   (* from mirage-block-solo5 *)
+  include Block
 
   let discard _ _ _ = Lwt.return (Ok ())
 end
