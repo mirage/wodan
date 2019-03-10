@@ -16,6 +16,3 @@
 [submodule "vendor/mirage-block-xen"]
 	path = vendor/mirage-block-xen
 	url = https://github.com/g2p/mirage-block-xen.git
-[submodule "vendor/ocaml-diet"]
-	path = vendor/ocaml-diet
-	url = https://github.com/g2p/ocaml-diet.git
