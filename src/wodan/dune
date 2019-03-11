@@ -8,6 +8,6 @@
  (inline_tests
   (libraries io-page-unix))
  (libraries rresult stdcompat cstruct sexplib mirage-types mirage-logs lwt
-   io-page lru logs nocrypto bitv mirage-types-lwt diet checkseum))
+   io-page lru logs nocrypto bitv mirage-types-lwt diet checkseum.c))
 
 (copy_files ../crc32c/crc32c.ml*)
