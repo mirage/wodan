@@ -18,6 +18,9 @@ fuzz:
 	afl-fuzz -i afl/input -o afl/output -- \
 		_build/default/src/wodan-unix/wodanc.exe fuzz @@
 
+doc:
+	dune build @doc
+
 test:
 	dune runtest tests
 
@@ -30,4 +33,4 @@ uninstall:
 clean:
 	rm -rf _build wodanc
 
-.PHONY: build deps ocamlformat fuzz test install uninstall clean
+.PHONY: build deps ocamlformat fuzz doc test install uninstall clean
