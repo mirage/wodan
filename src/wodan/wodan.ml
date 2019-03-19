@@ -379,9 +379,7 @@ let rec merge xs ys =
   | hx :: txs, hy :: tys ->
       if hx < hy then hx :: merge txs ys else hy :: merge xs tys
 
-type insertable =
-  | InsValue of string
-  | InsChild of Location.t * AllocId.t option
+type insertable = InsValue of string
 
 (* loc, alloc_id *)
 
@@ -1280,7 +1278,6 @@ struct
         let len = String.length value in
         let len1 = P.key_size + sizeof_datalen + len in
         InsSpaceValue len1
-    | InsChild (_loc, _alloc_id) -> InsSpaceChild (P.key_size + sizeof_logical)
 
   let fast_insert fs alloc_id key insertable _depth =
     (*Logs.debug (fun m -> m "fast_insert %Ld" _depth);*)
@@ -1305,13 +1302,6 @@ struct
                   (* No need to pad lengths *)
                   kd.value_end <- kd.value_end - String.length prev_val + len;
                   Some value);
-            ignore (mark_dirty fs.node_cache alloc_id)
-        | InsChild (loc, child_alloc_id_opt) ->
-            KeyedMap.xadd entry.children key loc;
-            ( match child_alloc_id_opt with
-            | None -> ()
-            | Some child_alloc_id ->
-                KeyedMap.xadd entry.children_alloc_ids key child_alloc_id );
             ignore (mark_dirty fs.node_cache alloc_id) )
 
   let split_point entry =

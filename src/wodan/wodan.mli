@@ -65,12 +65,6 @@ module AllocId : sig
   val hash : t -> int
 end
 
-type insertable =
-  | InsValue of string
-  | InsChild of Location.t * AllocId.t option
-
-(* loc, alloc_id *)
-
 val sizeof_superblock : int
 
 type relax = {
