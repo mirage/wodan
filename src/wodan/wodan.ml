@@ -241,9 +241,22 @@ module LRUValue = struct
   type t = node
 
   let discardable entry = entry.flush_children = None && entry.meta <> Root
+
+  let on_discard entry peek =
+    match entry.meta with
+    | Root ->
+        ()
+    | Child parent_key ->
+        let parent_entry = peek parent_key in
+        KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key
 end
 
-module LRU = Wodan_lru.Make (LRUKey) (LRUValue)
+module LRUParams = struct
+  module Value = LRUValue
+  module Key = LRUKey
+end
+
+module LRU = Wodan_lru.Make (LRUParams)
 
 let lookup_parent_link lru entry =
   match entry.meta with
@@ -254,29 +267,6 @@ let lookup_parent_link lru entry =
       let children = Lazy.force parent_entry.children in
       let offset = KeyedMap.find children entry.highest_key in
       Some (parent_key, parent_entry, offset)
-
-let lru_safe_add lru alloc_id value =
-  (* Adds a binding to the LRU iff
-      - the key is not already bound
-      - AND adding it does not discard a dirty entry
-    *)
-  let would_discard = LRU.size lru + 1 > LRU.capacity lru in
-  (* assumes uniform weights, looks only at the bottom item *)
-  ( if would_discard then
-    match LRU.lru lru with
-    | Some (_alloc_id, entry)
-      when entry.flush_children <> None ->
-        failwith "Would discard dirty data"
-        (* TODO expose this as a proper API value *)
-    | Some (_alloc_id, entry) -> (
-      match lookup_parent_link lru entry with
-      | None ->
-          failwith "Would discard a root key, LRU too small for tree depth"
-      | Some (_parent_key, parent_entry, _offset) ->
-          KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key )
-    | _ ->
-        failwith "LRU capacity is too small" );
-  LRU.xadd lru alloc_id value
 
 type node_cache = {
   (* LRUKey.t -> node
@@ -758,7 +748,7 @@ struct
         prev_logical = Some logical;
         childlinks_offset = find_childlinks_offset cstr logdata.value_end }
     in
-    lru_safe_add cache.lru alloc_id entry;
+    LRU.safe_xadd cache.lru alloc_id entry;
     Lwt.return (alloc_id, entry)
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
@@ -787,7 +777,7 @@ struct
         prev_logical = Some logical;
         childlinks_offset = find_childlinks_offset cstr logdata.value_end }
     in
-    lru_safe_add cache.lru alloc_id entry;
+    LRU.safe_xadd cache.lru alloc_id entry;
     Lwt.return entry
 
   let has_children entry = entry.childlinks_offset <> block_end
@@ -1049,7 +1039,7 @@ struct
         prev_logical = None;
         childlinks_offset = block_end }
     in
-    lru_safe_add cache.lru alloc_id entry;
+    LRU.safe_xadd cache.lru alloc_id entry;
     (alloc_id, entry)
 
   let new_root open_fs = new_node open_fs 1 None top_key 0l
@@ -1194,7 +1184,7 @@ struct
         in
         let alloc_id = next_alloc_id cache in
         KeyedMap.xadd entry.children_alloc_ids child_key alloc_id;
-        lru_safe_add cache.lru alloc_id child_entry;
+        LRU.safe_xadd cache.lru alloc_id child_entry;
         Lwt.return (alloc_id, child_entry)
     | Some alloc_id ->
         let child_entry = LRU.get cache.lru alloc_id in

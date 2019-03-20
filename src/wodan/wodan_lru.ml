@@ -1,23 +1,32 @@
-module type LRUValue = sig
-  type t
+module type Params = sig
+  module Key : Hashtbl.HashedType
 
-  val discardable : t -> bool
+  module Value : sig
+    type t
+
+    val discardable : t -> bool
+
+    val on_discard : t -> (Key.t -> t) -> unit
+  end
 end
 
-module Make (K : Hashtbl.HashedType) (V : LRUValue) = struct
+module Make (P : Params) = struct
   module Val = struct
-    include V
+    include P.Value
 
     let weight _ = 1
   end
 
-  module LRU = Lru.M.Make (K) (Val)
+  module Key = P.Key
+  module LRU = Lru.M.Make (Key) (Val)
 
   type t = LRU.t
 
-  type key = K.t
+  type key = Key.t
 
-  type value = V.t
+  type value = Val.t
+
+  exception MissingLRUEntry of key
 
   exception Already_cached of key
 
@@ -28,7 +37,7 @@ module Make (K : Hashtbl.HashedType) (V : LRUValue) = struct
   let get t k =
     match get_opt t k with
     | None ->
-        raise Not_found
+        raise (MissingLRUEntry k)
     | Some x ->
         x
 
@@ -37,12 +46,12 @@ module Make (K : Hashtbl.HashedType) (V : LRUValue) = struct
   let peek t k =
     match peek_opt t k with
     | None ->
-        raise Not_found
+        raise (MissingLRUEntry k)
     | Some x ->
         x
 
   let xadd t k v =
-    if LRU.mem k t then raise @@ Already_cached k else LRU.add k v t
+    if LRU.mem k t then raise (Already_cached k) else LRU.add k v t
 
   let add t k v = LRU.add k v t
 
@@ -58,21 +67,22 @@ module Make (K : Hashtbl.HashedType) (V : LRUValue) = struct
 
   let create = LRU.create ~random:false
 
-  let safe_add t k v =
+  let checks t v =
     if size t + Val.weight v > capacity t then
       match LRU.lru t with
       | Some (_, entry)
-        when not @@ Val.discardable entry ->
+        when not (Val.discardable entry) ->
           raise Too_small
+      | Some (_, entry) ->
+          Val.on_discard entry (peek t)
       | _ ->
-          add t k v
+          ()
+
+  let safe_add t k v =
+    let () = checks t v in
+    add t k v
 
   let safe_xadd t k v =
-    if size t + Val.weight v > capacity t then
-      match LRU.lru t with
-      | Some (_, entry)
-        when not @@ Val.discardable entry ->
-          raise Too_small
-      | _ ->
-          xadd t k v
+    let () = checks t v in
+    xadd t k v
 end

@@ -1,18 +1,24 @@
-module type LRUValue = sig
-  type t
+module type Params = sig
+  module Key : Hashtbl.HashedType
 
-  val discardable : t -> bool
+  module Value : sig
+    type t
+
+    val discardable : t -> bool
+
+    val on_discard : t -> (Key.t -> t) -> unit
+  end
 end
 
-module Make (K : Hashtbl.HashedType) (V : LRUValue) : sig
+module Make (P : Params) : sig
   (** The type for LRUs. *)
   type t
 
   (** The type for keyeys. *)
-  type key = K.t
+  type key = P.Key.t
 
   (** The type for values. *)
-  type value = V.t
+  type value = P.Value.t
 
   val create : int -> t
   (** [create n] creates an empty LRU of capacity [n]. *)
@@ -38,15 +44,15 @@ module Make (K : Hashtbl.HashedType) (V : LRUValue) : sig
       raises Already_cached. *)
 
   val safe_add : t -> key -> value -> unit
-  (** [safe_add t k v] adds the binding [k -> v] in [t] if the operation does
-      not discard an [entry] such that [discardable entry] is [true]; otherwise
-      raises [Too_small]. *)
+  (** [safe_xadd t k v] adds the binding [k -> v] in [t].
+      If an [entry] is about to be discarded by this add then :
+        - If [not (discadable entry)] then the call raises [Too_small]
+        - Otherwise, [Value.on_discard entry (peek t)] is executed before the
+        add *)
 
   val safe_xadd : t -> key -> value -> unit
-  (** [safe_xadd t k v] adds the binding [k -> v] in [t] if the operation does
-      not discard an [entry] such that [discardable entry] is [true] (otherwise
-      raises [Too_small]), and [k] is not already bound in [t] (otherwise
-      raises [Already_cached]). *)
+  (** Same as [safe_add] but uses [xadd] instead, ie raises [Already_cached] if
+      a binding with the same key already exists. *)
 
   val mem : t -> key -> bool
   (** [mem t k] checks whether [k] is bound in [t]. *)
