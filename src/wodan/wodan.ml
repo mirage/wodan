@@ -199,22 +199,30 @@ end
 
 type logdata_index = {
   contents : string KeyedMap.t;
-  (* The last value_end that was read from or written to disk *)
-  mutable value_end : int;
-  mutable old_value_end : int
+  mutable value_end : int
 }
 
 type node_meta =
   | Root
-  | Child of LRUKey.t
-
-(* parent key *)
+  | Child of (* parent key *) LRUKey.t
 
 let header_size = function
   | Root ->
       sizeof_rootnode_hdr
   | Child _ ->
       sizeof_childnode_hdr
+
+let is_root = function
+  | Root ->
+      true
+  | _ ->
+      false
+
+let nodetype = function
+  | Root ->
+      1
+  | Child _ ->
+      2
 
 type node = {
   mutable meta : node_meta;
@@ -224,19 +232,16 @@ type node = {
      A flushable node is either new or dirty, but not both. *)
   mutable flush_children : int64 KeyedMap.t option;
   (* Use offsets so that data isn't duplicated *)
-  mutable children : int64 KeyedMap.t Lazy.t;
+  mutable children : int64 KeyedMap.t;
   (* Don't reference nodes directly, always go through the
- * LRU to bump recently accessed nodes *)
-  children_alloc_ids : int64 KeyedMap.t;
+   * LRU to bump recently accessed nodes *)
+  mutable children_alloc_ids : int64 KeyedMap.t;
   mutable highest_key : string;
-  raw_node : Cstruct.t;
-  io_data : Cstruct.t list;
   logdata : logdata_index;
-  (* starts at block_size - sizeof_crc, if there are no children *)
-  mutable childlinks_offset : int;
   mutable prev_logical : int64 option;
   (* depth counted from the leaves; mutable on the root only *)
-  mutable rdepth : int32
+  mutable rdepth : int32;
+  mutable generation : int64
 }
 
 module LRUValue = struct
@@ -262,9 +267,7 @@ let lookup_parent_link lru entry =
     | None ->
         raise (MissingLRUEntry parent_key)
     | Some parent_entry ->
-        let children = Lazy.force parent_entry.children in
-        let offset = KeyedMap.find children entry.highest_key in
-        Some (parent_key, parent_entry, offset) )
+        Some (parent_key, parent_entry) )
 
 let lru_xset lru alloc_id value =
   if LRU.mem alloc_id lru then raise (AlreadyCached alloc_id);
@@ -282,7 +285,7 @@ let lru_xset lru alloc_id value =
       match lookup_parent_link lru entry with
       | None ->
           failwith "Would discard a root key, LRU too small for tree depth"
-      | Some (_parent_key, parent_entry, _offset) ->
+      | Some (_parent_key, parent_entry) ->
           KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key )
     | _ ->
         failwith "LRU capacity is too small" );
@@ -649,8 +652,6 @@ struct
 
   let top_key = String.make P.key_size '\255'
 
-  let zero_data = Cstruct.create P.block_size
-
   let childlink_size = P.key_size + sizeof_logical
 
   (* TODO Fuzz this (was buggy) *)
@@ -669,7 +670,7 @@ struct
     (* Backing device *)
     disk : B.t;
     (* The exact size of IO the BLOCK accepts.
-     * Even larger powers of two won't work *)
+   * Even larger powers of two won't work *)
     (* 4096 with unbuffered target=unix, 512 with virtualisation *)
     sector_size : int;
     (* the sector size that's used for read/write offsets *)
@@ -706,7 +707,7 @@ struct
               raise ReadError
           | Result.Ok () ->
               if not (Crc32c.cstruct_valid cstr) then raise (BadCRC logical)
-              else (cstr, io_data) )
+              else cstr )
 
   let find_childlinks_offset cstr value_end =
     let rec scan off poff =
@@ -721,9 +722,7 @@ struct
   let index_logdata cstr hdrsize =
     let value_count = Int32.to_int (get_anynode_hdr_value_count cstr) in
     Logs.debug (fun m -> m "index_logdata value_count:%d" value_count);
-    let r =
-      {contents = KeyedMap.create (); value_end = hdrsize; old_value_end = 0}
-    in
+    let r = {contents = KeyedMap.create (); value_end = hdrsize} in
     let rec scan off value_count =
       if value_count <= 0 then ()
       else
@@ -737,29 +736,26 @@ struct
         r.value_end <- off + P.key_size + sizeof_datalen + len;
         scan r.value_end (pred value_count)
     in
-    scan hdrsize value_count;
-    r.old_value_end <- r.value_end;
-    r
+    scan hdrsize value_count; r
 
   let rec gen_childlink_offsets start =
     if start >= block_end then []
     else start :: gen_childlink_offsets (start + childlink_size)
 
-  let compute_children entry =
+  let compute_children raw_node value_end =
     Logs.debug (fun m -> m "compute_children");
+    let childlinks_offset = find_childlinks_offset raw_node value_end in
     let r = KeyedMap.create () in
     List.iter
       (fun off ->
-        let key =
-          Cstruct.to_string (Cstruct.sub entry.raw_node off P.key_size)
-        in
+        let key = Cstruct.to_string (Cstruct.sub raw_node off P.key_size) in
         KeyedMap.xadd r key (Int64.of_int off) )
-      (gen_childlink_offsets entry.childlinks_offset);
+      (gen_childlink_offsets childlinks_offset);
     r
 
   let load_root_node_at open_fs logical =
     Logs.debug (fun m -> m "load_root_node_at");
-    let%lwt cstr, io_data = load_data_at open_fs.filesystem logical in
+    let%lwt cstr = load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     assert (Cstruct.len cstr = P.block_size);
     let meta, logdata =
@@ -771,25 +767,23 @@ struct
     in
     let alloc_id = next_alloc_id cache in
     let rdepth = get_rootnode_hdr_depth cstr in
-    let rec entry =
+    let entry =
       { meta;
-        raw_node = cstr;
         rdepth;
-        io_data;
         logdata;
         flush_children = None;
-        children = lazy (compute_children entry);
+        children = compute_children cstr logdata.value_end;
         children_alloc_ids = KeyedMap.create ();
         highest_key = top_key;
-        prev_logical = Some logical;
-        childlinks_offset = find_childlinks_offset cstr logdata.value_end }
+        generation = get_anynode_hdr_generation cstr;
+        prev_logical = Some logical }
     in
     lru_xset cache.lru alloc_id entry;
     Lwt.return (alloc_id, entry)
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
     Logs.debug (fun m -> m "load_child_node_at");
-    let%lwt cstr, io_data = load_data_at open_fs.filesystem logical in
+    let%lwt cstr = load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
     assert (Cstruct.len cstr = P.block_size);
     let meta, logdata =
@@ -800,28 +794,31 @@ struct
           raise (BadNodeType ty)
     in
     let alloc_id = next_alloc_id cache in
-    let rec entry =
+    let entry =
       { meta;
-        raw_node = cstr;
         rdepth;
-        io_data;
         logdata;
         flush_children = None;
-        children = lazy (compute_children entry);
+        children = compute_children cstr logdata.value_end;
         children_alloc_ids = KeyedMap.create ();
         highest_key;
-        prev_logical = Some logical;
-        childlinks_offset = find_childlinks_offset cstr logdata.value_end }
+        generation = get_anynode_hdr_generation cstr;
+        prev_logical = Some logical }
     in
     lru_xset cache.lru alloc_id entry;
     Lwt.return entry
 
-  let has_children entry = entry.childlinks_offset <> block_end
+  let has_children entry = not (KeyedMap.is_empty entry.children)
 
   let has_free_space entry space =
     match space with
     | InsSpaceChild size ->
-        let refsize = entry.childlinks_offset - (P.block_size / 2) in
+        let refsize =
+          P.block_size
+          - sizeof_crc
+          - (childlink_size * KeyedMap.length entry.children)
+          - (P.block_size / 2)
+        in
         refsize >= size
     | InsSpaceValue size ->
         let refsize =
@@ -838,9 +835,19 @@ struct
         raise (MissingLRUEntry alloc_id)
     | Some entry -> (
         let gen = next_generation open_fs.node_cache in
-        set_anynode_hdr_generation entry.raw_node gen;
-        set_anynode_hdr_value_count entry.raw_node
+        entry.generation <- gen;
+        let raw_node = get_block_io () in
+        let io_data =
+          make_fanned_io_list open_fs.filesystem.sector_size raw_node
+        in
+        set_anynode_hdr_nodetype raw_node (nodetype entry.meta);
+        set_anynode_hdr_generation raw_node gen;
+        set_anynode_hdr_fsid cache.fsid 0 raw_node
+        (* order is strange but correct *);
+        set_anynode_hdr_value_count raw_node
           (Int32.of_int (KeyedMap.length entry.logdata.contents));
+        if is_root entry.meta then
+          set_rootnode_hdr_depth raw_node entry.rdepth;
         let logical = next_logical_alloc_valid cache in
         Logs.debug (fun m ->
             m "write_node logical:%Ld gen:%Ld vlen:%d value_end:%d" logical
@@ -848,10 +855,9 @@ struct
               (KeyedMap.length entry.logdata.contents)
               entry.logdata.value_end );
         ( match lookup_parent_link cache.lru entry with
-        | Some (parent_key, parent_entry, offset) ->
+        | Some (parent_key, parent_entry) ->
             assert (parent_key <> alloc_id);
-            Cstruct.LE.set_uint64 parent_entry.raw_node
-              (Int64.to_int offset + P.key_size)
+            KeyedMap.replace_existing parent_entry.children entry.highest_key
               logical
         | None ->
             () );
@@ -867,20 +873,23 @@ struct
           (fun key va ->
             let len = String.length va in
             let len1 = len + P.key_size + sizeof_datalen in
-            Cstruct.blit_from_string key 0 entry.raw_node !offset P.key_size;
-            Cstruct.LE.set_uint16 entry.raw_node (!offset + P.key_size) len;
-            Cstruct.blit_from_string va 0 entry.raw_node
+            Cstruct.blit_from_string key 0 raw_node !offset P.key_size;
+            Cstruct.LE.set_uint16 raw_node (!offset + P.key_size) len;
+            Cstruct.blit_from_string va 0 raw_node
               (!offset + P.key_size + sizeof_datalen)
               len;
             offset := !offset + len1 )
           entry.logdata.contents;
         assert (!offset = entry.logdata.value_end);
-        ( if entry.logdata.value_end < entry.logdata.old_value_end then
-          let len = entry.logdata.old_value_end - entry.logdata.value_end in
-          Cstruct.blit (Cstruct.create len) 0 entry.raw_node
-            entry.logdata.value_end len );
-        entry.logdata.old_value_end <- entry.logdata.value_end;
-        Crc32c.cstruct_reset entry.raw_node;
+        offset := block_end - childlink_size;
+        KeyedMap.iter
+          (fun key child_logical ->
+            Cstruct.blit_from_string key 0 raw_node !offset P.key_size;
+            Cstruct.LE.set_uint64 raw_node (!offset + P.key_size)
+              child_logical;
+            offset := !offset - childlink_size )
+          entry.children;
+        Crc32c.cstruct_reset raw_node;
         ( match entry.prev_logical with
         | Some plog ->
             Logs.debug (fun m -> m "Decreasing dirty_count");
@@ -908,7 +917,7 @@ struct
             div
               (mul logical (of_int P.block_size))
               (of_int open_fs.filesystem.other_sector_size))
-          entry.io_data
+          io_data
         >>= function
         | Result.Ok () ->
             Lwt.return ()
@@ -1031,7 +1040,7 @@ struct
     >|= fun () -> !discard_count
 
   (* Discard blocks that have been unused since mounting
-   or since the last live_trim call *)
+ or since the last live_trim call *)
   let live_trim root =
     let discard_count = ref 0L in
     let to_discard = ref [] in
@@ -1057,7 +1066,6 @@ struct
     assert (Cstruct.len cstr = P.block_size);
     set_anynode_hdr_nodetype cstr tycode;
     set_anynode_hdr_fsid cache.fsid 0 cstr;
-    let io_data = make_fanned_io_list open_fs.filesystem.sector_size cstr in
     let meta =
       match (tycode, parent_key) with
       | 1, None ->
@@ -1068,21 +1076,17 @@ struct
           raise (BadNodeType ty)
     in
     let value_end = header_size meta in
-    let logdata =
-      {contents = KeyedMap.create (); value_end; old_value_end = value_end}
-    in
+    let logdata = {contents = KeyedMap.create (); value_end} in
     let entry =
       { meta;
-        raw_node = cstr;
         rdepth;
-        io_data;
         logdata;
         flush_children = None;
-        children = Lazy.from_val (KeyedMap.create ());
+        children = KeyedMap.create ();
         children_alloc_ids = KeyedMap.create ();
         highest_key;
-        prev_logical = None;
-        childlinks_offset = block_end }
+        generation = 0L;
+        prev_logical = None }
     in
     lru_xset cache.lru alloc_id entry;
     (alloc_id, entry)
@@ -1092,31 +1096,16 @@ struct
   let reset_contents entry =
     let hdrsize = header_size entry.meta in
     entry.logdata.value_end <- hdrsize;
-    entry.logdata.old_value_end <- hdrsize;
     KeyedMap.clear entry.logdata.contents;
-    entry.childlinks_offset <- block_end;
-    entry.children <- Lazy.from_val (KeyedMap.create ());
-    KeyedMap.clear entry.children_alloc_ids;
-    Cstruct.blit zero_data 0 entry.raw_node hdrsize (block_end - hdrsize)
+    entry.children <- KeyedMap.create ();
+    KeyedMap.clear entry.children_alloc_ids
 
-  let add_child parent child alloc_id cache parent_key =
+  let add_child parent child child_key cache parent_key =
     Logs.debug (fun m -> m "add_child");
-    let child_key = alloc_id in
-    let off = parent.childlinks_offset - childlink_size in
-    let children = Lazy.force parent.children in
-    (* Force *before* blitting *)
     child.meta <- Child parent_key;
-    Cstruct.blit
-      (Cstruct.of_string child.highest_key)
-      0 parent.raw_node off P.key_size;
-    parent.childlinks_offset <- off;
-    KeyedMap.xadd children
-      (Cstruct.to_string (Cstruct.sub parent.raw_node off P.key_size))
-      (Int64.of_int off);
-    KeyedMap.xadd parent.children_alloc_ids
-      (Cstruct.to_string (Cstruct.sub parent.raw_node off P.key_size))
-      alloc_id;
-    (*ignore (_mark_dirty cache parent_key);*)
+    (* No logical yet, put 0L for now *)
+    KeyedMap.xadd parent.children child.highest_key 0L;
+    KeyedMap.xadd parent.children_alloc_ids child.highest_key child_key;
     ignore (mark_dirty cache child_key)
 
   let has_logdata entry = entry.logdata.value_end <> header_size entry.meta
@@ -1136,7 +1125,7 @@ struct
     (* TODO add more fsck style checks *)
     let cache = open_fs.node_cache in
     update_space_map cache logical expect_sm;
-    let%lwt cstr, _io_data = load_data_at open_fs.filesystem logical in
+    let%lwt cstr = load_data_at open_fs.filesystem logical in
     let hdrsize =
       match get_anynode_hdr_nodetype cstr with
       | 1
@@ -1198,19 +1187,15 @@ struct
           Bitv64.set scan_map logical true );
     Lwt.return_unit
 
-  let logical_of_offset cstr offset =
-    Cstruct.LE.get_uint64 cstr (Int64.to_int offset + P.key_size)
-
-  let preload_child open_fs entry_key entry child_key offset =
+  let preload_child open_fs entry_key entry child_key =
     (*Logs.debug (fun m -> m "preload_child");*)
-    let cstr = entry.raw_node in
     let cache = open_fs.node_cache in
     if entry.rdepth = 0l then
       failwith "invalid rdepth: found children when rdepth = 0";
     let rdepth = Int32.pred entry.rdepth in
     match KeyedMap.find_opt entry.children_alloc_ids child_key with
     | None ->
-        let logical = logical_of_offset cstr offset in
+        let logical = KeyedMap.find entry.children child_key in
         ( if%lwt Lwt.return open_fs.filesystem.mount_options.fast_scan then
           match cache.scan_map with
           | None ->
@@ -1219,9 +1204,9 @@ struct
               if%lwt
                 Lwt.return (rdepth = 0l && not (Bitv64.get scan_map logical))
               then
-                (* generation may not be fresh, but is always initialised in this branch,
-               so this is not a problem *)
-                let parent_gen = get_anynode_hdr_generation cstr in
+                (* generation may not be fresh, but is always initialised in this branch
+                 (no alloc_id -> not a new_node), so this is not a problem *)
+                let parent_gen = entry.generation in
                 scan_all_nodes open_fs logical false rdepth parent_gen true )
         >>= fun () ->
         let%lwt child_entry =
@@ -1236,8 +1221,8 @@ struct
       | None ->
           Lwt.fail
             (Failure
-               (Printf.sprintf "Missing LRU entry for loaded child %Ld %Ld"
-                  offset alloc_id))
+               (Printf.sprintf "Missing LRU entry for loaded child %Ld"
+                  alloc_id))
       | Some child_entry ->
           Lwt.return (alloc_id, child_entry) )
 
@@ -1275,29 +1260,18 @@ struct
                   Some value );
             ignore (mark_dirty fs.node_cache alloc_id)
         | InsChild (loc, child_alloc_id_opt) ->
-            let cstr = entry.raw_node in
-            let offset = entry.childlinks_offset - childlink_size in
-            let children = Lazy.force entry.children in
-            entry.childlinks_offset <- offset;
-            Cstruct.blit (Cstruct.of_string key) 0 cstr offset P.key_size;
-            Cstruct.LE.set_uint64 cstr (offset + P.key_size) loc;
-            KeyedMap.xadd children
-              (Cstruct.to_string (Cstruct.sub cstr offset P.key_size))
-              (Int64.of_int offset);
+            KeyedMap.xadd entry.children key loc;
             ( match child_alloc_id_opt with
             | None ->
                 ()
             | Some child_alloc_id ->
-                KeyedMap.xadd entry.children_alloc_ids
-                  (Cstruct.to_string (Cstruct.sub cstr offset P.key_size))
-                  child_alloc_id );
+                KeyedMap.xadd entry.children_alloc_ids key child_alloc_id );
             ignore (mark_dirty fs.node_cache alloc_id) )
 
   let split_point entry =
     if has_children entry then
-      let children = Lazy.force entry.children in
-      let n = KeyedMap.length children in
-      let binds = KeyedMap.keys children in
+      let n = KeyedMap.length entry.children in
+      let binds = KeyedMap.keys entry.children in
       let median = List.nth binds (n / 2) in
       median
     else
@@ -1319,11 +1293,10 @@ struct
             has_children entry
             && not
                  (String.equal entry.highest_key
-                    (fst (KeyedMap.max_binding (Lazy.force entry.children))))
+                    (fst (KeyedMap.max_binding entry.children)))
           then (
             string_dump entry.highest_key;
-            string_dump
-              (fst (KeyedMap.max_binding (Lazy.force entry.children)));
+            string_dump (fst (KeyedMap.max_binding entry.children));
             Logs.err (fun m ->
                 m "check_live_integrity %Ld invariant broken: highest_key"
                   depth );
@@ -1336,20 +1309,21 @@ struct
             | None ->
                 raise (MissingLRUEntry parent_key)
             | Some parent_entry -> (
-                let children = Lazy.force parent_entry.children in
-                match KeyedMap.find_opt children entry.highest_key with
-                | None ->
-                    Logs.err (fun m ->
-                        m
-                          "check_live_integrity %Ld invariant broken: \
-                           lookup_parent_link"
-                          depth );
-                    fail := true
-                | Some _offset ->
-                    assert (
-                      KeyedMap.find_opt parent_entry.children_alloc_ids
-                        entry.highest_key
-                      = Some alloc_id ) ) ) );
+              match
+                KeyedMap.find_opt parent_entry.children entry.highest_key
+              with
+              | None ->
+                  Logs.err (fun m ->
+                      m
+                        "check_live_integrity %Ld invariant broken: \
+                         lookup_parent_link"
+                        depth );
+                  fail := true
+              | Some _offset ->
+                  assert (
+                    KeyedMap.find_opt parent_entry.children_alloc_ids
+                      entry.highest_key
+                    = Some alloc_id ) ) ) );
         let vend = ref (header_size entry.meta) in
         KeyedMap.iter
           (fun _k va ->
@@ -1423,15 +1397,6 @@ struct
                           depth );
                     fail := true ) ) ) ) );
         KeyedMap.iter
-          (fun k offset ->
-            let cstr = entry.raw_node in
-            let key =
-              Cstruct.to_string
-                (Cstruct.sub cstr (Int64.to_int offset) P.key_size)
-            in
-            assert (k = key) )
-          (Lazy.force entry.children);
-        KeyedMap.iter
           (fun _k child_alloc_id ->
             if child_alloc_id = alloc_id then (
               Logs.err (fun m -> m "Self-pointing node %Ld" depth);
@@ -1479,12 +1444,13 @@ struct
         else if (not split_path) && has_children entry && has_logdata entry
         then (
           (* log spilling *)
-          let children = Lazy.force entry.children in
           let find_victim () =
             let spill_score = ref 0 in
             let best_spill_score = ref 0 in
             (* an iterator on entry.children keys would be helpful here *)
-            let scored_key = ref (fst (KeyedMap.min_binding children)) in
+            let scored_key =
+              ref (fst (KeyedMap.min_binding entry.children))
+            in
             let best_spill_key = ref !scored_key in
             KeyedMap.iter
               (fun k va ->
@@ -1493,10 +1459,10 @@ struct
                     best_spill_score := !spill_score;
                     best_spill_key := !scored_key );
                   spill_score := 0;
-                  match KeyedMap.find_first_opt children k with
+                  match KeyedMap.find_first_opt entry.children k with
                   | None ->
                       string_dump k;
-                      string_dump (fst (KeyedMap.max_binding children));
+                      string_dump (fst (KeyedMap.max_binding entry.children));
                       string_dump entry.highest_key;
                       failwith "children invariant broken"
                   | Some (sk, _cl) ->
@@ -1513,23 +1479,24 @@ struct
           let best_spill_score, best_spill_key = find_victim () in
           Logs.debug (fun m ->
               m "log spilling %Ld %Ld %d" depth alloc_id best_spill_score );
-          let offset = KeyedMap.find children best_spill_key in
           let%lwt child_alloc_id, _ce =
-            preload_child fs alloc_id entry best_spill_key offset
+            preload_child fs alloc_id entry best_spill_key
           in
-          let clo = entry.childlinks_offset in
+          let clc = KeyedMap.length entry.children in
           let nko = entry.logdata.value_end in
           (*Logs.debug (fun m -> m "Before _reserve_insert nko %d" entry.logdata.value_end);*)
           reserve_insert fs child_alloc_id (InsSpaceValue best_spill_score)
             false (Int64.succ depth)
           >>= fun () ->
           (*Logs.debug (fun m -> m "After _reserve_insert nko %d" entry.logdata.value_end);*)
-          if clo = entry.childlinks_offset && nko = entry.logdata.value_end
+          if
+            clc = KeyedMap.length entry.children
+            && nko = entry.logdata.value_end
           then (
             (* _reserve_insert didn't split the child or the root *)
             reserve_dirty fs.node_cache child_alloc_id 0L (Int64.succ depth);
             let before_bsk_succ =
-              match KeyedMap.find_last_opt children best_spill_key with
+              match KeyedMap.find_last_opt entry.children best_spill_key with
               | Some (before_bsk, _va) ->
                   next_key before_bsk
               | None ->
@@ -1555,7 +1522,6 @@ struct
               assert (depth = 0L);
               Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
               let kc = entry.logdata.contents in
-              let children = Lazy.force entry.children in
               reserve_dirty fs.node_cache alloc_id 2L depth;
               let di = mark_dirty fs.node_cache alloc_id in
               let median = split_point entry in
@@ -1566,29 +1532,11 @@ struct
                 new_node fs 2 (Some alloc_id) entry.highest_key entry.rdepth
               in
               let kc2 = KeyedMap.split_off_after kc median in
-              let cl2 = KeyedMap.split_off_after children median in
+              let cl2 = KeyedMap.split_off_after entry.children median in
               let ca2 =
                 KeyedMap.split_off_after entry.children_alloc_ids median
               in
               let fc2 = KeyedMap.split_off_after di median in
-              let blit_cd_child k offset centry =
-                let cstr0 = entry.raw_node in
-                let cstr1 = centry.raw_node in
-                let offset1 = centry.childlinks_offset - childlink_size in
-                centry.childlinks_offset <- offset1;
-                Cstruct.blit cstr0 (Int64.to_int offset) cstr1 offset1
-                  childlink_size;
-                assert (Lazy.is_val centry.children);
-                let key1 =
-                  Cstruct.to_string (Cstruct.sub cstr1 offset1 P.key_size)
-                in
-                Logs.debug (fun m ->
-                    m "Blitting %S (%S) from offset %Ld" key1 k offset );
-                assert (k = key1);
-                KeyedMap.xadd
-                  (Lazy.force centry.children)
-                  key1 (Int64.of_int offset1)
-              in
               KeyedMap.iter
                 (fun _k va ->
                   entry1.logdata.value_end
@@ -1605,15 +1553,14 @@ struct
                      + P.key_size
                      + sizeof_datalen )
                 kc2;
-              KeyedMap.iter (fun k off -> blit_cd_child k off entry1) children;
-              KeyedMap.iter (fun k off -> blit_cd_child k off entry2) cl2;
+              KeyedMap.swap entry1.children entry.children;
+              KeyedMap.swap entry2.children cl2;
               KeyedMap.swap entry1.logdata.contents kc;
               KeyedMap.swap entry2.logdata.contents kc2;
               KeyedMap.swap entry1.children_alloc_ids entry.children_alloc_ids;
               KeyedMap.swap ca2 entry2.children_alloc_ids;
               reset_contents entry;
               entry.rdepth <- Int32.succ entry.rdepth;
-              set_rootnode_hdr_depth entry.raw_node entry.rdepth;
               entry.flush_children <- Some (KeyedMap.create ());
               fixup_parent_links fs.node_cache alloc1 entry1;
               fixup_parent_links fs.node_cache alloc2 entry2;
@@ -1631,7 +1578,7 @@ struct
                 (Int64.pred depth)
               >>= fun () ->
               (* The parent _reserve_insert call may have split the root, causing the parent_key
-                 to be updated *)
+               to be updated *)
               let parent_key =
                 match entry.meta with
                 | Child parent_key ->
@@ -1639,7 +1586,6 @@ struct
                 | _ ->
                     assert false
               in
-              let _children = Lazy.force entry.children in
               reserve_dirty fs.node_cache alloc_id 1L depth;
               let di = mark_dirty fs.node_cache alloc_id in
               let median = split_point entry in
@@ -1665,48 +1611,19 @@ struct
                 !to_remove;
               entry.logdata.value_end
               <- entry.logdata.value_end - !remove_size;
-              let clo_out = ref block_end in
-              let clo_out1 = ref block_end in
-              let clo = ref (block_end - childlink_size) in
-              let children = Lazy.force entry.children in
-              let children1 = KeyedMap.create () in
-              let fc1 = KeyedMap.create () in
-              while !clo >= entry.childlinks_offset do
-                (* Move children data *)
-                let key1 =
-                  Cstruct.to_string
-                    (Cstruct.sub entry.raw_node !clo P.key_size)
-                in
-                if String.compare key1 median <= 0 then (
-                  clo_out1 := !clo_out1 - childlink_size;
-                  Cstruct.blit entry.raw_node !clo entry1.raw_node !clo_out1
-                    childlink_size;
-                  ( match KeyedMap.find_opt entry.children_alloc_ids key1 with
-                  | Some alloc_id ->
-                      KeyedMap.remove entry.children_alloc_ids key1;
-                      KeyedMap.xadd entry1.children_alloc_ids key1 alloc_id
-                  | None ->
-                      () );
-                  KeyedMap.remove children key1;
-                  KeyedMap.xadd children1 key1 (Int64.of_int !clo_out1);
-                  if KeyedMap.mem di key1 then (
-                    let child_alloc_id = KeyedMap.find di key1 in
-                    KeyedMap.remove di key1;
-                    KeyedMap.xadd fc1 key1 child_alloc_id ) )
-                else (
-                  clo_out := !clo_out - childlink_size;
-                  Cstruct.blit entry.raw_node !clo entry.raw_node !clo_out
-                    childlink_size;
-                  let key1 =
-                    Cstruct.to_string
-                      (Cstruct.sub entry.raw_node !clo_out P.key_size)
-                  in
-                  KeyedMap.replace_existing children key1
-                    (Int64.of_int !clo_out) )
-              done;
-              entry.childlinks_offset <- !clo_out;
-              entry1.childlinks_offset <- !clo_out1;
-              entry1.children <- Lazy.from_val children1;
+              let children1 =
+                KeyedMap.split_off_after entry.children median
+              in
+              KeyedMap.swap children1 entry.children;
+              let ca1 =
+                KeyedMap.split_off_after entry.children_alloc_ids median
+              in
+              KeyedMap.swap ca1 entry.children_alloc_ids;
+              entry1.children <- children1;
+              entry1.children_alloc_ids <- ca1;
+              let fc1 = KeyedMap.split_off_after di median in
+              KeyedMap.swap di fc1;
+              entry1.flush_children <- Some fc1;
               fixup_parent_links fs.node_cache alloc1 entry1;
               (* Hook new node into parent *)
               match lru_peek fs.node_cache.lru parent_key with
@@ -1716,7 +1633,6 @@ struct
                   raise (MissingLRUEntry parent_key)
               | Some parent ->
                   ( add_child parent entry1 alloc1 fs.node_cache parent_key;
-                    entry1.flush_children <- Some fc1;
                     match parent.flush_children with
                     | None ->
                         failwith "Missing flush_info for parent"
@@ -1749,11 +1665,9 @@ struct
       | None ->
           if not (has_children entry) then Lwt.return_none
           else
-            let key1, offset =
-              KeyedMap.find_first (Lazy.force entry.children) key
-            in
+            let key1, _logical = KeyedMap.find_first entry.children key in
             let%lwt child_alloc_id, _ce =
-              preload_child open_fs alloc_id entry key1 offset
+              preload_child open_fs alloc_id entry key1
             in
             lookup_rec open_fs child_alloc_id key )
 
@@ -1769,11 +1683,9 @@ struct
           Logs.debug (fun m -> m "_mem");
           if not (has_children entry) then Lwt.return_false
           else
-            let key1, offset =
-              KeyedMap.find_first (Lazy.force entry.children) key
-            in
+            let key1, _logical = KeyedMap.find_first entry.children key in
             let%lwt child_alloc_id, _ce =
-              preload_child open_fs alloc_id entry key1 offset
+              preload_child open_fs alloc_id entry key1
             in
             mem_rec open_fs child_alloc_id key )
 
@@ -1804,13 +1716,12 @@ struct
           entry.logdata.contents start end_;
         (* As above, but end at end_ inclusive *)
         KeyedMap.iter_inclusive_range
-          (fun key1 offset -> lwt_queue := (key1, offset) :: !lwt_queue)
-          (Lazy.force entry.children)
-          start end_;
+          (fun key1 _logical -> lwt_queue := key1 :: !lwt_queue)
+          entry.children start end_;
         Lwt_list.iter_s
-          (fun (key1, offset) ->
+          (fun key1 ->
             let%lwt child_alloc_id, _ce =
-              preload_child open_fs alloc_id entry key1 offset
+              preload_child open_fs alloc_id entry key1
             in
             search_range_rec open_fs child_alloc_id start end_ !seen1 callback
             )
@@ -1838,12 +1749,12 @@ struct
                 () )
           entry.logdata.contents;
         KeyedMap.iter
-          (fun key1 offset -> lwt_queue := (key1, offset) :: !lwt_queue)
-          (Lazy.force entry.children);
+          (fun key1 _logical -> lwt_queue := key1 :: !lwt_queue)
+          entry.children;
         Lwt_list.iter_s
-          (fun (key1, offset) ->
+          (fun key1 ->
             let%lwt child_alloc_id, _ce =
-              preload_child open_fs alloc_id entry key1 offset
+              preload_child open_fs alloc_id entry key1
             in
             iter_rec open_fs child_alloc_id callback )
           !lwt_queue
@@ -1997,7 +1908,7 @@ struct
     | OpenExistingDevice ->
         let%lwt fbw, logical_size, fsid = read_superblock fs in
         let%lwt lroot = scan_for_root fs fbw logical_size fsid in
-        let%lwt cstr, _io_data = load_data_at fs lroot in
+        let%lwt cstr = load_data_at fs lroot in
         let typ = get_anynode_hdr_nodetype cstr in
         if typ <> 1 then raise (BadNodeType typ);
         let root_generation = get_rootnode_hdr_generation cstr in

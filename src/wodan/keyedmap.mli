@@ -20,6 +20,9 @@ module Make (Ord : OrderedType) : sig
   val clear : 'a t -> unit
   (** Clears the map  *)
 
+  val is_empty : 'a t -> bool
+  (** [is_empty m] returns whether map [m] is empty *)
+
   val find : 'a t -> key -> 'a
   (** [find m x] returns the binding of x in [m] or raises [Not_found]
       if [x] is not bind.  *)

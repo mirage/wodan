@@ -21,6 +21,8 @@ module Make (Ord : OrderedType) = struct
 
   let clear m = m := M.empty
 
+  let is_empty m = !m = M.empty
+
   let find m k = M.find k !m
 
   let find_opt m k = M.find_opt k !m
