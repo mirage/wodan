@@ -316,6 +316,13 @@ type node_cache = {
   statistics : Statistics.t
 }
 
+let has_scan_map cache =
+  match cache.scan_map with
+  | None ->
+      false
+  | Some _ ->
+      true
+
 let next_logical_novalid cache logical =
   let log1 = Int64.succ logical in
   if log1 = cache.logical_size then 1L else log1
@@ -1168,7 +1175,7 @@ struct
         if log1 <> 0L then (
           (* Children here would mean the fast_scan free space map is borked *)
           if rdepth = 0l then failwith "Found children on a leaf node";
-          ( if rdepth = 1l && open_fs.filesystem.mount_options.fast_scan then (
+          ( if rdepth = 1l && has_scan_map cache then (
             update_space_map cache log1 false;
             Lwt.return_unit )
           else scan_all_nodes open_fs log1 false (Int32.pred rdepth) gen false
@@ -1196,7 +1203,7 @@ struct
     match KeyedMap.find_opt entry.children_alloc_ids child_key with
     | None ->
         let logical = KeyedMap.find entry.children child_key in
-        ( if%lwt Lwt.return open_fs.filesystem.mount_options.fast_scan then
+        ( if%lwt Lwt.return (has_scan_map cache) then
           match cache.scan_map with
           | None ->
               assert false
