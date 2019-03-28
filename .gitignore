@@ -1,6 +1,7 @@
-/_build/
-/_opam/
+_build
+_opam
 /afl/output/
-/wodan*.install
+*.install
 .merlin
 *.img
+wodanc
