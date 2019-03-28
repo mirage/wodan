@@ -484,7 +484,8 @@ functor
         db.magic_key <- Stor.next_key db.magic_key;
         Lwt.return_unit )
       else Lwt.return_unit )
-      >>= fun () -> may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
+      >>= fun () ->
+      may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
 
     let set db k va =
       Log.debug (fun m -> m "AW.set -> %a" (Irmin.Type.pp K.t) k);

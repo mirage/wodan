@@ -879,7 +879,7 @@ struct
           let len = entry.logdata.old_value_end - entry.logdata.value_end in
           Cstruct.blit (Cstruct.create len) 0 entry.raw_node
             entry.logdata.value_end len );
-        (entry.logdata).old_value_end <- entry.logdata.value_end;
+        entry.logdata.old_value_end <- entry.logdata.value_end;
         Crc32c.cstruct_reset entry.raw_node;
         ( match entry.prev_logical with
         | Some plog ->
@@ -1091,8 +1091,8 @@ struct
 
   let reset_contents entry =
     let hdrsize = header_size entry.meta in
-    (entry.logdata).value_end <- hdrsize;
-    (entry.logdata).old_value_end <- hdrsize;
+    entry.logdata.value_end <- hdrsize;
+    entry.logdata.old_value_end <- hdrsize;
     KeyedMap.clear entry.logdata.contents;
     entry.childlinks_offset <- block_end;
     entry.children <- Lazy.from_val (KeyedMap.create ());
@@ -1540,7 +1540,7 @@ struct
               KeyedMap.carve_inclusive_range entry.logdata.contents
                 before_bsk_succ best_spill_key
             in
-            (entry.logdata).value_end
+            entry.logdata.value_end
             <- entry.logdata.value_end - best_spill_score;
             KeyedMap.iter
               (fun key va ->
@@ -1591,7 +1591,7 @@ struct
               in
               KeyedMap.iter
                 (fun _k va ->
-                  (entry1.logdata).value_end
+                  entry1.logdata.value_end
                   <- entry1.logdata.value_end
                      + String.length va
                      + P.key_size
@@ -1599,7 +1599,7 @@ struct
                 kc;
               KeyedMap.iter
                 (fun _k va ->
-                  (entry2.logdata).value_end
+                  entry2.logdata.value_end
                   <- entry2.logdata.value_end
                      + String.length va
                      + P.key_size
@@ -1663,7 +1663,7 @@ struct
               List.iter
                 (fun key -> KeyedMap.remove entry.logdata.contents key)
                 !to_remove;
-              (entry.logdata).value_end
+              entry.logdata.value_end
               <- entry.logdata.value_end - !remove_size;
               let clo_out = ref block_end in
               let clo_out1 = ref block_end in
@@ -1891,7 +1891,7 @@ struct
       make_fanned_io_list open_fs.filesystem.sector_size block_io
     in
     let alloc_id, _root = new_root open_fs in
-    (open_fs.node_cache).new_count <- 1L;
+    open_fs.node_cache.new_count <- 1L;
     write_node open_fs alloc_id
     >>= fun () ->
     log_cache_statistics open_fs.node_cache;
