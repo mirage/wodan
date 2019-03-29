@@ -38,7 +38,7 @@ module Make (Ord : OrderedType) = struct
           | Some _ ->
               Some v
           | None ->
-              raise Not_found)
+              raise Not_found )
         !m
 
   let xadd m k v =
@@ -48,7 +48,7 @@ module Make (Ord : OrderedType) = struct
           | Some _ ->
               raise Already_exists
           | None ->
-              Some v)
+              Some v )
         !m
 
   let remove m k = m := M.remove k !m

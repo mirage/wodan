@@ -1,3 +1,4 @@
+version=0.9
 break-cases=all
 break-infix=fit-or-vertical
 break-separators=after-and-docked
