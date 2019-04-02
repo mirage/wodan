@@ -813,7 +813,7 @@ struct
         prev_logical = Some logical }
     in
     lru_xset cache.lru alloc_id entry;
-    Lwt.return entry
+    Lwt.return (alloc_id, entry)
 
   let has_children entry = not (KeyedMap.is_empty entry.children)
 
@@ -1216,12 +1216,10 @@ struct
                 let parent_gen = entry.generation in
                 scan_all_nodes open_fs logical false rdepth parent_gen true )
         >>= fun () ->
-        let%lwt child_entry =
+        let%lwt (alloc_id, child_entry) =
           load_child_node_at open_fs logical child_key entry_key rdepth
         in
-        let alloc_id = next_alloc_id cache in
         KeyedMap.xadd entry.children_alloc_ids child_key alloc_id;
-        lru_xset cache.lru alloc_id child_entry;
         Lwt.return (alloc_id, child_entry)
     | Some alloc_id -> (
       match lru_get cache.lru alloc_id with
