@@ -42,6 +42,10 @@ exception OutOfSpace
 
 exception NeedsFlush
 
+exception LRUCantDiscardDirty
+
+exception LRUTooSmall
+
 exception BadKey of string
 
 exception ValueTooLarge of string
@@ -271,6 +275,8 @@ let lookup_parent_link lru entry =
 
 let lru_xset lru alloc_id value =
   if LRU.mem alloc_id lru then raise (AlreadyCached alloc_id);
+  if LRUValue.weight value > LRU.capacity lru then
+    raise LRUTooSmall
   let would_discard =
     LRU.size lru + LRUValue.weight value > LRU.capacity lru
   in
@@ -279,15 +285,19 @@ let lru_xset lru alloc_id value =
     match LRU.lru lru with
     | Some (_alloc_id, entry)
       when entry.flush_children <> None ->
-        failwith "Would discard dirty data"
-        (* TODO expose this as a proper API value *)
+        raise LRUCantDiscardDirty
     | Some (_alloc_id, entry) -> (
       match lookup_parent_link lru entry with
       | None ->
-          failwith "Would discard a root key, LRU too small for tree depth"
+        (* If it would discard the root, despite it being bumped on every traversal,
+           that means the LRU capacity is too small for the tree depth.
+           Raise LRUTooSmall instead of an LRUCantDiscardRoot *)
+          raise LRUTooSmall
       | Some (_parent_key, parent_entry) ->
           KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key )
-    | _ ->
+    | None (* The LRU doesn't have room for the single element we want to add.
+              Since we have asserted that weight <= capacity, this should be unreachable.
+              Raise an exception that's not meant to be caught. *) ->
         failwith "LRU capacity is too small" );
   LRU.add alloc_id value lru
 
@@ -789,6 +799,7 @@ struct
     Lwt.return (alloc_id, entry)
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
+    (* May raise LRUCantDiscardDirty *)
     Logs.debug (fun m -> m "load_child_node_at");
     let%lwt cstr = load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
@@ -1066,6 +1077,7 @@ struct
     >|= fun () -> !discard_count
 
   let new_node open_fs tycode parent_key highest_key rdepth =
+    (* May raise LRUCantDiscardDirty *)
     let cache = open_fs.node_cache in
     let alloc_id = next_alloc_id cache in
     Logs.debug (fun m -> m "new_node type:%d alloc_id:%Ld" tycode alloc_id);
@@ -1195,6 +1207,7 @@ struct
     Lwt.return_unit
 
   let preload_child open_fs entry_key entry child_key =
+    (* May raise LRUCantDiscardDirty *)
     (*Logs.debug (fun m -> m "preload_child");*)
     let cache = open_fs.node_cache in
     if entry.rdepth = 0l then
