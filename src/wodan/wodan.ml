@@ -46,6 +46,8 @@ exception LRUCantDiscardDirty
 
 exception LRUTooSmall
 
+exception LRUPriorityInversion
+
 exception BadKey of string
 
 exception ValueTooLarge of string
@@ -282,6 +284,9 @@ let lru_reserve lru weight =
     | Some (_alloc_id, entry)
       when entry.flush_children <> None ->
         raise LRUCantDiscardDirty
+    | Some (_alloc_id, entry)
+      when not (KeyedMap.is_empty entry.children_alloc_ids) ->
+        raise LRUPriorityInversion
     | Some (_alloc_id, entry) -> (
       match lookup_parent_link lru entry with
       | None ->
