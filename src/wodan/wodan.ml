@@ -604,20 +604,26 @@ module type S = sig
     deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
 end
 
-let has_magic_crc =
-  let magic_crc = Cstruct.of_string "\xff\xff\xff\xff" in
-    function cstr ->
-      let crcoffset = Cstruct.len cstr - 4 in
-      let crc = Cstruct.sub cstr crcoffset 4 in
-      (* Don't use Cstruct.equal, it will use memcmp, be opaque to AFL *)
-      (*Cstruct.equal crc magic_crc*)
-      Cstruct.get_uint8 crc 0 = Cstruct.get_uint8 magic_crc 0 &&
-      Cstruct.get_uint8 crc 1 = Cstruct.get_uint8 magic_crc 1 &&
-      Cstruct.get_uint8 crc 2 = Cstruct.get_uint8 magic_crc 2 &&
-      Cstruct.get_uint8 crc 3 = Cstruct.get_uint8 magic_crc 3
+let magic_crc = Cstruct.of_string "\xff\xff\xff\xff"
+
+let has_magic_crc cstr =
+  let crcoffset = Cstruct.len cstr - 4 in
+  let crc = Cstruct.sub cstr crcoffset 4 in
+  (* Don't use Cstruct.equal, it will use memcmp, be opaque to AFL *)
+  (*Cstruct.equal crc magic_crc*)
+  Cstruct.get_uint8 crc 0 = Cstruct.get_uint8 magic_crc 0 &&
+  Cstruct.get_uint8 crc 1 = Cstruct.get_uint8 magic_crc 1 &&
+  Cstruct.get_uint8 crc 2 = Cstruct.get_uint8 magic_crc 2 &&
+  Cstruct.get_uint8 crc 3 = Cstruct.get_uint8 magic_crc 3
 
 let cstruct_valid cstr relax =
   (relax.magic_crc && has_magic_crc cstr) || Crc32c.cstruct_valid cstr
+
+let cstruct_reset cstr relax =
+  if relax.magic_crc_write then
+    let crcoffset = Cstruct.len cstr - 4 in
+    Cstruct.blit magic_crc 0 cstr crcoffset 4
+  else Crc32c.cstruct_reset cstr
 
 let read_superblock_params (type disk)
     (module B : Mirage_types_lwt.BLOCK with type t = disk) disk relax =
@@ -941,7 +947,7 @@ struct
               child_logical;
             offset := !offset - childlink_size )
           entry.children;
-        Crc32c.cstruct_reset raw_node;
+        cstruct_reset raw_node open_fs.filesystem.mount_options.relax;
         ( match entry.prev_logical with
         | Some plog ->
             Logs.debug (fun m -> m "Decreasing dirty_count");
