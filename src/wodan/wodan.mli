@@ -57,6 +57,13 @@ type insertable =
 
 val sizeof_superblock : int
 
+type relax = {
+  (* CRC errors ignored on any read where the magic CRC is used *)
+  magic_crc : bool;
+  (* Write non-superblock blocks with the magic CRC *)
+  magic_crc_write : bool
+}
+
 (* All parameters that can't be read from the superblock *)
 type mount_options = {
   (* Whether the empty value should be considered a tombstone,
@@ -67,7 +74,9 @@ type mount_options = {
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
   fast_scan : bool;
   (* How many blocks to keep in cache *)
-  cache_size : int
+  cache_size : int;
+  (* Integrity invariants to relax *)
+  relax : relax
 }
 
 (* All parameters that can be read from the superblock *)
@@ -79,13 +88,15 @@ module type SUPERBLOCK_PARAMS = sig
   val key_size : int
 end
 
+val has_magic_crc : Cstruct.t -> bool
+
 module StandardSuperblockParams : SUPERBLOCK_PARAMS
 
 val standard_mount_options : mount_options
 
 val read_superblock_params :
   (module Mirage_types_lwt.BLOCK with type t = 'a) ->
-  'a ->
+  'a -> relax ->
   (module SUPERBLOCK_PARAMS) Lwt.t
 
 type deviceOpenMode =

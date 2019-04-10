@@ -280,15 +280,13 @@ module Client (B : Wodan.EXTBLOCK) = struct
   (*bench0 30_000;*)
 
   let fuzz disk =
-    Wodan.read_superblock_params (module B) disk
+    Wodan.read_superblock_params (module B) disk { magic_crc = true; magic_crc_write = false }
     >>= function
     | sb_params ->
         let module Stor = Wodan.Make (B) ((val sb_params)) in
-        let magiccrc = Cstruct.of_string "\xff\xff\xff\xff" in
-        let cstr_cond_reset str =
-          let crcoffset = Cstruct.len str - 4 in
-          let crc = Cstruct.sub str crcoffset 4 in
-          if Cstruct.equal crc magiccrc then ( Crc32c.cstruct_reset str; true )
+        let cstr_cond_reset cstr =
+          if Wodan.has_magic_crc cstr
+          then ( Crc32c.cstruct_reset cstr; true )
           else false
         in
         let%lwt info = B.get_info disk in

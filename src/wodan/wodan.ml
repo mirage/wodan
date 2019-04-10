@@ -489,6 +489,13 @@ let get_superblock_io () =
   TODO figure out portability *)
   Cstruct.create 512
 
+type relax = {
+  (* CRC errors ignored on any read where the magic CRC is used *)
+  magic_crc : bool;
+  (* Write non-superblock blocks with the magic CRC *)
+  magic_crc_write : bool
+}
+
 type mount_options = {
   (* Whether the empty value should be considered a tombstone,
    * meaning that `mem` will return no value when finding it *)
@@ -497,7 +504,9 @@ type mount_options = {
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
   fast_scan : bool;
   (* How many blocks to keep in cache *)
-  cache_size : int
+  cache_size : int;
+  (* Integrity invariants to relax *)
+  relax : relax
 }
 
 (* All parameters that can be read from the superblock *)
@@ -514,7 +523,8 @@ module type PARAMS = sig
 end
 
 let standard_mount_options =
-  {has_tombstone = false; fast_scan = true; cache_size = 1024}
+  {has_tombstone = false; fast_scan = true; cache_size = 1024; relax = {
+       magic_crc = false; magic_crc_write = false } }
 
 module StandardSuperblockParams : SUPERBLOCK_PARAMS = struct
   let block_size = 256 * 1024
@@ -594,8 +604,23 @@ module type S = sig
     deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
 end
 
+let has_magic_crc =
+  let magic_crc = Cstruct.of_string "\xff\xff\xff\xff" in
+    function cstr ->
+      let crcoffset = Cstruct.len cstr - 4 in
+      let crc = Cstruct.sub cstr crcoffset 4 in
+      (* Don't use Cstruct.equal, it will use memcmp, be opaque to AFL *)
+      (*Cstruct.equal crc magic_crc*)
+      Cstruct.get_uint8 crc 0 = Cstruct.get_uint8 magic_crc 0 &&
+      Cstruct.get_uint8 crc 1 = Cstruct.get_uint8 magic_crc 1 &&
+      Cstruct.get_uint8 crc 2 = Cstruct.get_uint8 magic_crc 2 &&
+      Cstruct.get_uint8 crc 3 = Cstruct.get_uint8 magic_crc 3
+
+let cstruct_valid cstr relax =
+  (relax.magic_crc && has_magic_crc cstr) || Crc32c.cstruct_valid cstr
+
 let read_superblock_params (type disk)
-    (module B : Mirage_types_lwt.BLOCK with type t = disk) disk =
+    (module B : Mirage_types_lwt.BLOCK with type t = disk) disk relax =
   let block_io = get_superblock_io () in
   let block_io_fanned = [block_io] in
   B.read disk 0L block_io_fanned
@@ -610,7 +635,7 @@ let read_superblock_params (type disk)
               raise BadVersion
             else if get_superblock_incompat_flags sb <> sb_required_incompat
             then raise BadFlags
-            else if not (Crc32c.cstruct_valid sb) then raise (BadCRC 0L)
+            else if not (cstruct_valid sb relax) then raise (BadCRC 0L)
             else
               let block_size = Int32.to_int (get_superblock_block_size sb) in
               let key_size = get_superblock_key_size sb in
@@ -697,7 +722,7 @@ struct
     (* Backing device *)
     disk : B.t;
     (* The exact size of IO the BLOCK accepts.
-   * Even larger powers of two won't work *)
+       Even larger powers of two won't work *)
     (* 4096 with unbuffered target=unix, 512 with virtualisation *)
     sector_size : int;
     (* the sector size that's used for read/write offsets *)
@@ -733,7 +758,7 @@ struct
           | Result.Error _ ->
               raise ReadError
           | Result.Ok () ->
-              if not (Crc32c.cstruct_valid cstr) then raise (BadCRC logical)
+              if not (cstruct_valid cstr filesystem.mount_options.relax) then raise (BadCRC logical)
               else cstr )
 
   let find_childlinks_offset cstr value_end =
@@ -1794,7 +1819,7 @@ struct
                 raise BadVersion
               else if get_superblock_incompat_flags sb <> sb_required_incompat
               then raise BadFlags
-              else if not (Crc32c.cstruct_valid sb) then raise (BadCRC 0L)
+              else if not (cstruct_valid sb fs.mount_options.relax) then raise (BadCRC 0L)
               else if
                 get_superblock_block_size sb <> Int32.of_int P.block_size
               then (
@@ -1877,7 +1902,7 @@ struct
     let is_valid_root () =
       get_anynode_hdr_nodetype cstr = 1
       && Cstruct.to_string (get_anynode_hdr_fsid cstr) = fsid
-      && Crc32c.cstruct_valid cstr
+      && cstruct_valid cstr fs.mount_options.relax
     in
     let rec scan_range start end_opt =
       if Some start = end_opt then
@@ -1999,7 +2024,7 @@ type open_ret =
 
 let open_for_reading (type disk) (module B : EXTBLOCK with type t = disk) disk
     mount_options =
-  read_superblock_params (module B) disk
+  read_superblock_params (module B) disk mount_options.relax
   >>= function
   | sp -> (
       let module Stor = Make (B) ((val sp)) in
