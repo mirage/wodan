@@ -106,6 +106,10 @@ module Make (Ord : OrderedType) : sig
   (** [split_off_after m k] removes all the bindings [(x, v)] in [m] such
       that [x > k] and returns them in a new map *)
 
+  val split_off_le : 'a t -> key -> 'a t
+  (** [split_off_le m k] removes all the bindings [(x, v)] in [m] such that
+      [x <= k] and returns them in a new map *)
+
   val carve_inclusive_range : 'a t -> key -> key -> 'a t
   (** [carve_inclusive_range m start stop] removes all the bindings [(x, v)] in
       [m] such that [x < start] or [stop < x] and returns them in a new map *)

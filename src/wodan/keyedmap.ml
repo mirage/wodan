@@ -93,6 +93,11 @@ module Make (Ord : OrderedType) = struct
     m := m1;
     ref m2
 
+  let split_off_le m k =
+    let m1, m2 = M.partition (fun k' _v -> Ord.compare k k' < 0) !m in
+    m := m1;
+    ref m2
+
   let carve_inclusive_range m start end_incl =
     let m1, m2 =
       M.partition

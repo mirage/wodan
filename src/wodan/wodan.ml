@@ -1599,37 +1599,24 @@ struct
               let alloc1, entry1 =
                 new_node fs 2 (Some parent_key) median entry.rdepth
               in
-              let to_remove = ref [] in
               let remove_size = ref 0 in
-              let kc1 =
-                KeyedMap.split_off_after entry.logdata.contents median
-              in
-              KeyedMap.swap kc1 entry.logdata.contents;
+              let kc1 = KeyedMap.split_off_le entry.logdata.contents median in
               KeyedMap.iter
                 (fun key va ->
                   let len = String.length va in
                   let len1 = len + P.key_size + sizeof_datalen in
                   fast_insert fs alloc1 key (InsValue va) depth;
-                  remove_size := !remove_size + len1;
-                  to_remove := key :: !to_remove )
+                  remove_size := !remove_size + len1 )
                 kc1;
-              List.iter
-                (fun key -> KeyedMap.remove entry.logdata.contents key)
-                !to_remove;
               entry.logdata.value_end
               <- entry.logdata.value_end - !remove_size;
-              let children1 =
-                KeyedMap.split_off_after entry.children median
-              in
-              KeyedMap.swap children1 entry.children;
+              let children1 = KeyedMap.split_off_le entry.children median in
               let ca1 =
-                KeyedMap.split_off_after entry.children_alloc_ids median
+                KeyedMap.split_off_le entry.children_alloc_ids median
               in
-              KeyedMap.swap ca1 entry.children_alloc_ids;
               entry1.children <- children1;
               entry1.children_alloc_ids <- ca1;
-              let fc1 = KeyedMap.split_off_after di median in
-              KeyedMap.swap di fc1;
+              let fc1 = KeyedMap.split_off_le di median in
               entry1.flush_children <- Some fc1;
               fixup_parent_links fs.node_cache alloc1 entry1;
               (* Hook new node into parent *)
