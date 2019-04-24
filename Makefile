@@ -1,7 +1,7 @@
 
 build:
 	dune build
-	ln -Tsf _build/default/src/wodan-unix/wodanc.exe wodanc
+	ln -sf _build/default/src/wodan-unix/wodanc.exe wodanc
 
 deps:
 	git submodule update --init --recursive
@@ -21,7 +21,7 @@ fuzz:
 		_build/default/src/wodan-unix/wodanc.exe fuzz @@
 
 test:
-	dune runtest
+	dune runtest tests
 
 install:
 	dune install
@@ -30,6 +30,6 @@ uninstall:
 	dune uninstall
 
 clean:
-	rm -rf _build _opam
+	rm -rf _build wodanc
 
 .PHONY: build deps ocamlformat fuzz test install uninstall clean
