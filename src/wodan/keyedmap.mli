@@ -20,6 +20,9 @@ module Make (Ord : OrderedType) : sig
   val clear : 'a t -> unit
   (** Clears the map  *)
 
+  val is_empty : 'a t -> bool
+  (** [is_empty m] returns whether map [m] is empty *)
+
   val find : 'a t -> key -> 'a
   (** [find m x] returns the binding of x in [m] or raises [Not_found]
       if [x] is not bind.  *)
@@ -102,6 +105,10 @@ module Make (Ord : OrderedType) : sig
   val split_off_after : 'a t -> key -> 'a t
   (** [split_off_after m k] removes all the bindings [(x, v)] in [m] such
       that [x > k] and returns them in a new map *)
+
+  val split_off_le : 'a t -> key -> 'a t
+  (** [split_off_le m k] removes all the bindings [(x, v)] in [m] such that
+      [x <= k] and returns them in a new map *)
 
   val carve_inclusive_range : 'a t -> key -> key -> 'a t
   (** [carve_inclusive_range m start stop] removes all the bindings [(x, v)] in

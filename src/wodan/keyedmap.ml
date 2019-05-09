@@ -21,6 +21,8 @@ module Make (Ord : OrderedType) = struct
 
   let clear m = m := M.empty
 
+  let is_empty m = !m = M.empty
+
   let find m k = M.find k !m
 
   let find_opt m k = M.find_opt k !m
@@ -88,6 +90,11 @@ module Make (Ord : OrderedType) = struct
 
   let split_off_after m k =
     let m1, m2 = M.partition (fun k' _v -> Ord.compare k k' >= 0) !m in
+    m := m1;
+    ref m2
+
+  let split_off_le m k =
+    let m1, m2 = M.partition (fun k' _v -> Ord.compare k k' < 0) !m in
     m := m1;
     ref m2
 
