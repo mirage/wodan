@@ -42,6 +42,8 @@ exception OutOfSpace
 
 exception NeedsFlush
 
+exception UnableToSplit
+
 exception LRUCantDiscardDirty
 
 exception LRUTooSmall
@@ -371,6 +373,14 @@ let next_generation cache =
 let int64_pred_nowrap va =
   if Int64.compare va 0L <= 0 then failwith "Int64 wrapping down to negative"
   else Int64.pred va
+
+(* Merge two sorted lists into one *)
+let rec merge xs ys =
+   match xs, ys with
+   | [], _ -> ys
+   | _, [] -> xs
+   | hx :: txs, hy :: tys ->
+       if hx < hy then hx :: merge txs ys else hy :: merge xs tys
 
 type insertable =
   | InsValue of string
@@ -1327,17 +1337,29 @@ struct
             ignore (mark_dirty fs.node_cache alloc_id) )
 
   let split_point entry =
-    if has_children entry then
-      let n = KeyedMap.length entry.children in
+    let child_count = KeyedMap.length entry.children in
+    if child_count > 1 then
       let binds = KeyedMap.keys entry.children in
-      let median = List.nth binds (n / 2) in
-      median
-    else
+      let median = List.nth binds ((child_count - 1) / 2) in
+      Some median
+    else if child_count = 0 then
       let kdc = entry.logdata.contents in
       let n = KeyedMap.length kdc in
       let binds = KeyedMap.keys kdc in
-      let median = List.nth binds (n / 2) in
-      median
+      let median = List.nth binds ((n - 1) / 2) in
+      Some median
+    else
+      (* Pick a mixed median to defeat unfavourable cases *)
+      (* Here child_count = 1 *)
+      let kdc = entry.logdata.contents in
+      let kdc_count = KeyedMap.length kdc in
+      if kdc_count = 0 then
+        None
+      else
+        let median_pos = (child_count + kdc_count - 1) / 2 in
+        let mk = merge (KeyedMap.keys kdc) (KeyedMap.keys entry.children) in
+        let median = List.nth mk median_pos in
+        Some median
 
   [@@@warning "-32"]
 
@@ -1575,7 +1597,7 @@ struct
           reserve_insert fs alloc_id space split_path depth )
         else
           match entry.meta with
-          | Root ->
+          | Root -> (
               (* Node splitting (root) *)
               assert (depth = 0L);
               Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
@@ -1584,6 +1606,9 @@ struct
               lru_reserve fs.node_cache.lru 2;
               let di = mark_dirty fs.node_cache alloc_id in
               let median = split_point entry in
+              match median with
+              |None -> raise UnableToSplit
+              |Some median ->
               let alloc1, entry1 =
                 new_node fs 2 (Some alloc_id) median entry.rdepth
               in
@@ -1627,7 +1652,7 @@ struct
               add_child entry entry2 alloc2 fs.node_cache alloc_id;
               entry1.flush_children <- Some di;
               entry2.flush_children <- Some fc2;
-              Lwt.return_unit
+              Lwt.return_unit)
           | Child parent_key -> (
               (* Node splitting (non root) *)
               assert (Int64.compare depth 0L > 0);
@@ -1649,6 +1674,9 @@ struct
               lru_reserve fs.node_cache.lru 1;
               let di = mark_dirty fs.node_cache alloc_id in
               let median = split_point entry in
+              match median with
+              |None -> raise UnableToSplit
+              |Some median ->
               let alloc1, entry1 =
                 new_node fs 2 (Some parent_key) median entry.rdepth
               in
