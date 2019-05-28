@@ -1518,6 +1518,7 @@ struct
     | None ->
         raise (MissingLRUEntry alloc_id)
     | Some entry -> (
+        assert (has_children entry == (entry.rdepth > 0l));
         if has_free_space entry space then (
           reserve_dirty fs.node_cache alloc_id 0L depth;
           Lwt.return () )
