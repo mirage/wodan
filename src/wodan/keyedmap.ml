@@ -107,7 +107,7 @@ module Make (Ord : OrderedType) = struct
     m := m1;
     ref m2
 
-  let keys m = fold (fun k _v acc -> k :: acc) m []
+  let keys m = List.rev (fold (fun k _v acc -> k :: acc) m [])
 
   let swap m1 m2 =
     let m = !m1 in

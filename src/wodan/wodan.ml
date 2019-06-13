@@ -1345,6 +1345,7 @@ struct
     else if child_count = 0 then
       let kdc = entry.logdata.contents in
       let n = KeyedMap.length kdc in
+      if n = 0 then None else
       let binds = KeyedMap.keys kdc in
       let median = List.nth binds ((n - 1) / 2) in
       Some median
@@ -1610,6 +1611,7 @@ struct
               match median with
               |None -> raise UnableToSplit
               |Some median ->
+              assert (median != entry.highest_key);
               let alloc1, entry1 =
                 new_node fs 2 (Some alloc_id) median entry.rdepth
               in
@@ -1678,6 +1680,8 @@ struct
               match median with
               |None -> raise UnableToSplit
               |Some median ->
+              if (median == entry.highest_key) then Logs.err (fun m -> m "Bad split %d %d" (KeyedMap.length entry.children) (KeyedMap.length entry.logdata.contents));
+              assert (median != entry.highest_key);
               let alloc1, entry1 =
                 new_node fs 2 (Some parent_key) median entry.rdepth
               in
