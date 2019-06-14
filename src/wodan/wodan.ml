@@ -886,13 +886,13 @@ struct
           P.block_size
           - sizeof_crc
           - (childlink_size * KeyedMap.length entry.children)
-          - (P.block_size / 2)
+          - (P.block_size * 15 / 16)
         in
         refsize >= size
     | InsSpaceValue size ->
         let refsize =
           if has_children entry then
-            (P.block_size / 2) - entry.logdata.value_end
+            (P.block_size * 15 / 16) - entry.logdata.value_end
           else block_end - entry.logdata.value_end
         in
         refsize >= size
