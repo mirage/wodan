@@ -475,6 +475,7 @@ let rec mark_dirty cache alloc_id =
         entry.flush_children <- Some di;
         ( match entry.prev_logical with
         | None ->
+            Logs.debug (fun m -> m "Bumping cache.new_count for %Ld" alloc_id);
             cache.new_count <- Int64.succ cache.new_count;
             if
               Int64.(
@@ -971,9 +972,11 @@ struct
             Logs.debug (fun m -> m "Decreasing free_count");
             cache.free_count <- int64_pred_nowrap cache.free_count;
             Logs.debug (fun m ->
-                m "Decreasing new_count from %Ld" cache.new_count );
+                m "Decreasing cache.new_count from %Ld" cache.new_count);
+            Logs.debug (fun m ->
+                m "Decreasing cache.new_count for %Ld" alloc_id);
             cache.new_count <- int64_pred_nowrap cache.new_count
-            (* XXX BUG sometimes wraps *) );
+            );
         Bitv64.set cache.space_map logical true;
         cache.freed_intervals
         <- BlockIntervals.remove
@@ -1559,8 +1562,8 @@ struct
             (!best_spill_score, !best_spill_key)
           in
           let best_spill_score, best_spill_key = find_victim () in
-          Logs.debug (fun m ->
-              m "log spilling %Ld %Ld %d" depth alloc_id best_spill_score );
+          (*Logs.debug (fun m ->
+              m "log spilling %Ld %Ld %d" depth alloc_id best_spill_score );*)
           let%lwt child_alloc_id, _ce =
             preload_child fs alloc_id entry best_spill_key
           in
@@ -1703,7 +1706,6 @@ struct
               entry1.children <- children1;
               entry1.children_alloc_ids <- ca1;
               let fc1 = KeyedMap.split_off_le di median in
-              entry1.flush_children <- Some fc1;
               fixup_parent_links fs.node_cache alloc1 entry1;
               (* Hook new node into parent *)
               match lru_peek fs.node_cache.lru parent_key with
@@ -1718,6 +1720,7 @@ struct
                         failwith "Missing flush_info for parent"
                     | Some di ->
                         KeyedMap.add di median alloc1 );
+                  entry1.flush_children <- Some fc1;
                   reserve_insert fs alloc_id space split_path depth ) )
 
   let insert root key value =
