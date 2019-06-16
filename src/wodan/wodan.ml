@@ -852,8 +852,9 @@ struct
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
     Logs.debug (fun m -> m "load_child_node_at");
-    let%lwt cstr = load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
+    assert (Bitv64.get cache.space_map logical);
+    let%lwt cstr = load_data_at open_fs.filesystem logical in
     assert (Cstruct.len cstr = P.block_size);
     let meta, logdata =
       match get_anynode_hdr_nodetype cstr with
@@ -963,6 +964,7 @@ struct
         | Some plog ->
             Logs.debug (fun m -> m "Decreasing dirty_count");
             cache.dirty_count <- int64_pred_nowrap cache.dirty_count;
+            assert (Bitv64.get cache.space_map plog);
             Bitv64.set cache.space_map plog false;
             cache.freed_intervals
             <- BlockIntervals.add
@@ -977,6 +979,7 @@ struct
                 m "Decreasing cache.new_count for %Ld" alloc_id);
             cache.new_count <- int64_pred_nowrap cache.new_count
             );
+          assert (not (Bitv64.get cache.space_map logical));
         Bitv64.set cache.space_map logical true;
         cache.freed_intervals
         <- BlockIntervals.remove
