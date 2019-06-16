@@ -37,7 +37,7 @@ depends: [
   "diet" {>= "0.2"}
   "io-page"
   "logs"
-  "lru" {= "0.2.0"}
+  "lru" {= "0.3.0"}
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
   "mirage-logs"

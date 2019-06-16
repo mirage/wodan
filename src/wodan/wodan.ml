@@ -48,8 +48,6 @@ exception LRUCantDiscardDirty
 
 exception LRUTooSmall
 
-exception LRUPriorityInversion
-
 exception BadKey of string
 
 exception ValueTooLarge of string
@@ -269,9 +267,12 @@ end
 
 module LRU = Lru.M.Make (AllocId) (LRUValue)
 
-let lru_get lru alloc_id = LRU.find alloc_id lru
+let lru_get lru alloc_id =
+  let r = LRU.find alloc_id lru in
+  LRU.promote alloc_id lru;
+  r
 
-let lru_peek lru alloc_id = LRU.find ~promote:false alloc_id lru
+let lru_peek lru alloc_id = LRU.find alloc_id lru
 
 exception AlreadyCached of AllocId.t
 
@@ -286,19 +287,29 @@ let lookup_parent_link lru entry =
     | Some parent_entry ->
         Some (parent_key, parent_entry) )
 
-let lru_reserve lru weight =
+let lru_trim lru =
   (* May raise LRUCantDiscardDirty *)
-  if weight > LRU.capacity lru then
-    raise LRUTooSmall;
-  while LRU.size lru + weight > LRU.capacity lru do
+  while LRU.weight lru > LRU.capacity lru do
     (match LRU.lru lru with
     | Some (_alloc_id, entry)
       when entry.flush_children <> None ->
         raise LRUCantDiscardDirty
     | Some (_alloc_id, entry)
-      when not (KeyedMap.is_empty entry.children_alloc_ids) ->
-        raise LRUPriorityInversion
+      when entry.prev_logical = None ->
+        (* That's an inconsistency, don't use a declared exception *)
+        failwith "New node without flush_children"
     | Some (_alloc_id, entry) -> (
+      let rec lru_remove _key aid =
+        match lru_peek lru aid with
+        |None ->
+          raise (MissingLRUEntry aid)
+        |Some ent ->
+          assert (ent.prev_logical <> None);
+          assert (ent.flush_children = None);
+          KeyedMap.iter lru_remove ent.children_alloc_ids;
+          LRU.remove aid lru
+      in
+      KeyedMap.iter lru_remove entry.children_alloc_ids;
       match lookup_parent_link lru entry with
       | None ->
         (* If it would discard the root, despite it being bumped on every traversal,
@@ -307,22 +318,20 @@ let lru_reserve lru weight =
           raise LRUTooSmall
       | Some (_parent_key, parent_entry) ->
           KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key )
-    | None (* The LRU doesn't have room for the single element we want to add.
-              Since we have asserted that weight <= capacity, this should be unreachable.
-              Raise an exception that's not meant to be caught. *) ->
-        failwith "LRU capacity is too small" );
+    | None ->
+      (* The LRU doesn't have room for a single element.
+         This means it was misconfigured. *)
+        raise LRUTooSmall );
     LRU.drop_lru lru
   done
 
-let lru_fast_xset lru alloc_id value =
+let lru_add lru alloc_id value =
   if LRU.mem alloc_id lru then raise (AlreadyCached alloc_id);
-  if LRUValue.weight value > LRU.capacity lru then
-    raise LRUTooSmall;
-  if LRU.size lru + LRUValue.weight value > LRU.capacity lru
-  then failwith "lru_fast_xset outside fast path (would discard)";
   LRU.add alloc_id value lru
 
 let lru_create capacity = LRU.create capacity
+
+let lru_size lru = LRU.size lru
 
 type node_cache = {
   (* AllocId.t -> node
@@ -856,7 +865,7 @@ struct
         generation = get_anynode_hdr_generation cstr;
         prev_logical = Some logical }
     in
-    lru_fast_xset cache.lru alloc_id entry;
+    lru_add cache.lru alloc_id entry;
     Lwt.return (alloc_id, entry)
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
@@ -885,7 +894,7 @@ struct
         generation = get_anynode_hdr_generation cstr;
         prev_logical = Some logical }
     in
-    lru_fast_xset cache.lru alloc_id entry;
+    lru_add cache.lru alloc_id entry;
     Lwt.return (alloc_id, entry)
 
   let has_children entry = not (KeyedMap.is_empty entry.children)
@@ -1022,7 +1031,7 @@ struct
     let nnew = cache.new_count in
     Logs.info (fun m ->
         m "Nodes: %Ld on-disk (%Ld dirty), %Ld new" nstored ndirty nnew );
-    Logs.info (fun m -> m "LRU: %d" (LRU.items cache.lru));
+    Logs.info (fun m -> m "LRU: %d" (lru_size cache.lru));
     ()
 
   let log_statistics root =
@@ -1175,7 +1184,7 @@ struct
         generation = 0L;
         prev_logical = None }
     in
-    lru_fast_xset cache.lru alloc_id entry;
+    lru_add cache.lru alloc_id entry;
     (alloc_id, entry)
 
   let new_root open_fs = new_node open_fs 1 None top_key 0l
@@ -1275,7 +1284,6 @@ struct
     Lwt.return_unit
 
   let preload_child open_fs entry_key entry child_key =
-    (* May raise LRUCantDiscardDirty *)
     (*Logs.debug (fun m -> m "preload_child");*)
     let cache = open_fs.node_cache in
     if entry.rdepth = 0l then
@@ -1283,7 +1291,6 @@ struct
     let rdepth = Int32.pred entry.rdepth in
     match KeyedMap.find_opt entry.children_alloc_ids child_key with
     | None ->
-        lru_reserve cache.lru 1;
         let logical = KeyedMap.find entry.children child_key in
         ( if%lwt Lwt.return (has_scan_map cache) then
           match cache.scan_map with
@@ -1624,7 +1631,6 @@ struct
               Logs.debug (fun m -> m "node splitting %Ld %a" depth AllocId.pp alloc_id);
               let kc = entry.logdata.contents in
               reserve_dirty fs.node_cache alloc_id 2L depth;
-              lru_reserve fs.node_cache.lru 2;
               let di = mark_dirty fs.node_cache alloc_id in
               let median = split_point entry in
               match median with
@@ -1693,7 +1699,6 @@ struct
                     assert false
               in
               reserve_dirty fs.node_cache alloc_id 1L depth;
-              lru_reserve fs.node_cache.lru 1;
               let di = mark_dirty fs.node_cache alloc_id in
               let median = split_point entry in
               match median with
@@ -1749,6 +1754,7 @@ struct
     check_live_integrity root.open_fs root.root_key 0L;
     fast_insert root.open_fs root.root_key key (InsValue value) 0L;
     check_live_integrity root.open_fs root.root_key 0L;
+    lru_trim root.open_fs.node_cache.lru;
     Lwt.return ()
 
   let rec lookup_rec open_fs alloc_id key =
@@ -1791,10 +1797,16 @@ struct
   let lookup root key =
     Statistics.add_lookup root.open_fs.node_cache.statistics;
     lookup_rec root.open_fs root.root_key key
+    >>= fun r ->
+    lru_trim root.open_fs.node_cache.lru;
+    Lwt.return r
 
   let mem root key =
     Statistics.add_lookup root.open_fs.node_cache.statistics;
     mem_rec root.open_fs root.root_key key
+    >>= fun r ->
+    lru_trim root.open_fs.node_cache.lru;
+    Lwt.return r
 
   let rec search_range_rec open_fs alloc_id start end_ seen callback =
     match lru_get open_fs.node_cache.lru alloc_id with
@@ -1832,6 +1844,9 @@ struct
     let seen = KeyedSet.empty in
     Statistics.add_range_search root.open_fs.node_cache.statistics;
     search_range_rec root.open_fs root.root_key start end_ seen callback
+    >>= fun () ->
+    lru_trim root.open_fs.node_cache.lru;
+    Lwt.return ()
 
   let rec iter_rec open_fs alloc_id callback =
     match lru_get open_fs.node_cache.lru alloc_id with
@@ -1861,6 +1876,9 @@ struct
   let iter root callback =
     Statistics.add_iter root.open_fs.node_cache.statistics;
     iter_rec root.open_fs root.root_key callback
+    >>= fun () ->
+    lru_trim root.open_fs.node_cache.lru;
+    Lwt.return ()
 
   let read_superblock fs =
     let block_io = get_superblock_io () in
