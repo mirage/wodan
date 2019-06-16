@@ -49,9 +49,19 @@ end
 
 module BlockCompat (B : Mirage_types_lwt.BLOCK) : EXTBLOCK with type t = B.t
 
+module AllocId : sig
+  type t
+  val zero : t
+  val one : t
+  val equal : t -> t -> bool
+  val succ : t -> t
+  val pp : Format.formatter -> t -> unit
+  val hash : t -> int
+end
+
 type insertable =
   | InsValue of string
-  | InsChild of int64 * int64 option
+  | InsChild of int64 * AllocId.t option
 
 (* loc, alloc_id *)
 

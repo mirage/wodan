@@ -58,7 +58,24 @@ exception BadNodeType of int
 
 exception BadNodeFSID of string
 
-exception MissingLRUEntry of int64
+module AllocId : sig
+  type t
+  val zero : t
+  val one : t
+  val equal : t -> t -> bool
+  val succ : t -> t
+  val pp : Format.formatter -> t -> unit
+  val hash : t -> int
+end = struct
+  include Int64
+
+  let pp fmt v =
+    Format.fprintf fmt "A:%Ld" v
+
+  let hash = Hashtbl.hash
+end
+
+exception MissingLRUEntry of AllocId.t
 
 module type EXTBLOCK = sig
   include Mirage_types_lwt.BLOCK
@@ -197,14 +214,6 @@ end)
 module KeyedMap = Keyedmap.Make (String)
 module KeyedSet = Set.Make (String)
 
-module LRUKey = struct
-  type t = int64
-
-  let hash = Hashtbl.hash
-
-  let equal = Int64.equal
-end
-
 type logdata_index = {
   contents : string KeyedMap.t;
   mutable value_end : int
@@ -212,7 +221,7 @@ type logdata_index = {
 
 type node_meta =
   | Root
-  | Child of (* parent key *) LRUKey.t
+  | Child of (* parent key *) AllocId.t
 
 let header_size = function
   | Root ->
@@ -238,12 +247,12 @@ type node = {
      through a flush_children map.
      We use an option here to make checking for flushability faster.
      A flushable node is either new or dirty, but not both. *)
-  mutable flush_children : int64 KeyedMap.t option;
+  mutable flush_children : AllocId.t KeyedMap.t option;
   (* Use offsets so that data isn't duplicated *)
   mutable children : int64 KeyedMap.t;
   (* Don't reference nodes directly, always go through the
    * LRU to bump recently accessed nodes *)
-  mutable children_alloc_ids : int64 KeyedMap.t;
+  mutable children_alloc_ids : AllocId.t KeyedMap.t;
   mutable highest_key : string;
   logdata : logdata_index;
   mutable prev_logical : int64 option;
@@ -258,13 +267,13 @@ module LRUValue = struct
   let weight _val = 1
 end
 
-module LRU = Lru.M.Make (LRUKey) (LRUValue)
+module LRU = Lru.M.Make (AllocId) (LRUValue)
 
 let lru_get lru alloc_id = LRU.find alloc_id lru
 
 let lru_peek lru alloc_id = LRU.find ~promote:false alloc_id lru
 
-exception AlreadyCached of LRUKey.t
+exception AlreadyCached of AllocId.t
 
 let lookup_parent_link lru entry =
   match entry.meta with
@@ -316,11 +325,11 @@ let lru_fast_xset lru alloc_id value =
 let lru_create capacity = LRU.create capacity
 
 type node_cache = {
-  (* LRUKey.t -> node
+  (* AllocId.t -> node
    * all nodes are keyed by their alloc_id *)
   lru : LRU.t;
-  mutable flush_root : LRUKey.t option;
-  mutable next_alloc_id : int64;
+  mutable flush_root : AllocId.t option;
+  mutable next_alloc_id : AllocId.t;
   (* The next generation number we'll allocate *)
   mutable next_generation : int64;
   (* The next logical address we'll allocate (if free) *)
@@ -362,7 +371,7 @@ let next_logical_alloc_valid cache =
 
 let next_alloc_id cache =
   let r = cache.next_alloc_id in
-  cache.next_alloc_id <- Int64.succ cache.next_alloc_id;
+  cache.next_alloc_id <- AllocId.succ cache.next_alloc_id;
   r
 
 let next_generation cache =
@@ -384,7 +393,7 @@ let rec merge xs ys =
 
 type insertable =
   | InsValue of string
-  | InsChild of int64 * int64 option
+  | InsChild of int64 * AllocId.t option
 
 (* loc, alloc_id *)
 
@@ -445,7 +454,7 @@ let reserve_dirty cache alloc_id new_count depth =
 
 (* flush if you like, but retrying will not succeed *)
 
-let rec mark_dirty cache alloc_id =
+let rec mark_dirty cache (alloc_id : AllocId.t) =
   (*Logs.debug (fun m -> m "mark_dirty %Ld" alloc_id);*)
   match lru_get cache.lru alloc_id with
   | None ->
@@ -475,7 +484,7 @@ let rec mark_dirty cache alloc_id =
         entry.flush_children <- Some di;
         ( match entry.prev_logical with
         | None ->
-            Logs.debug (fun m -> m "Bumping cache.new_count for %Ld" alloc_id);
+            Logs.debug (fun m -> m "Bumping cache.new_count for %a" AllocId.pp alloc_id);
             cache.new_count <- Int64.succ cache.new_count;
             if
               Int64.(
@@ -754,7 +763,7 @@ struct
 
   type root = {
     open_fs : open_fs;
-    root_key : LRUKey.t
+    root_key : AllocId.t
   }
 
   let is_tombstone root value =
@@ -851,7 +860,8 @@ struct
     Lwt.return (alloc_id, entry)
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
-    Logs.debug (fun m -> m "load_child_node_at");
+    Logs.debug (fun m -> m "load_child_node_at %Ld" logical);
+    assert (logical != 0L);
     let cache = open_fs.node_cache in
     assert (Bitv64.get cache.space_map logical);
     let%lwt cstr = load_data_at open_fs.filesystem logical in
@@ -920,7 +930,9 @@ struct
           set_rootnode_hdr_depth raw_node entry.rdepth;
         let logical = next_logical_alloc_valid cache in
         Logs.debug (fun m ->
-            m "write_node logical:%Ld gen:%Ld vlen:%d value_end:%d" logical
+            m "write_node alloc_id:%a logical:%Ld gen:%Ld vlen:%d value_end:%d"
+              AllocId.pp alloc_id
+              logical
               gen
               (KeyedMap.length entry.logdata.contents)
               entry.logdata.value_end );
@@ -976,7 +988,7 @@ struct
             Logs.debug (fun m ->
                 m "Decreasing cache.new_count from %Ld" cache.new_count);
             Logs.debug (fun m ->
-                m "Decreasing cache.new_count for %Ld" alloc_id);
+                m "Decreasing cache.new_count for %a" AllocId.pp alloc_id);
             cache.new_count <- int64_pred_nowrap cache.new_count
             );
           assert (not (Bitv64.get cache.space_map logical));
@@ -1036,14 +1048,14 @@ struct
         (completion_list : unit Lwt.t list) =
       if alloc_id = parent_key then (
         Logs.err (fun m ->
-            m "Reference loop in flush_children at %Ld" alloc_id );
+            m "Reference loop in flush_children at %a" AllocId.pp alloc_id );
         failwith "Reference loop" );
       match lru_get cache.lru alloc_id with
       | None ->
           raise (MissingLRUEntry alloc_id)
       | Some entry -> (
           Logs.debug (fun m ->
-              m "collecting %Ld parent %Ld" alloc_id parent_key );
+              m "collecting %a parent %a" AllocId.pp alloc_id AllocId.pp parent_key );
           match entry.flush_children with
           (* Can happen with a diamond pattern *)
           | None ->
@@ -1061,7 +1073,7 @@ struct
         | None ->
             []
         | Some alloc_id ->
-            flush_rec 0L zero_key alloc_id [] )
+            flush_rec AllocId.zero zero_key alloc_id [] )
     in
     cache.flush_root <- None;
     assert (cache.new_count = 0L);
@@ -1135,7 +1147,7 @@ struct
   let new_node open_fs tycode parent_key highest_key rdepth =
     let cache = open_fs.node_cache in
     let alloc_id = next_alloc_id cache in
-    Logs.debug (fun m -> m "new_node type:%d alloc_id:%Ld" tycode alloc_id);
+    Logs.debug (fun m -> m "new_node type:%d alloc_id:%a" tycode AllocId.pp alloc_id);
     let cstr = get_block_io () in
     assert (Cstruct.len cstr = P.block_size);
     set_anynode_hdr_nodetype cstr tycode;
@@ -1295,8 +1307,8 @@ struct
       | None ->
           Lwt.fail
             (Failure
-               (Printf.sprintf "Missing LRU entry for loaded child %Ld"
-                  alloc_id))
+               (Format.asprintf "Missing LRU entry for loaded child %a"
+                  AllocId.pp alloc_id))
       | Some child_entry ->
           Lwt.return (alloc_id, child_entry) )
 
@@ -1453,8 +1465,8 @@ struct
                       Logs.err (fun m ->
                           m
                             "Dirty but not registered in \
-                             parent_entry.flush_info %Ld %Ld"
-                            depth alloc_id );
+                             parent_entry.flush_info %Ld %a"
+                            depth AllocId.pp alloc_id );
                       fail := true )
                     else if n > 1 then (
                       Logs.err (fun m ->
@@ -1608,7 +1620,7 @@ struct
           | Root -> (
               (* Node splitting (root) *)
               assert (depth = 0L);
-              Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
+              Logs.debug (fun m -> m "node splitting %Ld %a" depth AllocId.pp alloc_id);
               let kc = entry.logdata.contents in
               reserve_dirty fs.node_cache alloc_id 2L depth;
               lru_reserve fs.node_cache.lru 2;
@@ -1665,7 +1677,7 @@ struct
           | Child parent_key -> (
               (* Node splitting (non root) *)
               assert (Int64.compare depth 0L > 0);
-              Logs.debug (fun m -> m "node splitting %Ld %Ld" depth alloc_id);
+              Logs.debug (fun m -> m "node splitting %Ld %a" depth AllocId.pp alloc_id);
               (* Set split_path to prevent spill/split recursion; will split towards the root *)
               reserve_insert fs parent_key (InsSpaceChild childlink_size) true
                 (Int64.pred depth)
@@ -1714,7 +1726,7 @@ struct
               match lru_peek fs.node_cache.lru parent_key with
               | None ->
                   Logs.err (fun m ->
-                      m "Missing LRU entry for %Ld (parent)" alloc_id );
+                      m "Missing LRU entry for %a (parent)" AllocId.pp alloc_id );
                   raise (MissingLRUEntry parent_key)
               | Some parent ->
                   ( add_child parent entry1 alloc1 fs.node_cache parent_key;
@@ -1739,7 +1751,7 @@ struct
     Lwt.return ()
 
   let rec lookup_rec open_fs alloc_id key =
-    Logs.debug (fun m -> m "lookup_rec");
+    (*Logs.debug (fun m -> m "lookup_rec");*)
     match lru_get open_fs.node_cache.lru alloc_id with
     | None ->
         raise (MissingLRUEntry alloc_id)
@@ -2011,7 +2023,7 @@ struct
         let node_cache =
           { lru = lru_create mount_options.cache_size;
             flush_root = None;
-            next_alloc_id = 1L;
+            next_alloc_id = AllocId.one;
             next_generation = Int64.succ root_generation;
             logical_size;
             space_map;
@@ -2044,7 +2056,7 @@ struct
         let node_cache =
           { lru = lru_create mount_options.cache_size;
             flush_root = None;
-            next_alloc_id = 1L;
+            next_alloc_id = AllocId.one;
             next_generation = 1L;
             logical_size;
             space_map;
@@ -2060,7 +2072,7 @@ struct
         let open_fs = {filesystem = fs; node_cache} in
         format open_fs logical_size first_block_written fsid
         >>= fun () ->
-        let root_key = 1L in
+        let root_key = AllocId.one in
         Lwt.return ({open_fs; root_key}, 1L)
 end
 
