@@ -23,7 +23,7 @@ exception BadVersion
 
 exception BadFlags
 
-exception BadCRC of int64
+exception BadCRC of Location.t
 
 exception BadParams
 
@@ -61,7 +61,7 @@ end
 
 type insertable =
   | InsValue of string
-  | InsChild of int64 * AllocId.t option
+  | InsChild of Location.t * AllocId.t option
 
 (* loc, alloc_id *)
 

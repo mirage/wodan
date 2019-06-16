@@ -30,7 +30,7 @@ exception BadVersion
 
 exception BadFlags
 
-exception BadCRC of int64
+exception BadCRC of Location.t
 
 exception BadParams
 
@@ -204,11 +204,11 @@ let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
 module Logs = (val Logs.src_log src : Logs.LOG)
 
 module BlockIntervals = Diet.Make (struct
-  include Int64
+  include Location
 
-  let t_of_sexp = int64_of_sexp
+  let t_of_sexp v = Location.of_int64 (int64_of_sexp v)
 
-  let sexp_of_t = sexp_of_int64
+  let sexp_of_t v = sexp_of_int64 (Location.to_int64 v)
 end)
 
 module KeyedMap = Keyedmap.Make (String)
@@ -249,13 +249,13 @@ type node = {
      A flushable node is either new or dirty, but not both. *)
   mutable flush_children : AllocId.t KeyedMap.t option;
   (* Use offsets so that data isn't duplicated *)
-  mutable children : int64 KeyedMap.t;
+  mutable children : Location.t KeyedMap.t;
   (* Don't reference nodes directly, always go through the
    * LRU to bump recently accessed nodes *)
   mutable children_alloc_ids : AllocId.t KeyedMap.t;
   mutable highest_key : string;
   logdata : logdata_index;
-  mutable prev_logical : int64 option;
+  mutable prev_logical : Location.t option;
   (* depth counted from the leaves; mutable on the root only *)
   mutable rdepth : int32;
   mutable generation : int64
@@ -333,14 +333,14 @@ type node_cache = {
   (* The next generation number we'll allocate *)
   mutable next_generation : int64;
   (* The next logical address we'll allocate (if free) *)
-  mutable next_logical_alloc : int64;
+  mutable next_logical_alloc : Location.t;
   (* Count of free blocks on disk *)
   mutable free_count : int64;
   mutable new_count : int64;
   mutable dirty_count : int64;
   fsid : string;
   logical_size : int64;
-  (* Logical -> bit.  Zero iff free. *)
+  (* Location -> bit.  Zero iff free. *)
   space_map : Bitv64.t;
   scan_map : Bitv64.t option;
   mutable freed_intervals : BlockIntervals.t;
@@ -355,8 +355,8 @@ let has_scan_map cache =
       true
 
 let next_logical_novalid cache logical =
-  let log1 = Int64.succ logical in
-  if log1 = cache.logical_size then 1L else log1
+  let log1 = Location.succ logical in
+  if log1 = Location.of_int64 cache.logical_size then Location.one else log1
 
 let next_logical_alloc_valid cache =
   if cache.free_count = 0L then failwith "Out of space";
@@ -393,7 +393,7 @@ let rec merge xs ys =
 
 type insertable =
   | InsValue of string
-  | InsChild of int64 * AllocId.t option
+  | InsChild of Location.t * AllocId.t option
 
 (* loc, alloc_id *)
 
@@ -661,7 +661,7 @@ let read_superblock_params (type disk)
               raise BadVersion
             else if get_superblock_incompat_flags sb <> sb_required_incompat
             then raise BadFlags
-            else if not (cstruct_valid sb relax) then raise (BadCRC 0L)
+            else if not (cstruct_valid sb relax) then raise (BadCRC Location.zero)
             else
               let block_size = Int32.to_int (get_superblock_block_size sb) in
               let key_size = get_superblock_key_size sb in
@@ -771,13 +771,13 @@ struct
     && String.length value = 0
 
   let load_data_at filesystem logical =
-    Logs.debug (fun m -> m "load_data_at %Ld" logical);
+    Logs.debug (fun m -> m "load_data_at %a" Location.pp logical);
     let cstr = get_block_io () in
     let io_data = make_fanned_io_list filesystem.sector_size cstr in
     B.read filesystem.disk
       Int64.(
         div
-          (mul logical (of_int P.block_size))
+          (mul (Location.to_int64 logical) (of_int P.block_size))
           (of_int filesystem.other_sector_size))
       io_data
     >>= Lwt.wrap1 (function
@@ -827,7 +827,7 @@ struct
     List.iter
       (fun off ->
         let key = Cstruct.to_string (Cstruct.sub raw_node off P.key_size) in
-        KeyedMap.xadd r key (Int64.of_int off) )
+        KeyedMap.xadd r key (Location.of_int64 (Cstruct.LE.get_uint64 raw_node (off + P.key_size))) )
       (gen_childlink_offsets childlinks_offset);
     r
 
@@ -860,8 +860,8 @@ struct
     Lwt.return (alloc_id, entry)
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
-    Logs.debug (fun m -> m "load_child_node_at %Ld" logical);
-    assert (logical != 0L);
+    Logs.debug (fun m -> m "load_child_node_at %a" Location.pp logical);
+    assert (logical != Location.zero);
     let cache = open_fs.node_cache in
     assert (Bitv64.get cache.space_map logical);
     let%lwt cstr = load_data_at open_fs.filesystem logical in
@@ -930,9 +930,9 @@ struct
           set_rootnode_hdr_depth raw_node entry.rdepth;
         let logical = next_logical_alloc_valid cache in
         Logs.debug (fun m ->
-            m "write_node alloc_id:%a logical:%Ld gen:%Ld vlen:%d value_end:%d"
+            m "write_node alloc_id:%a logical:%a gen:%Ld vlen:%d value_end:%d"
               AllocId.pp alloc_id
-              logical
+              Location.pp logical
               gen
               (KeyedMap.length entry.logdata.contents)
               entry.logdata.value_end );
@@ -968,7 +968,7 @@ struct
           (fun key child_logical ->
             Cstruct.blit_from_string key 0 raw_node !offset P.key_size;
             Cstruct.LE.set_uint64 raw_node (!offset + P.key_size)
-              child_logical;
+              (Location.to_int64 child_logical);
             offset := !offset - childlink_size )
           entry.children;
         cstruct_reset raw_node open_fs.filesystem.mount_options.relax;
@@ -1001,7 +1001,7 @@ struct
         B.write open_fs.filesystem.disk
           Int64.(
             div
-              (mul logical (of_int P.block_size))
+              (mul (Location.to_int64 logical) (of_int P.block_size))
               (of_int open_fs.filesystem.other_sector_size))
           io_data
         >>= function
@@ -1102,6 +1102,7 @@ struct
     let to_discard = ref [] in
     Bitv64.iteri
       (fun i used ->
+        let i = Location.to_int64 i in
         match (!unused_start, used) with
         | None, false ->
             unused_start := Some i
@@ -1132,8 +1133,8 @@ struct
     let to_discard = ref [] in
     BlockIntervals.iter
       (fun iv ->
-        let start = BlockIntervals.Interval.x iv in
-        let exclend = Int64.succ (BlockIntervals.Interval.y iv) in
+        let start = Location.to_int64 (BlockIntervals.Interval.x iv) in
+        let exclend = Int64.succ (Location.to_int64 (BlockIntervals.Interval.y iv)) in
         let range_block_count = Int64.sub exclend start in
         discard_count := Int64.add !discard_count range_block_count;
         to_discard := (start, range_block_count) :: !to_discard )
@@ -1190,7 +1191,7 @@ struct
     Logs.debug (fun m -> m "add_child");
     child.meta <- Child parent_key;
     (* No logical yet, put 0L for now *)
-    KeyedMap.xadd parent.children child.highest_key 0L;
+    KeyedMap.xadd parent.children child.highest_key Location.zero;
     KeyedMap.xadd parent.children_alloc_ids child.highest_key child_key;
     ignore (mark_dirty cache child_key)
 
@@ -1207,7 +1208,7 @@ struct
 
   let rec scan_all_nodes open_fs logical expect_root rdepth parent_gen
       expect_sm =
-    Logs.debug (fun m -> m "scan_all_nodes %Ld %ld" logical rdepth);
+    Logs.debug (fun m -> m "scan_all_nodes %a %ld" Location.pp logical rdepth);
     (* TODO add more fsck style checks *)
     let cache = open_fs.node_cache in
     update_space_map cache logical expect_sm;
@@ -1250,8 +1251,8 @@ struct
       if off < hdrsize then
         failwith "child link data bleeding into start of node";
       if off >= value_end then
-        let log1 = Cstruct.LE.get_uint64 cstr (off + P.key_size) in
-        if log1 <> 0L then (
+        let log1 = Location.of_int64 (Cstruct.LE.get_uint64 cstr (off + P.key_size)) in
+        if log1 <> Location.zero then (
           (* Children here would mean the fast_scan free space map is borked *)
           if rdepth = 0l then failwith "Found children on a leaf node";
           ( if rdepth = 1l && has_scan_map cache then (
@@ -1876,7 +1877,7 @@ struct
                 raise BadVersion
               else if get_superblock_incompat_flags sb <> sb_required_incompat
               then raise BadFlags
-              else if not (cstruct_valid sb fs.mount_options.relax) then raise (BadCRC 0L)
+              else if not (cstruct_valid sb fs.mount_options.relax) then raise (BadCRC Location.zero)
               else if
                 get_superblock_block_size sb <> Int32.of_int P.block_size
               then (
@@ -1888,7 +1889,7 @@ struct
               else if get_superblock_key_size sb <> P.key_size then
                 raise BadParams
               else
-                ( get_superblock_first_block_written sb,
+                ( Location.of_int64 (get_superblock_first_block_written sb),
                   get_superblock_logical_size sb,
                   Cstruct.to_string (get_superblock_fsid sb) ) )
 
@@ -1910,7 +1911,7 @@ struct
     set_superblock_incompat_flags sb sb_required_incompat;
     set_superblock_block_size sb (Int32.of_int P.block_size);
     set_superblock_key_size sb P.key_size;
-    set_superblock_first_block_written sb first_block_written;
+    set_superblock_first_block_written sb (Location.to_int64 first_block_written);
     set_superblock_logical_size sb logical_size;
     set_superblock_fsid fsid 0 sb;
     Crc32c.cstruct_reset sb;
@@ -1924,26 +1925,27 @@ struct
   let mid_range start end_ lsize =
     (* might overflow, limit lsize *)
     (* if start = end_, we pick the farthest logical address *)
-    if Int64.(succ start) = end_ || (Int64.(succ start) = lsize && end_ = 1L)
+    if Location.(succ start) = end_ || (Location.(succ start) = lsize && end_ = Location.one)
     then None
     else
       let end_ =
-        if Int64.compare start end_ < 0 then end_ else Int64.(add end_ lsize)
+        if Location.compare start end_ < 0 then end_ else Location.(add end_ lsize)
       in
-      let mid = Int64.(shift_right_logical (add start end_) 1) in
-      let mid = Int64.(rem mid lsize) in
-      let mid = if mid = 0L then 1L else mid in
+      let mid = Location.(shift_right_logical (add start end_) 1) in
+      let mid = Location.(rem mid lsize) in
+      let mid = if mid = Location.zero then Location.one else mid in
       Some mid
 
   let scan_for_root fs start0 lsize fsid =
     Logs.debug (fun m -> m "scan_for_root");
+    let lsize = Location.of_int64 lsize in
     let cstr = get_block_io () in
     let io_data = make_fanned_io_list fs.sector_size cstr in
     let read logical =
       B.read fs.disk
         Int64.(
           div
-            (mul logical (of_int P.block_size))
+            (mul (Location.to_int64 logical) (of_int P.block_size))
             (of_int fs.other_sector_size))
         io_data
       >>= function
@@ -1953,8 +1955,8 @@ struct
           Lwt.return ()
     in
     let next_logical logical =
-      let log1 = Int64.succ logical in
-      if log1 = lsize then 1L else log1
+      let log1 = Location.succ logical in
+      if log1 = lsize then Location.one else log1
     in
     let is_valid_root () =
       get_anynode_hdr_nodetype cstr = 1
@@ -2012,7 +2014,7 @@ struct
         let root_generation = get_rootnode_hdr_generation cstr in
         let rdepth = get_rootnode_hdr_depth cstr in
         let space_map = Bitv64.create logical_size false in
-        Bitv64.set space_map 0L true;
+        Bitv64.set space_map Location.zero true;
         let scan_map =
           if mount_options.fast_scan then
             Some (Bitv64.create logical_size false)
@@ -2048,10 +2050,10 @@ struct
     | FormatEmptyDevice logical_size ->
         assert (logical_size >= 2L);
         let space_map = Bitv64.create logical_size false in
-        Bitv64.set space_map 0L true;
+        Bitv64.set space_map Location.zero true;
         let freed_intervals = BlockIntervals.empty in
         let free_count = Int64.pred logical_size in
-        let first_block_written = Nocrypto.Rng.Int64.gen_r 1L logical_size in
+        let first_block_written = Location.of_int64 (Nocrypto.Rng.Int64.gen_r 1L logical_size) in
         let fsid = Cstruct.to_string (Nocrypto.Rng.generate 16) in
         let node_cache =
           { lru = lru_create mount_options.cache_size;
