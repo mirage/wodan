@@ -18,10 +18,6 @@
 open Lwt.Infix
 open Sexplib.Std
 
-let superblock_magic = "MIRAGE KVFS \xf0\x9f\x90\xaa"
-
-let superblock_version = 1l
-
 let max_dirty = 128
 
 exception BadMagic
@@ -52,6 +48,24 @@ exception BadNodeFSID of string
 
 exception MissingLRUEntry of int64
 
+let raise_superblock_errors = function
+  | `Ok x ->
+      x
+  | `BadCRC ->
+      raise (BadCRC 0L)
+  | `BadFlags ->
+      raise BadFlags
+  | `BadMagic ->
+      raise BadMagic
+  | `BadParams ->
+      raise BadParams
+  | `BadVersion ->
+      raise BadVersion
+  | `ReadError ->
+      raise ReadError
+  | `WriteError ->
+      raise WriteError
+
 module type EXTBLOCK = sig
   include Mirage_types_lwt.BLOCK
 
@@ -65,44 +79,13 @@ struct
   let discard _ _ _ = Lwt.return (Ok ())
 end
 
-(* Incompatibility flags *)
-let sb_incompat_rdepth = 1l
+module type SUPERBLOCK_PARAMS = Superblock.PARAMS
 
-let sb_incompat_fsid = 2l
-
-let sb_incompat_value_count = 4l
-
-let sb_required_incompat =
-  Int32.logor sb_incompat_rdepth
-    (Int32.logor sb_incompat_fsid sb_incompat_value_count)
-
-[@@@warning "-32"]
-
-(* 512 bytes.  The rest of the block isn't crc-controlled. *)
-[%%cstruct
-type superblock = {
-  magic : uint8_t; [@len 16]
-  (* major version, all later fields may change if this does *)
-  version : uint32_t;
-  compat_flags : uint32_t;
-  (* refuse to mount if unknown incompat_flags are set *)
-  incompat_flags : uint32_t;
-  block_size : uint32_t;
-  key_size : uint8_t;
-  first_block_written : uint64_t;
-  logical_size : uint64_t;
-  (* FSID is UUID-sized (128 bits) *)
-  fsid : uint8_t; [@len 16]
-  reserved : uint8_t; [@len 443]
-  crc : uint32_t
-}
-[@@little_endian]]
-
-let () = assert (String.length superblock_magic = 16)
-
-let () = assert (sizeof_superblock = 512)
+let sizeof_superblock = Superblock.sizeof_superblock
 
 let sizeof_crc = 4
+
+[@@@warning "-32"]
 
 [%%cstruct
 type anynode_hdr = {
@@ -169,8 +152,6 @@ let make_fanned_io_list size cstr =
       iter off
   in
   iter l; !r
-
-let sb_io block_io = Cstruct.sub block_io 0 sizeof_superblock
 
 let string_dump key = Cstruct.hexdump (Cstruct.of_string key)
 
@@ -464,11 +445,6 @@ let rec mark_dirty cache alloc_id =
             then failwith "Out of space" );
         di )
 
-let get_superblock_io () =
-  (* This will only work on Unix, which has buffered IO instead of direct IO.
-  TODO figure out portability *)
-  Cstruct.create 512
-
 type mount_options = {
   (* Whether the empty value should be considered a tombstone,
    * meaning that `mem` will return no value when finding it *)
@@ -479,15 +455,6 @@ type mount_options = {
   (* How many blocks to keep in cache *)
   cache_size : int
 }
-
-(* All parameters that can be read from the superblock *)
-module type SUPERBLOCK_PARAMS = sig
-  (* Size of blocks, in bytes *)
-  val block_size : int
-
-  (* The exact size of all keys, in bytes *)
-  val key_size : int
-end
 
 module type PARAMS = sig
   include SUPERBLOCK_PARAMS
@@ -576,30 +543,13 @@ end
 
 let read_superblock_params (type disk)
     (module B : Mirage_types_lwt.BLOCK with type t = disk) disk =
-  let block_io = get_superblock_io () in
-  let block_io_fanned = [block_io] in
-  B.read disk 0L block_io_fanned
-  >>= Lwt.wrap1 (function
-        | Result.Error _ ->
-            raise ReadError
-        | Result.Ok () ->
-            let sb = sb_io block_io in
-            if copy_superblock_magic sb <> superblock_magic then
-              raise BadMagic
-            else if get_superblock_version sb <> superblock_version then
-              raise BadVersion
-            else if get_superblock_incompat_flags sb <> sb_required_incompat
-            then raise BadFlags
-            else if not (Crc32c.cstruct_valid sb) then raise (BadCRC 0L)
-            else
-              let block_size = Int32.to_int (get_superblock_block_size sb) in
-              let key_size = get_superblock_key_size sb in
-              ( module struct
-                let block_size = block_size
-
-                let key_size = key_size
-              end
-              : SUPERBLOCK_PARAMS ) )
+  let read_disk cs = B.read disk 0L [cs] in
+  Superblock.read_from_disk ~read_disk
+  >|= fun read_result ->
+  read_result
+  |> raise_superblock_errors
+  |> Superblock.read_params
+  |> raise_superblock_errors
 
 module Make (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) : S with type disk = B.t =
 struct
@@ -1758,64 +1708,27 @@ struct
     iter_rec root.open_fs root.root_key callback
 
   let read_superblock fs =
-    let block_io = get_superblock_io () in
-    let block_io_fanned = make_fanned_io_list fs.sector_size block_io in
-    B.read fs.disk 0L block_io_fanned
-    >>= Lwt.wrap1 (function
-          | Result.Error _ ->
-              raise ReadError
-          | Result.Ok () ->
-              let sb = sb_io block_io in
-              if copy_superblock_magic sb <> superblock_magic then
-                raise BadMagic
-              else if get_superblock_version sb <> superblock_version then
-                raise BadVersion
-              else if get_superblock_incompat_flags sb <> sb_required_incompat
-              then raise BadFlags
-              else if not (Crc32c.cstruct_valid sb) then raise (BadCRC 0L)
-              else if
-                get_superblock_block_size sb <> Int32.of_int P.block_size
-              then (
-                Logs.err (fun m ->
-                    m "Bad superblock size %ld %d"
-                      (get_superblock_block_size sb)
-                      P.block_size );
-                raise BadParams )
-              else if get_superblock_key_size sb <> P.key_size then
-                raise BadParams
-              else
-                ( get_superblock_first_block_written sb,
-                  get_superblock_logical_size sb,
-                  Cstruct.to_string (get_superblock_fsid sb) ) )
+    let fan = make_fanned_io_list fs.sector_size in
+    let read_disk cs = B.read fs.disk 0L (fan cs) in
+    Superblock.read_from_disk ~read_disk
+    >|= fun read_result ->
+    let sb = raise_superblock_errors read_result in
+    Superblock.read sb (module P)
 
   (* Requires the caller to discard the entire device first.
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
-  let format open_fs logical_size first_block_written fsid =
-    let block_io = get_superblock_io () in
-    let block_io_fanned =
-      make_fanned_io_list open_fs.filesystem.sector_size block_io
-    in
+  let format open_fs sb_info =
+    let fan = make_fanned_io_list open_fs.filesystem.sector_size in
+    let disk = open_fs.filesystem.disk in
     let alloc_id, _root = new_root open_fs in
     open_fs.node_cache.new_count <- 1L;
     write_node open_fs alloc_id
     >>= fun () ->
     log_cache_statistics open_fs.node_cache;
-    let sb = sb_io block_io in
-    set_superblock_magic superblock_magic 0 sb;
-    set_superblock_version sb superblock_version;
-    set_superblock_incompat_flags sb sb_required_incompat;
-    set_superblock_block_size sb (Int32.of_int P.block_size);
-    set_superblock_key_size sb P.key_size;
-    set_superblock_first_block_written sb first_block_written;
-    set_superblock_logical_size sb logical_size;
-    set_superblock_fsid fsid 0 sb;
-    Crc32c.cstruct_reset sb;
-    B.write open_fs.filesystem.disk 0L block_io_fanned
-    >>= function
-    | Result.Ok () ->
-        Lwt.return ()
-    | Result.Error _ ->
-        Lwt.fail WriteError
+    let write_disk cs = B.write disk 0L (fan cs) in
+    Superblock.write_to_disk ~write_disk (fun sb ->
+        Superblock.format sb (module P) sb_info )
+    >|= raise_superblock_errors
 
   let mid_range start end_ lsize =
     (* might overflow, limit lsize *)
@@ -1900,7 +1813,9 @@ struct
     in
     match mode with
     | OpenExistingDevice ->
-        let%lwt fbw, logical_size, fsid = read_superblock fs in
+        let%lwt {first_block_written = fbw; logical_size; fsid} =
+          read_superblock fs >|= raise_superblock_errors
+        in
         let%lwt lroot = scan_for_root fs fbw logical_size fsid in
         let%lwt cstr = load_data_at fs lroot in
         let typ = get_anynode_hdr_nodetype cstr in
@@ -1966,7 +1881,7 @@ struct
             statistics = Statistics.create () }
         in
         let open_fs = {filesystem = fs; node_cache} in
-        format open_fs logical_size first_block_written fsid
+        format open_fs {Superblock.first_block_written; logical_size; fsid}
         >>= fun () ->
         let root_key = 1L in
         Lwt.return ({open_fs; root_key}, 1L)
