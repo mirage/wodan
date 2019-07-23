@@ -201,13 +201,7 @@ let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
 
 module Logs = (val Logs.src_log src : Logs.LOG)
 
-module BlockIntervals = Diet.Make (struct
-  include Location
-
-  let t_of_sexp v = Location.of_int64 (int64_of_sexp v)
-
-  let sexp_of_t v = sexp_of_int64 (Location.to_int64 v)
-end)
+module BlockIntervals = Diet.Make (Location)
 
 module KeyedMap = Keyedmap.Make (String)
 module KeyedSet = Set.Make (String)

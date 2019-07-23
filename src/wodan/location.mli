@@ -14,6 +14,7 @@ val shift_right_logical : t -> int -> t
 val rem : t -> t -> t
 
 val pp : Format.formatter -> t -> unit
+val to_string : t -> string
 val of_int64 : int64 -> t
 val to_int64 : t -> int64
 

@@ -34,7 +34,7 @@ depends: [
   "bitv"
   "checkseum" {>= "0.0.2"}
   "cstruct"
-  "diet" {>= "0.2"}
+  "diet" {>= "0.4"}
   "io-page"
   "logs"
   "lru" {= "0.3.0"}
