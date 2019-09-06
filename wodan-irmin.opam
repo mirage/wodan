@@ -5,16 +5,11 @@ homepage: "https://github.com/mirage/wodan"
 dev-repo: "https://github.com/mirage/wodan.git"
 bug-reports: "https://github.com/mirage/wodan/issues"
 name: "wodan-irmin"
-version: "dev"
-
 
 build: [
-  [ "dune" "build" "-p" name "-j" jobs ]
-]
-
-build-test: [
-  [ "dune" "runtest" "-p" name ]
-  [ "dune" "build" "@fmt" "-p" name ]
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+  ["dune" "build" "@fmt" "-p" name ] {with-test}
 ]
 
 depends: [
@@ -44,7 +39,6 @@ depends: [
   "irmin"
   "irmin-chunk"
   "irmin-git"
-  "irmin-unix"
   "lwt_ppx"
   "mirage-block-ramdisk"
   "mirage-block-unix"

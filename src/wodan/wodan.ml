@@ -76,12 +76,12 @@ end
 exception MissingLRUEntry of AllocId.t
 
 module type EXTBLOCK = sig
-  include Mirage_types_lwt.BLOCK
+  include Mirage_block_lwt.S
 
   val discard : t -> int64 -> int64 -> (unit, write_error) result io
 end
 
-module BlockCompat (B : Mirage_types_lwt.BLOCK) : EXTBLOCK with type t = B.t =
+module BlockCompat (B : Mirage_block_lwt.S) : EXTBLOCK with type t = B.t =
 struct
   include B
 
@@ -648,8 +648,15 @@ let cstruct_reset cstr relax =
     Cstruct.blit magic_crc 0 cstr crcoffset 4
   else Crc32c.cstruct_reset cstr
 
+module Testing = struct
+  let cstruct_cond_reset cstr =
+    if has_magic_crc cstr
+    then ( Crc32c.cstruct_reset cstr; true )
+    else false
+end
+
 let read_superblock_params (type disk)
-    (module B : Mirage_types_lwt.BLOCK with type t = disk) disk relax =
+    (module B : Mirage_block_lwt.S with type t = disk) disk relax =
   let block_io = get_superblock_io () in
   let block_io_fanned = [block_io] in
   B.read disk 0L block_io_fanned

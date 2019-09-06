@@ -284,11 +284,6 @@ module Client (B : Wodan.EXTBLOCK) = struct
     >>= function
     | sb_params ->
         let module Stor = Wodan.Make (B) ((val sb_params)) in
-        let cstr_cond_reset cstr =
-          if Wodan.has_magic_crc cstr
-          then ( Crc32c.cstruct_reset cstr; true )
-          else false
-        in
         let%lwt info = B.get_info disk in
         let logical_size =
           Int64.(
@@ -301,7 +296,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
         let%lwt _res = B.read disk 0L [cstr] in
         if%lwt
           Lwt.return
-            (cstr_cond_reset (Cstruct.sub cstr 0 Wodan.sizeof_superblock))
+            (Wodan.Testing.cstruct_cond_reset (Cstruct.sub cstr 0 Wodan.sizeof_superblock))
         then (
           B.write disk 0L [cstr]
           >|= ignore
@@ -309,7 +304,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
           for%lwt i = 1 to logical_size - 1 do
             let doffset = Int64.(mul (of_int i) (of_int Stor.P.block_size)) in
             let%lwt _res = B.read disk doffset [cstr] in
-            if%lwt Lwt.return (cstr_cond_reset cstr) then
+            if%lwt Lwt.return (Wodan.Testing.cstruct_cond_reset cstr) then
               B.write disk doffset [cstr] >|= ignore
           done
           >>= fun _ ->

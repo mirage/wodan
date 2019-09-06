@@ -42,12 +42,12 @@ exception ValueTooLarge of string
 exception BadNodeType of int
 
 module type EXTBLOCK = sig
-  include Mirage_types_lwt.BLOCK
+  include Mirage_block_lwt.S
 
   val discard : t -> int64 -> int64 -> (unit, write_error) result io
 end
 
-module BlockCompat (B : Mirage_types_lwt.BLOCK) : EXTBLOCK with type t = B.t
+module BlockCompat (B : Mirage_block_lwt.S) : EXTBLOCK with type t = B.t
 
 module AllocId : sig
   type t
@@ -98,14 +98,16 @@ module type SUPERBLOCK_PARAMS = sig
   val key_size : int
 end
 
-val has_magic_crc : Cstruct.t -> bool
+module Testing : sig
+  val cstruct_cond_reset : Cstruct.t -> bool
+end
 
 module StandardSuperblockParams : SUPERBLOCK_PARAMS
 
 val standard_mount_options : mount_options
 
 val read_superblock_params :
-  (module Mirage_types_lwt.BLOCK with type t = 'a) ->
+  (module Mirage_block_lwt.S with type t = 'a) ->
   'a -> relax ->
   (module SUPERBLOCK_PARAMS) Lwt.t
 

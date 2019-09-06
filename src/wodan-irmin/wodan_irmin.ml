@@ -334,6 +334,8 @@ functor
     let cast t = (t :> [`Read | `Write] t)
 
     let batch t f = f (cast t)
+
+    let close _t = Lwt.return_unit
   end
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER =
@@ -380,6 +382,8 @@ functor
     let cast t = (t :> [`Read | `Write] t)
 
     let batch t f = f (cast t)
+
+    let close _t = Lwt.return_unit
   end
 
 module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin
@@ -593,6 +597,8 @@ functor
           Lwt.return_some (val_of_inner_val va)
 
     let mem db k = Stor.mem (db_root db) (key_to_inner_key k)
+
+    let close _t = Lwt.return_unit
   end
 
 module Make
