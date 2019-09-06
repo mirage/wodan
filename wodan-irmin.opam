@@ -1,10 +1,11 @@
-opam-version: "1.2"
+opam-version: "2.0"
 maintainer: "g2p.code@gmail.com"
 authors: [ "Gabriel de Perthuis" ]
 homepage: "https://github.com/mirage/wodan"
-dev-repo: "https://github.com/mirage/wodan.git"
+dev-repo: "git+https://github.com/mirage/wodan.git"
 bug-reports: "https://github.com/mirage/wodan/issues"
 name: "wodan-irmin"
+synopsis: "Wodan as an Irmin store"
 
 build: [
   ["dune" "build" "-p" name "-j" jobs]
@@ -16,22 +17,22 @@ depends: [
   "ocamlfind" {build}
   "dune"  {>= "1.7"}
 
-  "ocamlformat" {test}
-  "alcotest" {test}
-  "bos" {test}
-  "cstruct" {test}
-  "diet" {test}
-  "ezjsonm" {test}
-  "io-page" {test}
-  "irmin-mem" {test}
-  "irmin-test" {test}
-  "logs" {test}
-  "lwt" {test}
-  "mirage-block-unix" {test}
-  "ounit" {test}
-  "ocaml-migrate-parsetree" {test}
-  "ppx_sexp_conv" {test}
-  "yaml" {test}
+  "ocamlformat" {with-test}
+  "alcotest" {with-test}
+  "bos" {with-test}
+  "cstruct" {with-test}
+  "diet" {with-test}
+  "ezjsonm" {with-test}
+  "io-page" {with-test}
+  "irmin-mem" {with-test}
+  "irmin-test" {with-test}
+  "logs" {with-test}
+  "lwt" {with-test}
+  "mirage-block-unix" {with-test}
+  "ounit" {with-test}
+  "ocaml-migrate-parsetree" {with-test}
+  "ppx_sexp_conv" {with-test}
+  "yaml" {with-test}
 
   "checkseum" {>= "0.0.2"}
   "digestif"
@@ -46,5 +47,4 @@ depends: [
   "wodan"
 ]
 
-available: [ocaml-version >= "4.06.0"]
 tags: "org:mirage"
