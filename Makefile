@@ -12,7 +12,7 @@ sync:
 	git submodule update --init --recursive
 
 ocamlformat:
-	# Use ocamlformat.0.9
+	# Use ocamlformat=0.11.0
 	dune build @fmt --auto-promote
 
 fuzz:

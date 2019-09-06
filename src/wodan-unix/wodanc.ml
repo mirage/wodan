@@ -74,26 +74,20 @@ let fuzz copts =
   (* Persistent mode disabled, results are not stable,
    maybe due to CRC munging. *)
   AflPersistent.run (fun () ->
-      Lwt_main.run (Block.connect copts.disk >>= fun bl -> Unikernel1.fuzz bl)
-  )
+      Lwt_main.run (Block.connect copts.disk >>= fun bl -> Unikernel1.fuzz bl))
 
 let help _copts man_format cmds topic =
   match topic with
-  | None ->
-      `Help (`Pager, None) (* help about the program. *)
+  | None -> `Help (`Pager, None) (* help about the program. *)
   | Some topic -> (
       let topics = "topics" :: cmds in
       let conv, _ = Arg.enum (List.rev_map (fun s -> (s, s)) topics) in
       match conv topic with
-      | `Error e ->
-          `Error (false, e)
-      | `Ok t
-        when t = "topics" ->
+      | `Error e -> `Error (false, e)
+      | `Ok t when t = "topics" ->
           List.iter print_endline topics;
           `Ok ()
-      | `Ok t
-        when List.mem t cmds ->
-          `Help (man_format, Some t)
+      | `Ok t when List.mem t cmds -> `Help (man_format, Some t)
       | `Ok _t ->
           let page = ((topic, 7, "", "", ""), [`S topic; `P "Placeholder"]) in
           `Ok (Manpage.print man_format Format.std_formatter page) )
@@ -121,10 +115,12 @@ let dump_cmd =
   let doc = "dump filesystem to standard output" in
   let exits = Term.default_exits in
   let man =
-    [ `S Manpage.s_description;
+    [
+      `S Manpage.s_description;
       `P
         "Dumps the current filesystem to standard output.\n\
-        \        Format is base64-encoded tab-separated values." ]
+        \        Format is base64-encoded tab-separated values.";
+    ]
   in
   ( Term.(const dump $ copts_t $ prefix),
     Term.info "dump" ~doc ~sdocs:Manpage.s_common_options ~exits ~man )
@@ -133,10 +129,12 @@ let restore_cmd =
   let doc = "load filesystem contents from standard input" in
   let exits = Term.default_exits in
   let man =
-    [ `S Manpage.s_description;
+    [
+      `S Manpage.s_description;
       `P
         "Loads dump output from standard input, inserts it\n\
-        \         as filesystem contents." ]
+        \         as filesystem contents.";
+    ]
   in
   ( Term.(const restore $ copts_t),
     Term.info "restore" ~doc ~sdocs:Manpage.s_common_options ~exits ~man )
@@ -159,8 +157,10 @@ let format_cmd =
   let doc = "Format a zeroed filesystem" in
   let exits = Term.default_exits in
   let man =
-    [ `S Manpage.s_description;
-      `P "Format a filesystem that has been zeroed beforehand." ]
+    [
+      `S Manpage.s_description;
+      `P "Format a filesystem that has been zeroed beforehand.";
+    ]
   in
   ( Term.(const format $ copts_t $ key_size $ block_size),
     Term.info "format" ~doc ~sdocs:Manpage.s_common_options ~exits ~man )
@@ -169,11 +169,13 @@ let trim_cmd =
   let doc = "Trim an existing filesystem" in
   let exits = Term.default_exits in
   let man =
-    [ `S Manpage.s_description;
+    [
+      `S Manpage.s_description;
       `P
         "Discard unused blocks from an existing filesystem.\n\
         \         This scans the disk for in-use blocks and discards\n\
-        \         the rest." ]
+        \         the rest.";
+    ]
   in
   ( Term.(const trim $ copts_t),
     Term.info "trim" ~doc ~sdocs:Manpage.s_common_options ~exits ~man )
@@ -184,11 +186,13 @@ let exercise_cmd =
   in
   let doc = "Create a fresh filesystem, exercise and fill it" in
   let man =
-    [ `S Manpage.s_description;
+    [
+      `S Manpage.s_description;
       `P
         "Create a fresh filesystem, exercise and fill it.\n\
         \         This creates a filesystem, runs a few pre-defined operations\n\
-        \         and fills it with random data." ]
+        \         and fills it with random data.";
+    ]
   in
   ( Term.(const exercise $ copts_t $ block_size),
     Term.info "exercise" ~doc ~man )
@@ -196,8 +200,9 @@ let exercise_cmd =
 let bench_cmd =
   let doc = "Run a standardised micro-benchmark" in
   let man =
-    [ `S Manpage.s_description;
-      `P "Run a micro-benchmark that does bulk insertions without flushing."
+    [
+      `S Manpage.s_description;
+      `P "Run a micro-benchmark that does bulk insertions without flushing.";
     ]
   in
   (Term.(const bench $ copts_t), Term.info "bench" ~doc ~man)
@@ -206,8 +211,10 @@ let fuzz_cmd =
   let doc = "Fuzz a filesystem" in
   let exits = Term.default_exits in
   let man =
-    [ `S Manpage.s_description;
-      `P "Runs a few operations on a fuzzer-generated filesystem." ]
+    [
+      `S Manpage.s_description;
+      `P "Runs a few operations on a fuzzer-generated filesystem.";
+    ]
   in
   ( Term.(const fuzz $ copts_t),
     Term.info "fuzz" ~doc ~sdocs:Manpage.s_common_options ~exits ~man )
@@ -219,8 +226,10 @@ let help_cmd =
   in
   let doc = "display help about wodanc and wodanc subcommands" in
   let man =
-    [ `S Manpage.s_description;
-      `P "Prints help about wodanc commands and other subjects..." ]
+    [
+      `S Manpage.s_description;
+      `P "Prints help about wodanc commands and other subjects...";
+    ]
   in
   ( Term.(
       ret (const help $ copts_t $ Arg.man_format $ Term.choice_names $ topic)),
@@ -234,13 +243,15 @@ let default_cmd =
     Term.info "wodanc" ~doc ~sdocs ~exits )
 
 let cmds =
-  [ restore_cmd;
+  [
+    restore_cmd;
     dump_cmd;
     format_cmd;
     trim_cmd;
     exercise_cmd;
     bench_cmd;
     fuzz_cmd;
-    help_cmd ]
+    help_cmd;
+  ]
 
 let () = Term.(exit (eval_choice default_cmd cmds))

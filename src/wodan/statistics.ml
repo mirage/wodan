@@ -2,7 +2,7 @@ type t = {
   mutable inserts : int;
   mutable lookups : int;
   mutable range_searches : int;
-  mutable iters : int
+  mutable iters : int;
 }
 
 let create () = {inserts = 0; lookups = 0; range_searches = 0; iters = 0}

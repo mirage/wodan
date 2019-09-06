@@ -51,11 +51,17 @@ module BlockCompat (B : Mirage_block_lwt.S) : EXTBLOCK with type t = B.t
 
 module AllocId : sig
   type t
+
   val zero : t
+
   val one : t
+
   val equal : t -> t -> bool
+
   val succ : t -> t
+
   val pp : Format.formatter -> t -> unit
+
   val hash : t -> int
 end
 
@@ -71,7 +77,7 @@ type relax = {
   (* CRC errors ignored on any read where the magic CRC is used *)
   magic_crc : bool;
   (* Write non-superblock blocks with the magic CRC *)
-  magic_crc_write : bool
+  magic_crc_write : bool;
 }
 
 (* All parameters that can't be read from the superblock *)
@@ -86,7 +92,7 @@ type mount_options = {
   (* How many blocks to keep in cache *)
   cache_size : int;
   (* Integrity invariants to relax *)
-  relax : relax
+  relax : relax;
 }
 
 (* All parameters that can be read from the superblock *)
@@ -108,7 +114,8 @@ val standard_mount_options : mount_options
 
 val read_superblock_params :
   (module Mirage_block_lwt.S with type t = 'a) ->
-  'a -> relax ->
+  'a ->
+  relax ->
   (module SUPERBLOCK_PARAMS) Lwt.t
 
 type deviceOpenMode =

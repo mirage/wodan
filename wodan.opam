@@ -16,7 +16,7 @@ depends: [
   "ocamlfind" {build}
   "dune"  {>= "1.7"}
 
-  "ocamlformat" {test & = "0.9"}
+  "ocamlformat" {test & = "0.11.0"}
   "alcotest" {test}
   "bos" {test}
   "ezjsonm" {test}

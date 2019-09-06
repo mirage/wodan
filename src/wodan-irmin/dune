@@ -5,4 +5,5 @@
  (ocamlopt_flags :standard -g -O3)
  (preprocess
   (pps lwt_ppx))
- (libraries wodan irmin irmin-chunk irmin-git logs mirage-block fmt rresult result))
+ (libraries wodan irmin irmin-chunk irmin-git logs mirage-block fmt rresult
+   result))

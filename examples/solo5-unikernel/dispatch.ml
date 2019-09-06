@@ -1,8 +1,8 @@
 open Lwt.Infix
 open Mirage_types_lwt
 
-(** Common signature for http and https. *)
 module type HTTP = Cohttp_lwt.S.Server
+(** Common signature for http and https. *)
 
 (* Logging *)
 let http_src = Logs.Src.create "http" ~doc:"HTTP server"
@@ -59,8 +59,7 @@ module Dispatch (Store : Wodan.S) (S : HTTP) = struct
             counter
         in
         S.respond_string ~status:`OK ~body ~headers ()
-    | _ ->
-        S.respond_not_found ()
+    | _ -> S.respond_not_found ()
 
   let serve dispatch =
     let callback (_, cid) request _body =

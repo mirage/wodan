@@ -5,7 +5,8 @@
  (ocamlopt_flags :standard -g -O3)
  (package wodan-unix)
  (libraries base64 benchmark csv cmdliner checkseum.c wodan io-page-unix
-   result rresult logs cstruct mirage-block-lwt mirage-block mirage-block-unix mirage-block-ramdisk
-   nocrypto.lwt afl-persistent lwt.unix)
+   result rresult logs cstruct mirage-block-lwt mirage-block
+   mirage-block-unix mirage-block-ramdisk nocrypto.lwt afl-persistent
+   lwt.unix)
  (preprocess
   (pps lwt_ppx)))

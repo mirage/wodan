@@ -16,7 +16,8 @@
 (********************************************************************************)
 
 module Wodan_DB =
-  Wodan_irmin.DB_BUILDER (struct
+  Wodan_irmin.DB_BUILDER
+    (struct
       include Block
 
       let connect name = Block.connect name
@@ -59,13 +60,12 @@ let run () =
   Logs.info (fun m -> m "Fetching from Git into Wodan");
   let%lwt head_commit = Wodan_sync.fetch_exn wodan_master remote in
   match head_commit with
-  |`Head commit ->
-    let%lwt () = Wodan_S.Head.set wodan_master commit in
-    let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
-    let%lwt _gen = Wodan_S.DB.flush wodan_raw in
-    Lwt.return_unit
-  |`Empty ->
-    Lwt.return_unit
+  | `Head commit ->
+      let%lwt () = Wodan_S.Head.set wodan_master commit in
+      let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
+      let%lwt _gen = Wodan_S.DB.flush wodan_raw in
+      Lwt.return_unit
+  | `Empty -> Lwt.return_unit
 
 let () =
   Logs.set_reporter (Logs.format_reporter ());

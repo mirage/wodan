@@ -64,14 +64,15 @@ module type DB = sig
   val flush : t -> int64 Lwt.t
 end
 
-module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) -> DB
+module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) ->
+  DB
 
 module CA_BUILDER : functor (_ : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER
 
-module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin
-                                                           .ATOMIC_WRITE_STORE_MAKER
+module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
+  Irmin.ATOMIC_WRITE_STORE_MAKER
 
 module Make
     (DB : DB)
@@ -84,12 +85,12 @@ module Make
 
   include
     Irmin.S
-    with type key = P.t
-     and type step = P.step
-     and type metadata = M.t
-     and type contents = C.t
-     and type branch = B.t
-     and type hash = H.t
+      with type key = P.t
+       and type step = P.step
+       and type metadata = M.t
+       and type contents = C.t
+       and type branch = B.t
+       and type hash = H.t
 
   val flush : DB.t -> int64 Lwt.t
 end
@@ -105,12 +106,12 @@ module Make_chunked
 
   include
     Irmin.S
-    with type key = P.t
-     and type step = P.step
-     and type metadata = M.t
-     and type contents = C.t
-     and type branch = B.t
-     and type hash = H.t
+      with type key = P.t
+       and type step = P.step
+       and type metadata = M.t
+       and type contents = C.t
+       and type branch = B.t
+       and type hash = H.t
 
   val flush : DB.t -> int64 Lwt.t
 end

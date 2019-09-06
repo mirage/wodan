@@ -59,31 +59,23 @@ let config ?(config = Irmin.Private.Conf.empty) ~path ~create ?cache_size
   let module C = Irmin.Private.Conf in
   let cache_size =
     match cache_size with
-    | None ->
-        C.default Conf.cache_size
-    | Some cache_size ->
-        cache_size
+    | None -> C.default Conf.cache_size
+    | Some cache_size -> cache_size
   in
   let fast_scan =
     match fast_scan with
-    | None ->
-        C.default Conf.fast_scan
-    | Some fast_scan ->
-        fast_scan
+    | None -> C.default Conf.fast_scan
+    | Some fast_scan -> fast_scan
   in
   let list_key =
     match list_key with
-    | None ->
-        C.default Conf.list_key
-    | Some list_key ->
-        list_key
+    | None -> C.default Conf.list_key
+    | Some list_key -> list_key
   in
   let autoflush =
     match autoflush with
-    | None ->
-        C.default Conf.autoflush
-    | Some autoflush ->
-        autoflush
+    | None -> C.default Conf.autoflush
+    | Some autoflush -> autoflush
   in
   C.add
     (C.add
@@ -168,8 +160,7 @@ end = struct
       let weak_t = ValueTab.find value_cache key in
       let opt_t = Weak.get weak_t 0 in
       match opt_t with
-      | None ->
-          None
+      | None -> None
       | Some t ->
           let config' = ConfigTab.find config_cache t in
           Some (config', t)
@@ -185,13 +176,12 @@ end = struct
 
   let read config =
     match find config with
-    | Some v ->
-        Lwt.return v
-    | None ->
-        X.v config >|= fun t -> add config t; (config, t)
+    | Some v -> Lwt.return v
+    | None -> X.v config >|= fun t -> add config t; (config, t)
 end
 
-module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) -> DB =
+module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) ->
+  DB =
 functor
   (B : BLOCK_CON)
   (P : Wodan.SUPERBLOCK_PARAMS)
@@ -201,7 +191,7 @@ functor
 
     type t = {
       root : Stor.root;
-      autoflush : bool
+      autoflush : bool;
     }
 
     let db_root db = db.root
@@ -211,8 +201,7 @@ functor
       with Wodan.NeedsFlush -> (
         Stor.flush root
         >>= function
-        | _gen ->
-            op () )
+        | _gen -> op () )
 
     let may_autoflush db op =
       if db.autoflush then do_autoflush db.root op else op ()
@@ -269,7 +258,8 @@ functor
     let flush db = Stor.flush (db_root db)
   end
 
-module CA_BUILDER : functor (DB : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER =
+module CA_BUILDER : functor (DB : DB) ->
+  Irmin.CONTENT_ADDRESSABLE_STORE_MAKER =
 functor
   (DB : DB)
   (K : Irmin.Hash.S)
@@ -289,8 +279,7 @@ functor
       DB.Stor.lookup (DB.db_root db)
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
-      | None ->
-          Lwt.return_none
+      | None -> Lwt.return_none
       | Some v ->
           Lwt.return_some
             (Rresult.R.get_ok
@@ -305,7 +294,7 @@ functor
       let raw_v = Irmin.Type.to_bin_string V.t va in
       let k = K.hash (fun f -> f raw_v) in
       Log.debug (fun m ->
-          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size );
+          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
       (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.hash_size (Irmin.Type.pp V.t) va);*)
       (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.hash_size raw_v);*)
       let raw_k = Irmin.Type.to_bin_string K.t k in
@@ -313,21 +302,20 @@ functor
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
             (DB.Stor.key_of_string raw_k)
-            (DB.Stor.value_of_string raw_v) )
+            (DB.Stor.value_of_string raw_v))
       >>= function
-      | () ->
-          Lwt.return k
+      | () -> Lwt.return k
 
     let unsafe_add db k va =
       let raw_v = Irmin.Type.to_bin_string V.t va in
       Log.debug (fun m ->
-          m "CA.unsafe_add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size );
+          m "CA.unsafe_add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
       let raw_k = Irmin.Type.to_bin_string K.t k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
             (DB.Stor.key_of_string raw_k)
-            (DB.Stor.value_of_string raw_v) )
+            (DB.Stor.value_of_string raw_v))
 
     let v = DB.v
 
@@ -356,8 +344,7 @@ functor
       DB.Stor.lookup (DB.db_root db)
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
-      | None ->
-          Lwt.return_none
+      | None -> Lwt.return_none
       | Some v ->
           Lwt.return_some
             (Rresult.R.get_ok
@@ -375,7 +362,7 @@ functor
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
             (DB.Stor.key_of_string raw_k)
-            (DB.Stor.value_of_string raw_v) )
+            (DB.Stor.value_of_string raw_v))
 
     let v = DB.v
 
@@ -386,8 +373,8 @@ functor
     let close _t = Lwt.return_unit
   end
 
-module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin
-                                                           .ATOMIC_WRITE_STORE_MAKER =
+module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
+  Irmin.ATOMIC_WRITE_STORE_MAKER =
 functor
   (DB : DB)
   (H : Irmin.Hash.S)
@@ -406,7 +393,7 @@ functor
       keydata : Stor.key KeyHashtbl.t;
       mutable magic_key : Stor.key;
       watches : W.t;
-      lock : L.t
+      lock : L.t;
     }
 
     let db_root db = BUILDER.db_root db.nested
@@ -440,7 +427,8 @@ functor
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t (H.hash (fun f -> f (Stor.string_of_value va))))
+        (Irmin.Type.to_bin_string H.t
+           (H.hash (fun f -> f (Stor.string_of_value va))))
 
     let make ~list_key ~config =
       let%lwt db = BUILDER.v config in
@@ -448,18 +436,19 @@ functor
       let magic_key = Bytes.make H.hash_size '\000' in
       Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
       let db =
-        { nested = db;
+        {
+          nested = db;
           keydata = KeyHashtbl.create 10;
           magic_key = Stor.key_of_string (Bytes.unsafe_to_string magic_key);
           watches = W.v ();
-          lock = L.v () }
+          lock = L.v ();
+        }
       in
       ( try%lwt
           while%lwt true do
             Stor.lookup root db.magic_key
             >>= function
-            | None ->
-                Lwt.fail Exit
+            | None -> Lwt.fail Exit
             | Some va ->
                 let ik = inner_val_to_inner_key va in
                 KeyHashtbl.add db.keydata ik db.magic_key;
@@ -507,7 +496,7 @@ functor
       let ik = key_to_inner_key k in
       let iv = val_to_inner_val va in
       L.with_lock db.lock k (fun () ->
-          set_and_list db ik iv (key_to_inner_val k) )
+          set_and_list db ik iv (key_to_inner_val k))
       >>= fun () -> W.notify db.watches k (Some va)
 
     type watch = W.watch
@@ -520,12 +509,9 @@ functor
 
     let opt_equal f x y =
       match (x, y) with
-      | None, None ->
-          true
-      | Some x, Some y ->
-          f x y
-      | _ ->
-          false
+      | None, None -> true
+      | Some x, Some y -> f x y
+      | _ -> false
 
     (* XXX With autoflush, this might flush some data without finishing the insert *)
     let test_and_set db k ~test ~set =
@@ -534,10 +520,8 @@ functor
       let root = db_root db in
       let test =
         match test with
-        | Some va ->
-            Some (val_to_inner_val va)
-        | None ->
-            None
+        | Some va -> Some (val_to_inner_val va)
+        | None -> None
       in
       L.with_lock db.lock k (fun () ->
           Stor.lookup root ik
@@ -550,9 +534,9 @@ functor
                       (key_to_inner_val k)
                 | None ->
                     may_autoflush db (fun () ->
-                        Stor.insert root ik (Stor.value_of_string "") ) )
+                        Stor.insert root ik (Stor.value_of_string "")) )
                 >>= fun () -> Lwt.return_true
-              else Lwt.return_false )
+              else Lwt.return_false)
       >>= fun updated ->
       (if updated then W.notify db.watches k set else Lwt.return_unit)
       >>= fun () -> Lwt.return updated
@@ -563,7 +547,7 @@ functor
       let va = Stor.value_of_string "" in
       let root = db_root db in
       L.with_lock db.lock k (fun () ->
-          may_autoflush db (fun () -> Stor.insert root ik va) )
+          may_autoflush db (fun () -> Stor.insert root ik va))
       >>= fun () -> W.notify db.watches k None
 
     let list db =
@@ -579,22 +563,17 @@ functor
               | true -> (
                   Stor.lookup root mk
                   >>= function
-                  | None ->
-                      Lwt.fail (Failure "Missing metadata key")
-                  | Some iv ->
-                      Lwt.return (key_of_inner_val iv :: l) )
-              | false ->
-                  Lwt.return l ) )
+                  | None -> Lwt.fail (Failure "Missing metadata key")
+                  | Some iv -> Lwt.return (key_of_inner_val iv :: l) )
+              | false -> Lwt.return l ))
         db.keydata (Lwt.return [])
 
     let find db k =
       Log.debug (fun l -> l "AW.find %a" (Irmin.Type.pp K.t) k);
       Stor.lookup (db_root db) (key_to_inner_key k)
       >>= function
-      | None ->
-          Lwt.return_none
-      | Some va ->
-          Lwt.return_some (val_of_inner_val va)
+      | None -> Lwt.return_none
+      | Some va -> Lwt.return_some (val_of_inner_val va)
 
     let mem db k = Stor.mem (db_root db) (key_to_inner_key k)
 

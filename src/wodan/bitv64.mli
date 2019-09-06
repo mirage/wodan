@@ -1,8 +1,8 @@
 (** Bitv64 is a wrapper around Bitv, for easier use with Location.t indexes and
     int64 sizes. *)
 
-(** The type for [Location.t] indexed [Bitv]s *)
 type t
+(** The type for [Location.t] indexed [Bitv]s *)
 
 val create : int64 -> bool -> t
 (** [create n b] creates a new bit vector of length [n],

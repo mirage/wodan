@@ -11,9 +11,11 @@ let http_port =
 
 let main =
   let packages =
-    [ package "uri";
+    [
+      package "uri";
       package "wodan-irmin";
-      package ~sublibs:["ocaml"] "checkseum" ]
+      package ~sublibs:["ocaml"] "checkseum";
+    ]
   in
   let keys = List.map Key.abstract [http_port] in
   foreign ~packages ~keys "Dispatch.HTTP"
