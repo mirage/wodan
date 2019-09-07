@@ -5,6 +5,6 @@
  (ocamlopt_flags :standard -g -O3)
  (preprocess
   (pps lwt_ppx ppx_cstruct))
- (libraries rresult stdcompat cstruct bigarray-compat sexplib mirage-block mirage-block-lwt
-   mirage-logs lwt io-page lru logs nocrypto bitv diet checkseum optint
-   result))
+ (libraries rresult stdcompat cstruct bigarray-compat sexplib mirage-block
+   mirage-block-lwt mirage-logs lwt io-page lru logs nocrypto bitv diet
+   checkseum optint result))
