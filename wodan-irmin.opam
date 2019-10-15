@@ -40,6 +40,7 @@ depends: [
   "irmin"
   "irmin-chunk"
   "irmin-git"
+  "irmin-unix"
   "lwt_ppx"
   "mirage-block-ramdisk"
   "mirage-block-unix"
