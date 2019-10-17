@@ -6,7 +6,8 @@ exception TooLarge
 exception NotUnsigned
 
 let of_int64 v =
-  if Int64.compare v (Int64.of_int Stdlib.max_int) > 0 then raise TooLarge
+  if Int64.compare v (Int64.of_int Stdcompat.Stdlib.max_int) > 0 then
+    raise TooLarge
   else if Int64.compare v 0L < 0 then raise NotUnsigned
   else v
 
