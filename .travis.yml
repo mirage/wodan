@@ -10,6 +10,12 @@ env:
 
 matrix:
   include:
+  - env: OCAML_VERSION=4.09 PACKAGE=wodan
+  - env: OCAML_VERSION=4.09 PACKAGE=wodan-unix
+  - env: OCAML_VERSION=4.09 PACKAGE=wodan-irmin
+  - env: OCAML_VERSION=4.08 PACKAGE=wodan
+  - env: OCAML_VERSION=4.08 PACKAGE=wodan-unix
+  - env: OCAML_VERSION=4.08 PACKAGE=wodan-irmin
   - env: OCAML_VERSION=4.07 PACKAGE=wodan
   - env: OCAML_VERSION=4.07 PACKAGE=wodan-unix
   - env: OCAML_VERSION=4.07 PACKAGE=wodan-irmin
@@ -20,8 +26,11 @@ matrix:
   #- env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
   #- env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
   allow_failures:
+# Ancient stuff of dubious use, someone wanted it for a BSD I think
   - env: OCAML_VERSION=4.05 PACKAGE=wodan
   - env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
   - env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
+# Failure to link irmin-unix with encore.0.3.0
+  - env: OCAML_VERSION=4.07 PACKAGE=wodan-irmin
 os:
   - linux
