@@ -1,43 +1,30 @@
-opam-version: "1.2"
+opam-version: "2.0"
+name: "wodan"
 maintainer: "g2p.code@gmail.com"
 authors: [ "Gabriel de Perthuis" ]
 homepage: "https://github.com/mirage/wodan"
-dev-repo: "https://github.com/mirage/wodan.git"
 bug-reports: "https://github.com/mirage/wodan/issues"
-name: "wodan"
+dev-repo: "git+https://github.com/mirage/wodan.git"
+license: "ISC"
 version: "dev"
-
+synopsis: "A Mirage compatible filesystem library"
 
 build: [
-  [ "dune" "build" "-p" name ]
-]
-
-build-test: [
-  [ "dune" "runtest" "-p" name ]
-  [ "dune" "build" "@fmt" "-p" name ]
+ ["dune" "subst"] {pinned}
+ ["dune" "build" "-p" name "-j" jobs]
+ ["dune" "runtest" "-p" name] {with-test}
 ]
 
 depends: [
-  "ocamlfind" {build}
-  "dune"  {build & >= "1.7"}
-
-  "ocamlformat" {test & = "0.9"}
-  "alcotest" {test}
-  "bos" {test}
-  "ezjsonm" {test}
-  "mirage-block-unix" {test}
-  "ounit" {test}
-  "ocaml-migrate-parsetree" {test}
-  "ppx_sexp_conv" {test}
-  "yaml" {test}
-
+  "ocaml" {>= "4.06.1"}
+  "dune"  {>= "1.7"}
   "bitv"
   "checkseum" {>= "0.0.2"}
   "cstruct"
-  "diet" {>= "0.2"}
+  "diet" {>= "0.4"}
   "io-page"
   "logs"
-  "lru" {= "0.2.0"}
+  "lru" {>= "0.3.0"}
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
   "mirage-logs"
@@ -49,6 +36,3 @@ depends: [
   "sexplib"
   "stdcompat"
 ]
-
-available: [ocaml-version >= "4.06.0"]
-tags: "org:mirage"

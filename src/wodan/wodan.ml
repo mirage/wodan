@@ -178,14 +178,7 @@ let src = Logs.Src.create "wodan" ~doc:"logs Wodan operations"
 
 module Logs = (val Logs.src_log src : Logs.LOG)
 
-module BlockIntervals = Diet.Make (struct
-  include Int64
-
-  let t_of_sexp = int64_of_sexp
-
-  let sexp_of_t = sexp_of_int64
-end)
-
+module BlockIntervals = Diet.Int64
 module KeyedMap = Keyedmap.Make (String)
 module KeyedSet = Set.Make (String)
 
@@ -252,9 +245,9 @@ end
 
 module LRU = Lru.M.Make (LRUKey) (LRUValue)
 
-let lru_get lru alloc_id = LRU.find alloc_id lru
+let lru_get lru alloc_id = LRU.promote alloc_id lru; LRU.find alloc_id lru
 
-let lru_peek lru alloc_id = LRU.find ~promote:false alloc_id lru
+let lru_peek lru alloc_id = LRU.find alloc_id lru
 
 exception AlreadyCached of LRUKey.t
 
@@ -289,7 +282,7 @@ let lru_xset lru alloc_id value =
           KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key )
     | _ ->
         failwith "LRU capacity is too small" );
-  LRU.add alloc_id value lru
+  LRU.add alloc_id value lru; LRU.trim lru
 
 let lru_create capacity = LRU.create capacity
 
@@ -943,7 +936,7 @@ struct
     let nnew = cache.new_count in
     Logs.info (fun m ->
         m "Nodes: %Ld on-disk (%Ld dirty), %Ld new" nstored ndirty nnew );
-    Logs.info (fun m -> m "LRU: %d" (LRU.items cache.lru));
+    Logs.info (fun m -> m "LRU: %d" (LRU.size cache.lru));
     ()
 
   let log_statistics root =

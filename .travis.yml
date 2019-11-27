@@ -1,27 +1,25 @@
 language: c
-sudo: required
-install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
-script:
-- export PINS="$({ echo wodan.dev:.; for op in vendor/*/*.opam; do echo "$op" |sed -re 's#(vendor/.*/)(.*)\.opam#\2.dev:\1#'; done; } |xargs)"
-- bash -ex .travis-opam.sh
+sudo: false
+services:
+  - docker
+install: wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-docker.sh
+script: bash -ex .travis-docker.sh
+
 env:
   global:
-  - ALCOTEST_SHOW_ERRORS=1
-
-matrix:
-  include:
-  - env: OCAML_VERSION=4.07 PACKAGE=wodan
-  - env: OCAML_VERSION=4.07 PACKAGE=wodan-unix
-  - env: OCAML_VERSION=4.07 PACKAGE=wodan-irmin
-  - env: OCAML_VERSION=4.06 PACKAGE=wodan
-  - env: OCAML_VERSION=4.06 PACKAGE=wodan-unix
-  - env: OCAML_VERSION=4.06 PACKAGE=wodan-irmin
-  #- env: OCAML_VERSION=4.05 PACKAGE=wodan
-  #- env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
-  #- env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
-  allow_failures:
-  - env: OCAML_VERSION=4.05 PACKAGE=wodan
-  - env: OCAML_VERSION=4.05 PACKAGE=wodan-unix
-  - env: OCAML_VERSION=4.05 PACKAGE=wodan-irmin
-os:
-  - linux
+    - ALCOTEST_SHOW_ERRORS=1
+    - PINS="wodan.dev:. wodan-unix.dev:. wodan-irmin.dev:."
+    - DISTRO=alpine
+  matrix:
+    - OCAML_VERSION=4.06 PACKAGE="wodan"
+    - OCAML_VERSION=4.06 PACKAGE="wodan-unix"
+    - OCAML_VERSION=4.06 PACKAGE="wodan-irmin"
+    - OCAML_VERSION=4.07 PACKAGE="wodan"
+    - OCAML_VERSION=4.07 PACKAGE="wodan-unix"
+    - OCAML_VERSION=4.07 PACKAGE="wodan-irmin"
+    - OCAML_VERSION=4.08 PACKAGE="wodan"
+    - OCAML_VERSION=4.08 PACKAGE="wodan-unix"
+    - OCAML_VERSION=4.08 PACKAGE="wodan-irmin"
+    - OCAML_VERSION=4.09 PACKAGE="wodan"
+    - OCAML_VERSION=4.09 PACKAGE="wodan-unix"
+    - OCAML_VERSION=4.09 PACKAGE="wodan-irmin"

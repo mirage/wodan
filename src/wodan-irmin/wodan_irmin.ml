@@ -276,13 +276,15 @@ functor
   (V : Irmin.Type.S)
   ->
   struct
+    module K = Irmin.Hash.Typed (K) (V)
+
     type 'a t = DB.t
 
     type key = K.t
 
     type value = V.t
 
-    let () = assert (K.digest_size = DB.Stor.P.key_size)
+    let () = assert (K.hash_size = DB.Stor.P.key_size)
 
     let find db k =
       Log.debug (fun l -> l "CA.find %a" (Irmin.Type.pp K.t) k);
@@ -301,28 +303,29 @@ functor
       DB.Stor.mem (DB.db_root db)
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
 
-    let add db va =
-      let raw_v = Irmin.Type.to_bin_string V.t va in
-      let k = K.digest raw_v in
+    let unsafe_add db k v =
       Log.debug (fun m ->
-          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.digest_size );
-      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.digest_size (Irmin.Type.pp V.t) va);*)
-      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.digest_size raw_v);*)
+          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size );
       let raw_k = Irmin.Type.to_bin_string K.t k in
       let root = DB.db_root db in
+      let raw_v = Irmin.Type.to_bin_string V.t v in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
             (DB.Stor.key_of_string raw_k)
             (DB.Stor.value_of_string raw_v) )
-      >>= function
-      | () ->
-          Lwt.return k
+
+    let add db v =
+      let k = K.hash v in
+      unsafe_add db k v >|= fun () -> k
 
     let v = DB.v
 
     let cast t = (t :> [`Read | `Write] t)
 
     let batch t f = f (cast t)
+
+    (* TODO *)
+    let close _db = Lwt.return ()
   end
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER =
@@ -369,6 +372,9 @@ functor
     let cast t = (t :> [`Read | `Write] t)
 
     let batch t f = f (cast t)
+
+    (* TODO *)
+    let close _db = Lwt.return ()
   end
 
 module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin
@@ -398,7 +404,7 @@ functor
 
     let may_autoflush db = BUILDER.may_autoflush db.nested
 
-    let () = assert (H.digest_size = Stor.P.key_size)
+    let () = assert (H.hash_size = Stor.P.key_size)
 
     type key = K.t
 
@@ -407,7 +413,7 @@ functor
     let key_to_inner_key k =
       Stor.key_of_string
         (Irmin.Type.to_bin_string H.t
-           (H.digest (Irmin.Type.to_bin_string K.t k)))
+           (H.hash (fun f -> f (Irmin.Type.to_bin_string K.t k))))
 
     let val_to_inner_val va =
       Stor.value_of_string (Irmin.Type.to_bin_string V.t va)
@@ -425,12 +431,13 @@ functor
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t (H.digest (Stor.string_of_value va)))
+        (Irmin.Type.to_bin_string H.t
+           (H.hash (fun f -> f (Stor.string_of_value va))))
 
     let make ~list_key ~config =
       let%lwt db = BUILDER.v config in
       let root = BUILDER.db_root db in
-      let magic_key = Bytes.make H.digest_size '\000' in
+      let magic_key = Bytes.make H.hash_size '\000' in
       Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
       let db =
         { nested = db;
@@ -582,6 +589,9 @@ functor
           Lwt.return_some (val_of_inner_val va)
 
     let mem db k = Stor.mem (db_root db) (key_to_inner_key k)
+
+    (* TODO *)
+    let close _db = Lwt.return ()
   end
 
 module Make

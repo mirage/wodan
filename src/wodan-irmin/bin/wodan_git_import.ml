@@ -15,6 +15,8 @@
 (*                                                                              *)
 (********************************************************************************)
 
+open Lwt.Infix
+
 module Wodan_DB =
   Wodan_irmin.DB_BUILDER (struct
       include Block
@@ -57,11 +59,15 @@ let run () =
   Logs.info (fun m -> m "Loading Wodan master");
   let%lwt wodan_master = Wodan_S.master wodan_repo in
   Logs.info (fun m -> m "Fetching from Git into Wodan");
-  let%lwt head_commit = Wodan_sync.fetch_exn wodan_master remote in
-  let%lwt () = Wodan_S.Head.set wodan_master head_commit in
-  let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
-  let%lwt _gen = Wodan_S.DB.flush wodan_raw in
-  Lwt.return_unit
+  Wodan_sync.fetch_exn wodan_master remote
+  >>= function
+  | `Head head_commit ->
+      let%lwt () = Wodan_S.Head.set wodan_master head_commit in
+      let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
+      Wodan_S.DB.flush wodan_raw >|= fun _gen -> ()
+  | `Empty ->
+      Logs.err (fun m -> m "Remote head not found.");
+      Lwt.return ()
 
 let () =
   Logs.set_reporter (Logs.format_reporter ());
