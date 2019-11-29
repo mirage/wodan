@@ -5,8 +5,8 @@
  (preprocess
   (pps lwt_ppx))
  (package wodan-irmin)
- (libraries checkseum.c digestif.c wodan-irmin wodan irmin io-page-unix
-   mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix))
+ (libraries wodan-irmin wodan irmin io-page-unix mirage-block-unix mirage-block-ramdisk
+   nocrypto.lwt irmin-unix))
 
 (executable
  (name wodan_git_import)
@@ -15,6 +15,5 @@
  (preprocess
   (pps lwt_ppx))
  (package wodan-irmin)
- (libraries checkseum.c digestif.c wodan-irmin wodan irmin io-page-unix
-   mirage-block-unix mirage-block-ramdisk nocrypto.lwt irmin-unix irmin-git
-   logs lwt.unix))
+ (libraries wodan-irmin wodan irmin io-page-unix mirage-block-unix mirage-block-ramdisk
+   nocrypto.lwt irmin-unix irmin-git logs lwt.unix))

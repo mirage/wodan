@@ -36,13 +36,11 @@ depends: [
   "lru" {= "0.3.0"}
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
-  "mirage-logs"
   "mirage-block"
   "mirage-block-lwt" {>= "3.0.5"}
   "nocrypto"
   "ppx_cstruct"
   "rresult"
-  "sexplib"
   "stdcompat"
   "stdlib-shims"
   "ocaml" {>= "4.06.0"}

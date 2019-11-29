@@ -16,7 +16,6 @@ build: [
 depends: [
   "ocamlfind" {build}
   "dune"  {>= "1.7"}
-
   "ocamlformat" {with-test}
   "alcotest" {with-test}
   "bos" {with-test}
@@ -35,10 +34,8 @@ depends: [
   "afl-persistent"
   "base64" {>= "3.0.0"}
   "benchmark"
-  "checkseum"
   "cmdliner"
   "csv"
-  "io-page-unix"
   "lwt_ppx"
   "mirage-block-ramdisk"
   "mirage-block-unix"
