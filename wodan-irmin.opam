@@ -49,3 +49,9 @@ depends: [
 ]
 
 tags: "org:mirage"
+pin-depends: [
+  ["mirage-block.dev" "git+https://github.com/g2p/mirage-block#barrier-and-discard"]
+  ["mirage-block-combinators.dev" "git+https://github.com/g2p/mirage-block#barrier-and-discard"]
+  ["mirage-block-unix.dev" "git+https://github.com/g2p/mirage-block-unix#barrier-and-discard"]
+  ["mirage-block-ramdisk.dev" "git+https://github.com/g2p/mirage-block-ramdisk#barrier-and-discard"]
+]

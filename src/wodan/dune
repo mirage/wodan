@@ -6,5 +6,5 @@
  (preprocess
   (pps lwt_ppx ppx_cstruct))
  (libraries rresult stdcompat cstruct mirage-block
-   mirage-block-lwt lwt io-page lru logs nocrypto bitv diet
+   lwt io-page lru logs nocrypto bitv diet
    checkseum optint result))

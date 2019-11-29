@@ -4,12 +4,3 @@
 [submodule "vendor/irmin"]
 	path = vendor/irmin
 	url = https://github.com/mirage/irmin.git
-[submodule "vendor/mirage-block"]
-	path = vendor/mirage-block
-	url = https://github.com/g2p/mirage-block.git
-[submodule "vendor/mirage-block-unix"]
-	path = vendor/mirage-block-unix
-	url = https://github.com/g2p/mirage-block-unix.git
-[submodule "vendor/mirage-block-ramdisk"]
-	path = vendor/mirage-block-ramdisk
-	url = https://github.com/g2p/mirage-block-ramdisk.git
