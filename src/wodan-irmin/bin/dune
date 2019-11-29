@@ -4,7 +4,7 @@
  (public_name wodan-irmin)
  (package wodan-irmin)
  (libraries wodan-irmin io-page-unix mirage-block-unix mirage-block-ramdisk
-  nocrypto.lwt irmin-unix))
+   nocrypto.lwt irmin-unix))
 
 (executable
  (name wodan_git_import)
@@ -14,4 +14,4 @@
   (pps lwt_ppx))
  (package wodan-irmin)
  (libraries wodan-irmin io-page-unix mirage-block-unix mirage-block-ramdisk
-  nocrypto.lwt irmin-unix irmin-git))
+   nocrypto.lwt irmin-unix irmin-git))

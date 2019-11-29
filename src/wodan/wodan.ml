@@ -52,12 +52,12 @@ exception BadNodeFSID of string
 exception MissingLRUEntry of int64
 
 module type EXTBLOCK = sig
-  include Mirage_types_lwt.BLOCK
+  include Mirage_block.S
 
-  val discard : t -> int64 -> int64 -> (unit, write_error) result io
+  val discard : t -> int64 -> int64 -> (unit, write_error) result Lwt.t
 end
 
-module BlockCompat (B : Mirage_types_lwt.BLOCK) : EXTBLOCK with type t = B.t =
+module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t =
 struct
   include B
 
@@ -567,7 +567,7 @@ module type S = sig
 end
 
 let read_superblock_params (type disk)
-    (module B : Mirage_types_lwt.BLOCK with type t = disk) disk =
+    (module B : Mirage_block.S with type t = disk) disk =
   let block_io = get_superblock_io () in
   let block_io_fanned = [block_io] in
   B.read disk 0L block_io_fanned

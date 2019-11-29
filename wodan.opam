@@ -27,10 +27,16 @@ depends: [
   "lru" {>= "0.3.0"}
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
-  "mirage-types" {<= "3.6.0"}
-  "mirage-types-lwt" {>= "3.0.5" & <= "3.6.0"}
+  "mirage-block" {>= "2.0.0"}
   "nocrypto"
   "ppx_cstruct"
   "rresult"
   "stdcompat"
+]
+
+pin-depends: [
+  ["mirage-block.dev" "git+https://github.com/pascutto/mirage-block"]
+  ["mirage-block-combinators.dev" "git+https://github.com/pascutto/mirage-block"]
+  ["mirage-block-unix.dev" "git+https://github.com/pascutto/mirage-block-unix"]
+  ["mirage-block-ramdisk.dev" "git+https://github.com/pascutto/mirage-block-ramdisk"]
 ]

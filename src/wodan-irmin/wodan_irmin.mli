@@ -47,7 +47,7 @@ val config :
 module type BLOCK_CON = sig
   include Wodan.EXTBLOCK
 
-  val connect : string -> t io
+  val connect : string -> t Lwt.t
 end
 
 module type DB = sig
