@@ -1,7 +1,6 @@
-version=0.9
+version=0.12
 break-cases=all
 break-infix=fit-or-vertical
-break-separators=after-and-docked
 field-space=loose
 margin=79
 parens-tuple=always

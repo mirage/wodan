@@ -67,7 +67,7 @@ type mount_options = {
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
   fast_scan : bool;
   (* How many blocks to keep in cache *)
-  cache_size : int
+  cache_size : int;
 }
 
 (* All parameters that can be read from the superblock *)
@@ -151,8 +151,7 @@ module type S = sig
 
   val log_statistics : root -> unit
 
-  val search_range :
-    root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
+  val search_range : root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
 
   val iter : root -> (key -> value -> unit) -> unit Lwt.t
 

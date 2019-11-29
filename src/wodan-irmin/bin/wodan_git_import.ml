@@ -18,7 +18,8 @@
 open Lwt.Infix
 
 module Wodan_DB =
-  Wodan_irmin.DB_BUILDER (struct
+  Wodan_irmin.DB_BUILDER
+    (struct
       include Block
 
       let connect name = Block.connect name
@@ -59,8 +60,7 @@ let run () =
   Logs.info (fun m -> m "Loading Wodan master");
   let%lwt wodan_master = Wodan_S.master wodan_repo in
   Logs.info (fun m -> m "Fetching from Git into Wodan");
-  Wodan_sync.fetch_exn wodan_master remote
-  >>= function
+  Wodan_sync.fetch_exn wodan_master remote >>= function
   | `Head head_commit ->
       let%lwt () = Wodan_S.Head.set wodan_master head_commit in
       let%lwt wodan_raw = Wodan_S.DB.v wodan_config in

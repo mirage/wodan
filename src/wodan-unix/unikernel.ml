@@ -19,17 +19,14 @@ open Lwt.Infix
 open Mirage_block
 
 let unwrap_opt = function
-  | None ->
-      failwith "Expected Some"
-  | Some x ->
-      x
+  | None -> failwith "Expected Some"
+  | Some x -> x
 
 module Client (B : Wodan.EXTBLOCK) = struct
   let trim disk =
     Wodan.open_for_reading (module B) disk Wodan.standard_mount_options
     >>= function
-    | Wodan.OPEN_RET ((module Stor), root, _gen) ->
-        Stor.fstrim root
+    | Wodan.OPEN_RET ((module Stor), root, _gen) -> Stor.fstrim root
 
   let format disk ks bs =
     let module Stor =
@@ -64,7 +61,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
         Csv.iter
           ~f:(fun l ->
             match l with
-            | [k; v] ->
+            | [ k; v ] ->
                 compl :=
                   ( try%lwt
                       Stor.insert root
@@ -74,11 +71,9 @@ module Client (B : Wodan.EXTBLOCK) = struct
                       let%lwt _gen = Stor.flush root in
                       Lwt.return_unit )
                   :: !compl
-            | _ ->
-                failwith "Bad CSV format" )
+            | _ -> failwith "Bad CSV format")
           csv_in;
-        Lwt.join !compl
-        >>= fun () ->
+        Lwt.join !compl >>= fun () ->
         let%lwt _gen = Stor.flush root in
         Lwt.return_unit
 
@@ -89,17 +84,19 @@ module Client (B : Wodan.EXTBLOCK) = struct
         let out_csv = Csv.to_channel ~separator:'\t' stdout in
         Stor.iter root (fun k v ->
             Csv.output_record out_csv
-              [ Base64.encode_exn (Stor.string_of_key k);
-                Base64.encode_exn (Stor.string_of_value v) ] )
-        >>= fun () -> Csv.close_out out_csv; Lwt.return_unit
+              [
+                Base64.encode_exn (Stor.string_of_key k);
+                Base64.encode_exn (Stor.string_of_value v);
+              ])
+        >>= fun () ->
+        Csv.close_out out_csv;
+        Lwt.return_unit
 
   let exercise disk block_size =
     let bs =
       match block_size with
-      | None ->
-          Wodan.StandardSuperblockParams.block_size
-      | Some block_size ->
-          block_size
+      | None -> Wodan.StandardSuperblockParams.block_size
+      | Some block_size -> block_size
     in
     let module Stor =
       Wodan.Make
@@ -127,13 +124,10 @@ module Client (B : Wodan.EXTBLOCK) = struct
     (let root = ref rootval in
      let key = Stor.key_of_string "abcdefghijklmnopqrst" in
      let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-     Stor.insert !root key cval
-     >>= fun () ->
-     Stor.flush !root
-     >>= function
+     Stor.insert !root key cval >>= fun () ->
+     Stor.flush !root >>= function
      | gen1 -> (
-         Stor.lookup !root key
-         >>= function
+         Stor.lookup !root key >>= function
          | cval1_opt -> (
              let cval1 = unwrap_opt cval1_opt in
              (*Cstruct.hexdump cval1;*)
@@ -146,8 +140,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
                  Wodan.standard_mount_options
              in
              root := rootval;
-             Stor.lookup !root key
-             >>= function
+             Stor.lookup !root key >>= function
              | cval2_opt ->
                  let cval2 = unwrap_opt cval2_opt in
                  assert (
@@ -170,22 +163,17 @@ module Client (B : Wodan.EXTBLOCK) = struct
                      with
                    | Wodan.NeedsFlush -> (
                        Logs.info (fun m -> m "Emergency flushing");
-                       Stor.flush !root
-                       >>= function
-                       | _gen ->
-                           Stor.insert !root key cval )
+                       Stor.flush !root >>= function
+                       | _gen -> Stor.insert !root key cval )
                    | Wodan.OutOfSpace ->
                        Logs.info (fun m -> m "Final flush");
-                       Stor.flush !root
-                       >|= ignore
-                       >>= fun () ->
+                       Stor.flush !root >|= ignore >>= fun () ->
                        should_continue := false;
                        Lwt.return_unit )
                    >>= fun () ->
                    if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then (
                      (* Infrequent re-opening *)
-                       Stor.flush !root
-                     >>= function
+                     Stor.flush !root >>= function
                      | gen3 ->
                          let%lwt rootval, gen4 =
                            Stor.prepare_io Wodan.OpenExistingDevice disk
@@ -280,15 +268,16 @@ module Client (B : Wodan.EXTBLOCK) = struct
   (*bench0 30_000;*)
 
   let fuzz disk =
-    Wodan.read_superblock_params (module B) disk
-    >>= function
+    Wodan.read_superblock_params (module B) disk >>= function
     | sb_params ->
         let module Stor = Wodan.Make (B) ((val sb_params)) in
         let magiccrc = Cstruct.of_string "\xff\xff\xff\xff" in
         let cstr_cond_reset str =
           let crcoffset = Cstruct.len str - 4 in
           let crc = Cstruct.sub str crcoffset 4 in
-          if Cstruct.equal crc magiccrc then ( Crc32c.cstruct_reset str; true )
+          if Cstruct.equal crc magiccrc then (
+            Crc32c.cstruct_reset str;
+            true )
           else false
         in
         let%lwt info = B.get_info disk in
@@ -300,19 +289,17 @@ module Client (B : Wodan.EXTBLOCK) = struct
                  (of_int Stor.P.block_size)))
         in
         let cstr = Cstruct.create Stor.P.block_size in
-        let%lwt _res = B.read disk 0L [cstr] in
+        let%lwt _res = B.read disk 0L [ cstr ] in
         if%lwt
           Lwt.return
             (cstr_cond_reset (Cstruct.sub cstr 0 Wodan.sizeof_superblock))
         then (
-          B.write disk 0L [cstr]
-          >|= ignore
-          >>= fun _ ->
+          B.write disk 0L [ cstr ] >|= ignore >>= fun _ ->
           for%lwt i = 1 to logical_size - 1 do
             let doffset = Int64.(mul (of_int i) (of_int Stor.P.block_size)) in
-            let%lwt _res = B.read disk doffset [cstr] in
+            let%lwt _res = B.read disk doffset [ cstr ] in
             if%lwt Lwt.return (cstr_cond_reset cstr) then
-              B.write disk doffset [cstr] >|= ignore
+              B.write disk doffset [ cstr ] >|= ignore
           done
           >>= fun _ ->
           let%lwt root, _rgen =
@@ -321,10 +308,8 @@ module Client (B : Wodan.EXTBLOCK) = struct
           in
           let key = Stor.key_of_string "abcdefghijklmnopqrst" in
           let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-          Stor.insert root key cval
-          >>= fun () ->
-          Stor.flush root
-          >>= fun _gen ->
+          Stor.insert root key cval >>= fun () ->
+          Stor.flush root >>= fun _gen ->
           let%lwt cval1 = Stor.lookup root key >|= unwrap_opt in
           assert (
             Cstruct.equal

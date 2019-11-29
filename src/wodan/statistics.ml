@@ -2,12 +2,12 @@ type t = {
   mutable inserts : int;
   mutable lookups : int;
   mutable range_searches : int;
-  mutable iters : int
+  mutable iters : int;
 }
 
-let create () = {inserts = 0; lookups = 0; range_searches = 0; iters = 0}
+let create () = { inserts = 0; lookups = 0; range_searches = 0; iters = 0 }
 
-let pp fmt {inserts; lookups; range_searches; iters} =
+let pp fmt { inserts; lookups; range_searches; iters } =
   Format.fprintf fmt "Ops: %d inserts %d lookups %d range searches %d iters"
     inserts lookups range_searches iters
 

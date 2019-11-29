@@ -1,8 +1,8 @@
 (** Bitv64 is a wrapper around Bitv, for easier use with int64 indexes and
     sizes. *)
 
-(** The type for [int64] indexed [Bitv]s *)
 type t
+(** The type for [int64] indexed [Bitv]s *)
 
 val create : int64 -> bool -> t
 (** [create n b] creates a new bit vector of length [n],

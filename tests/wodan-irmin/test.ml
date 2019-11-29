@@ -18,4 +18,4 @@ let misc = [ (*"link", [
     Test_link.test "wodan" Test_wodan.link;
   ]*) ]
 
-let () = Irmin_test.Store.run "irmin" ~misc [(`Quick, Test_wodan.suite)]
+let () = Irmin_test.Store.run "irmin" ~misc [ (`Quick, Test_wodan.suite) ]
