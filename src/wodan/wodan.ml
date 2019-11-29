@@ -16,7 +16,6 @@
 (********************************************************************************)
 
 open Lwt.Infix
-open Sexplib.Std
 
 let superblock_magic = "MIRAGE KVFS \xf0\x9f\x90\xaa"
 

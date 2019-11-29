@@ -18,13 +18,11 @@ build: [
 depends: [
   "ocaml" {>= "4.06.1"}
   "dune"  {>= "1.7"}
-  "afl-persistent"
+  "afl-persistent" {with-test}
   "base64" {>= "3.0.0"}
   "benchmark"
-  "checkseum"
   "cmdliner"
   "csv"
-  "io-page-unix"
   "lwt_ppx"
   "mirage-block-ramdisk"
   "mirage-block-unix"
