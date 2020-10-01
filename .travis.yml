@@ -10,6 +10,12 @@ env:
 
 matrix:
   include:
+  - env: OCAML_VERSION=4.11 PACKAGE=wodan
+  - env: OCAML_VERSION=4.11 PACKAGE=wodan-unix
+  - env: OCAML_VERSION=4.11 PACKAGE=wodan-irmin
+  - env: OCAML_VERSION=4.10 PACKAGE=wodan
+  - env: OCAML_VERSION=4.10 PACKAGE=wodan-unix
+  - env: OCAML_VERSION=4.10 PACKAGE=wodan-irmin
   - env: OCAML_VERSION=4.09 PACKAGE=wodan
   - env: OCAML_VERSION=4.09 PACKAGE=wodan-unix
   - env: OCAML_VERSION=4.09 PACKAGE=wodan-irmin
