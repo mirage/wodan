@@ -9,8 +9,8 @@
  (modules test)
  (libraries test_wodan irmin-test alcotest))
 
-(alias
- (name runtest)
+(rule
+ (alias runtest)
  (package wodan-irmin)
  (deps test.exe)
  (action
