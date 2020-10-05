@@ -73,8 +73,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
                   :: !compl
             | _ -> failwith "Bad CSV format")
           csv_in;
-        Lwt.join !compl
-        >>= fun () ->
+        Lwt.join !compl >>= fun () ->
         let%lwt _gen = Stor.flush root in
         Lwt.return_unit
 
@@ -89,7 +88,9 @@ module Client (B : Wodan.EXTBLOCK) = struct
                 Base64.encode_exn (Stor.string_of_key k);
                 Base64.encode_exn (Stor.string_of_value v);
               ])
-        >>= fun () -> Csv.close_out out_csv; Lwt.return_unit
+        >>= fun () ->
+        Csv.close_out out_csv;
+        Lwt.return_unit
 
   let exercise disk block_size =
     let bs =
@@ -123,13 +124,10 @@ module Client (B : Wodan.EXTBLOCK) = struct
     (let root = ref rootval in
      let key = Stor.key_of_string "abcdefghijklmnopqrst" in
      let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-     Stor.insert !root key cval
-     >>= fun () ->
-     Stor.flush !root
-     >>= function
+     Stor.insert !root key cval >>= fun () ->
+     Stor.flush !root >>= function
      | gen1 -> (
-         Stor.lookup !root key
-         >>= function
+         Stor.lookup !root key >>= function
          | cval1_opt -> (
              let cval1 = unwrap_opt cval1_opt in
              (*Cstruct.hexdump cval1;*)
@@ -142,8 +140,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
                  Wodan.standard_mount_options
              in
              root := rootval;
-             Stor.lookup !root key
-             >>= function
+             Stor.lookup !root key >>= function
              | cval2_opt ->
                  let cval2 = unwrap_opt cval2_opt in
                  assert (
@@ -166,21 +163,17 @@ module Client (B : Wodan.EXTBLOCK) = struct
                      with
                    | Wodan.NeedsFlush -> (
                        Logs.info (fun m -> m "Emergency flushing");
-                       Stor.flush !root
-                       >>= function
+                       Stor.flush !root >>= function
                        | _gen -> Stor.insert !root key cval )
                    | Wodan.OutOfSpace ->
                        Logs.info (fun m -> m "Final flush");
-                       Stor.flush !root
-                       >|= ignore
-                       >>= fun () ->
+                       Stor.flush !root >|= ignore >>= fun () ->
                        should_continue := false;
                        Lwt.return_unit )
                    >>= fun () ->
                    if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then (
                      (* Infrequent re-opening *)
-                     Stor.flush !root
-                     >>= function
+                     Stor.flush !root >>= function
                      | gen3 ->
                          let%lwt rootval, gen4 =
                            Stor.prepare_io Wodan.OpenExistingDevice disk
@@ -297,9 +290,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
             (Wodan.Testing.cstruct_cond_reset
                (Cstruct.sub cstr 0 Wodan.sizeof_superblock))
         then (
-          B.write disk 0L [cstr]
-          >|= ignore
-          >>= fun _ ->
+          B.write disk 0L [cstr] >|= ignore >>= fun _ ->
           for%lwt i = 1 to logical_size - 1 do
             let doffset = Int64.(mul (of_int i) (of_int Stor.P.block_size)) in
             let%lwt _res = B.read disk doffset [cstr] in
@@ -313,10 +304,8 @@ module Client (B : Wodan.EXTBLOCK) = struct
           in
           let key = Stor.key_of_string "abcdefghijklmnopqrst" in
           let cval = Stor.value_of_string "sqnlnfdvulnqsvfjlllsvqoiuuoezr" in
-          Stor.insert root key cval
-          >>= fun () ->
-          Stor.flush root
-          >>= fun _gen ->
+          Stor.insert root key cval >>= fun () ->
+          Stor.flush root >>= fun _gen ->
           let%lwt cval1 = Stor.lookup root key >|= unwrap_opt in
           assert (
             Cstruct.equal

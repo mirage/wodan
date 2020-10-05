@@ -38,11 +38,17 @@ module DB_fs =
   Wodan_irmin.DB_BUILDER (FileBlockCon) (Wodan.StandardSuperblockParams)
 
 let _ =
-  Resolver.Store.add "wodan-mem" (Resolver.Store.Variable_hash (fun hash contents ->
-      Resolver.Store.v ?remote:None
-        (module Wodan_irmin.KV (DB_ram) ((val hash)) ((val contents)) : Irmin.S)));
-  Resolver.Store.add "wodan" ~default:true (Resolver.Store.Variable_hash (fun hash contents ->
-      Resolver.Store.v ?remote:None
-        (module Wodan_irmin.KV (DB_fs) ((val hash)) ((val contents)) : Irmin.S)))
+  Resolver.Store.add "wodan-mem"
+    (Resolver.Store.Variable_hash
+       (fun hash contents ->
+         Resolver.Store.v ?remote:None
+           ( module Wodan_irmin.KV (DB_ram) ((val hash)) ((val contents))
+           : Irmin.S )));
+  Resolver.Store.add "wodan" ~default:true
+    (Resolver.Store.Variable_hash
+       (fun hash contents ->
+         Resolver.Store.v ?remote:None
+           ( module Wodan_irmin.KV (DB_fs) ((val hash)) ((val contents))
+           : Irmin.S )))
 
 let () = Cli.(run ~default commands)

@@ -25,20 +25,17 @@ module Dispatch (S : HTTP) = struct
   let rec dispatcher repo uri =
     match Uri.path uri with
     | ""
-     |"/" ->
+    | "/" ->
         dispatcher repo (Uri.with_path uri "README.md")
     | "/README.md" ->
         let headers = Cohttp.Header.init_with "Content-Type" "text/plain" in
-        Wodan_Git_KV.Head.list repo
-        >>= fun commits ->
+        Wodan_Git_KV.Head.list repo >>= fun commits ->
         List.iter
           (fun k ->
             Logs.debug (fun m -> m "Head %a" Wodan_Git_KV.Commit.pp_hash k))
           commits;
-        Wodan_Git_KV.master repo
-        >>= fun t ->
-        Wodan_Git_KV.list t []
-        >>= fun li ->
+        Wodan_Git_KV.master repo >>= fun t ->
+        Wodan_Git_KV.list t [] >>= fun li ->
         List.iter (fun (k, _v) -> Logs.debug (fun m -> m "List %s" k)) li;
         Lwt.catch
           (fun () -> Wodan_Git_KV.get t ["counter-wodan"; "README.md"])
@@ -57,17 +54,14 @@ module Dispatch (S : HTTP) = struct
           | Error _ -> assert false
           | Ok x -> x
         in
-        Wodan_Git_KV.Commit.of_hash repo head
-        >>= fun commit ->
+        Wodan_Git_KV.Commit.of_hash repo head >>= fun commit ->
         let commit =
           match commit with
           | None -> assert false
           | Some x -> x
         in
-        Wodan_Git_KV.of_commit commit
-        >>= fun t ->
-        Wodan_Git_KV.get t ["README.md"]
-        >>= fun t ->
+        Wodan_Git_KV.of_commit commit >>= fun t ->
+        Wodan_Git_KV.get t ["README.md"] >>= fun t ->
         let body = Irmin.Type.to_string Wodan_Git_KV.contents_t t in
         S.respond_string ~status:`OK ~body ~headers ()
     | _ -> S.respond_not_found ()
@@ -102,8 +96,7 @@ struct
     in
     let http =
       Http_log.info (fun f -> f "listening on %d/TCP" http_port);
-      Wodan_Git_KV.Repo.v store_conf
-      >>= fun repo ->
+      Wodan_Git_KV.Repo.v store_conf >>= fun repo ->
       Http_log.info (fun f -> f "repo ready");
       http tcp (D.serve (D.dispatcher repo))
     in

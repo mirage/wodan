@@ -34,36 +34,32 @@ type copts = {disk : string}
 
 let dump copts _prefix =
   Lwt_main.run
-    ( Block.connect copts.disk
-    >>= fun bl ->
-    Nocrypto_entropy_lwt.initialize () >>= fun _nc -> Unikernel1.dump bl )
+    ( Block.connect copts.disk >>= fun bl ->
+      Nocrypto_entropy_lwt.initialize () >>= fun _nc -> Unikernel1.dump bl )
 
 let restore copts =
   Lwt_main.run
-    ( Block.connect copts.disk
-    >>= fun bl ->
-    Nocrypto_entropy_lwt.initialize () >>= fun _nc -> Unikernel1.restore bl )
+    ( Block.connect copts.disk >>= fun bl ->
+      Nocrypto_entropy_lwt.initialize () >>= fun _nc -> Unikernel1.restore bl
+    )
 
 let format copts key_size block_size =
   Lwt_main.run
-    ( Block.connect copts.disk
-    >>= fun bl ->
-    Nocrypto_entropy_lwt.initialize ()
-    >>= fun _nc -> Unikernel1.format bl key_size block_size )
+    ( Block.connect copts.disk >>= fun bl ->
+      Nocrypto_entropy_lwt.initialize () >>= fun _nc ->
+      Unikernel1.format bl key_size block_size )
 
 let trim copts =
   Lwt_main.run
-    ( Block.connect copts.disk
-    >>= fun bl ->
-    Nocrypto_entropy_lwt.initialize ()
-    >>= fun _nc -> Unikernel1.trim bl >|= ignore )
+    ( Block.connect copts.disk >>= fun bl ->
+      Nocrypto_entropy_lwt.initialize () >>= fun _nc ->
+      Unikernel1.trim bl >|= ignore )
 
 let exercise copts block_size =
   Lwt_main.run
-    ( Block.connect copts.disk
-    >>= fun bl ->
-    Nocrypto_entropy_lwt.initialize ()
-    >>= fun _nc -> Unikernel1.exercise bl block_size >|= ignore )
+    ( Block.connect copts.disk >>= fun bl ->
+      Nocrypto_entropy_lwt.initialize () >>= fun _nc ->
+      Unikernel1.exercise bl block_size >|= ignore )
 
 let bench _copts =
   (* Unlike the other functions, don't run within Lwt
@@ -72,7 +68,7 @@ let bench _copts =
 
 let fuzz copts =
   (* Persistent mode disabled, results are not stable,
-   maybe due to CRC munging. *)
+     maybe due to CRC munging. *)
   AflPersistent.run (fun () ->
       Lwt_main.run (Block.connect copts.disk >>= fun bl -> Unikernel1.fuzz bl))
 
@@ -101,8 +97,7 @@ let copts_t =
   let docs = Manpage.s_common_options in
   let disk =
     let doc = "Disk to operate on." in
-    Arg.(
-      required & pos 0 (some string) None & info [] ~docv:"DISK" ~docs ~doc)
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"DISK" ~docs ~doc)
   in
   Term.(const copts $ disk)
 
@@ -194,8 +189,7 @@ let exercise_cmd =
         \         and fills it with random data.";
     ]
   in
-  ( Term.(const exercise $ copts_t $ block_size),
-    Term.info "exercise" ~doc ~man )
+  (Term.(const exercise $ copts_t $ block_size), Term.info "exercise" ~doc ~man)
 
 let bench_cmd =
   let doc = "Run a standardised micro-benchmark" in

@@ -64,8 +64,7 @@ module type DB = sig
   val flush : t -> int64 Lwt.t
 end
 
-module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) ->
-  DB
+module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) -> DB
 
 module CA_BUILDER : functor (_ : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER
 

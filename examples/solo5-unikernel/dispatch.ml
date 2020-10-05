@@ -15,28 +15,26 @@ module Dispatch (Store : Wodan.S) (S : HTTP) = struct
   let key = Store.key_of_string "12345678901234567890"
 
   let next_camel store =
-    Store.lookup store key
-    >>= function
+    Store.lookup store key >>= function
     | Some counter ->
         let c = Int64.of_string (Store.string_of_value counter) in
         let c = Int64.succ c in
         Store.insert store key (Store.value_of_string (Int64.to_string c))
         >>= fun () -> Lwt.return c
     | None ->
-        Store.insert store key (Store.value_of_string "1")
-        >>= fun () -> Lwt.return 1L
+        Store.insert store key (Store.value_of_string "1") >>= fun () ->
+        Lwt.return 1L
 
   (* given a URI, find the appropriate file,
    * and construct a response with its contents. *)
   let rec dispatcher store uri =
     match Uri.path uri with
     | ""
-     |"/" ->
+    | "/" ->
         dispatcher store (Uri.with_path uri "index.html")
     | "/index.html" ->
         let headers = Cohttp.Header.init_with "Content-Type" "text/html" in
-        next_camel store
-        >>= fun counter ->
+        next_camel store >>= fun counter ->
         let body =
           Fmt.strf
             {html|<html>
@@ -86,8 +84,8 @@ struct
   module D = Dispatch (Store) (Http)
 
   let rec periodic_flush store =
-    Time.sleep_ns 30_000_000_000L
-    >>= fun () -> Store.flush store >>= fun _gen -> periodic_flush store
+    Time.sleep_ns 30_000_000_000L >>= fun () ->
+    Store.flush store >>= fun _gen -> periodic_flush store
 
   let start _time _clock http block =
     let http_port = Key_gen.http_port () in

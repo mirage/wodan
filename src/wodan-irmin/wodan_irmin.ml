@@ -30,8 +30,8 @@ module Conf = struct
       Irmin.Private.Conf.string "wodan.img"
 
   let create =
-    Irmin.Private.Conf.key ~doc:"Whether to create a fresh filesystem"
-      "create" Irmin.Private.Conf.bool false
+    Irmin.Private.Conf.key ~doc:"Whether to create a fresh filesystem" "create"
+      Irmin.Private.Conf.bool false
 
   let cache_size =
     Irmin.Private.Conf.key ~doc:"How many cache items to keep in the LRU"
@@ -177,7 +177,10 @@ end = struct
   let read config =
     match find config with
     | Some v -> Lwt.return v
-    | None -> X.v config >|= fun t -> add config t; (config, t)
+    | None ->
+        X.v config >|= fun t ->
+        add config t;
+        (config, t)
 end
 
 module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) ->
@@ -199,19 +202,16 @@ functor
     let do_autoflush root op =
       try%lwt op ()
       with Wodan.NeedsFlush -> (
-        Stor.flush root
-        >>= function
+        Stor.flush root >>= function
         | _gen -> op () )
 
     let may_autoflush db op =
       if db.autoflush then do_autoflush db.root op else op ()
 
     let make ~path ~create ~mount_options ~autoflush =
-      B.connect path
-      >>= function
+      B.connect path >>= function
       | disk -> (
-          B.get_info disk
-          >>= function
+          B.get_info disk >>= function
           | info ->
               let open_arg =
                 if create then
@@ -319,7 +319,7 @@ functor
 
     let v = DB.v
 
-    let cast t = (t :> [`Read | `Write] t)
+    let cast t = (t :> [ `Read | `Write ] t)
 
     let batch t f = f (cast t)
 
@@ -366,7 +366,7 @@ functor
 
     let v = DB.v
 
-    let cast t = (t :> [`Read | `Write] t)
+    let cast t = (t :> [ `Read | `Write ] t)
 
     let batch t f = f (cast t)
 
@@ -418,12 +418,10 @@ functor
       Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
 
     let key_of_inner_val va =
-      Rresult.R.get_ok
-        (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Rresult.R.get_ok
-        (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
@@ -446,8 +444,7 @@ functor
       in
       ( try%lwt
           while%lwt true do
-            Stor.lookup root db.magic_key
-            >>= function
+            Stor.lookup root db.magic_key >>= function
             | None -> Lwt.fail Exit
             | Some va ->
                 let ik = inner_val_to_inner_key va in
@@ -474,8 +471,7 @@ functor
       let module C = Irmin.Private.Conf in
       let list_key = C.get config Conf.list_key in
       let path = C.get config Conf.path in
-      Cache.read (path, list_key, config)
-      >|= fun ((_, list_key', _), t) ->
+      Cache.read (path, list_key, config) >|= fun ((_, list_key', _), t) ->
       assert (list_key = list_key');
       t
 
@@ -488,8 +484,7 @@ functor
         db.magic_key <- Stor.next_key db.magic_key;
         Lwt.return_unit )
       else Lwt.return_unit )
-      >>= fun () ->
-      may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
+      >>= fun () -> may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
 
     let set db k va =
       Log.debug (fun m -> m "AW.set -> %a" (Irmin.Type.pp K.t) k);
@@ -524,8 +519,7 @@ functor
         | None -> None
       in
       L.with_lock db.lock k (fun () ->
-          Stor.lookup root ik
-          >>= function
+          Stor.lookup root ik >>= function
           | v0 ->
               if opt_equal Stor.value_equal v0 test then
                 ( match set with
@@ -555,14 +549,11 @@ functor
       let root = db_root db in
       KeyHashtbl.fold
         (fun ik mk io ->
-          io
-          >>= function
+          io >>= function
           | l -> (
-              Stor.mem root ik
-              >>= function
+              Stor.mem root ik >>= function
               | true -> (
-                  Stor.lookup root mk
-                  >>= function
+                  Stor.lookup root mk >>= function
                   | None -> Lwt.fail (Failure "Missing metadata key")
                   | Some iv -> Lwt.return (key_of_inner_val iv :: l) )
               | false -> Lwt.return l ))
@@ -570,8 +561,7 @@ functor
 
     let find db k =
       Log.debug (fun l -> l "AW.find %a" (Irmin.Type.pp K.t) k);
-      Stor.lookup (db_root db) (key_to_inner_key k)
-      >>= function
+      Stor.lookup (db_root db) (key_to_inner_key k) >>= function
       | None -> Lwt.return_none
       | Some va -> Lwt.return_some (val_of_inner_val va)
 
@@ -615,7 +605,8 @@ end
 
 module KV (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) =
   Make (DB) (Irmin.Metadata.None) (C) (Irmin.Path.String_list)
-    (Irmin.Branch.String) (H)
+    (Irmin.Branch.String)
+    (H)
 
 module KV_git (DB : DB) (H : Irmin.Hash.S) = struct
   module DB = DB
@@ -630,7 +621,7 @@ module KV_git (DB : DB) (H : Irmin.Hash.S) = struct
 end
 
 module KV_git_sha1 (DB : DB) = KV_git (DB) (Irmin.Hash.SHA1)
-
 module KV_chunked (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) =
   Make_chunked (DB) (Irmin.Metadata.None) (C) (Irmin.Path.String_list)
-    (Irmin.Branch.String) (H)
+    (Irmin.Branch.String)
+    (H)

@@ -1,9 +1,7 @@
-version=0.11.0
+version=0.15.0
 break-cases=all
 break-infix=fit-or-vertical
-break-separators=after-and-docked
-field-space=loose
+space-around-lists=false
+space-around-records=false
 margin=79
-parens-tuple=always
-sequence-style=terminator
 type-decl=sparse

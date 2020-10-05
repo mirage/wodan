@@ -181,8 +181,7 @@ module type S = sig
 
   val log_statistics : root -> unit
 
-  val search_range :
-    root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
+  val search_range : root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
 
   val iter : root -> (key -> value -> unit) -> unit Lwt.t
 
