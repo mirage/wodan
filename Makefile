@@ -4,8 +4,7 @@ build:
 	ln -sf _build/default/src/wodan-unix/wodanc.exe wodanc
 
 deps:
-	git submodule update --init --recursive
-	opam install --deps-only -y . vendor/*/
+	opam install -t --deps-only .
 
 sync:
 	git submodule sync --recursive
