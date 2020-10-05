@@ -116,15 +116,15 @@ module Make_chunked
   val flush : DB.t -> int64 Lwt.t
 end
 
-module KV (DB : DB) (C : Irmin.Contents.S) : sig
+module KV (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) : sig
   module DB : DB
 
-  include Irmin.KV with type contents = C.t
+  include Irmin.KV with type contents = C.t and type hash = H.t
 
   val flush : DB.t -> int64 Lwt.t
 end
 
-module KV_git (DB : DB) : sig
+module KV_git (DB : DB) (H : Irmin.Hash.S) : sig
   module DB : DB
 
   include Irmin.KV with type contents = Irmin.Contents.String.t
@@ -132,7 +132,15 @@ module KV_git (DB : DB) : sig
   val flush : DB.t -> int64 Lwt.t
 end
 
-module KV_chunked (DB : DB) (C : Irmin.Contents.S) : sig
+module KV_git_sha1 (DB : DB) : sig
+  module DB : DB
+
+  include Irmin.KV with type contents = Irmin.Contents.String.t
+
+  val flush : DB.t -> int64 Lwt.t
+end
+
+module KV_chunked (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) : sig
   module DB : DB
 
   include Irmin.KV with type contents = C.t

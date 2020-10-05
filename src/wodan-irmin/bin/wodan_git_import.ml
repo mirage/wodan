@@ -25,8 +25,8 @@ module Wodan_DB =
     (Wodan.StandardSuperblockParams)
 
 module Wodan_nongit_S =
-  Wodan_irmin.KV_chunked (Wodan_DB) (Irmin.Contents.String)
-module Wodan_git_S = Wodan_irmin.KV_git (Wodan_DB)
+  Wodan_irmin.KV_chunked (Wodan_DB) (Irmin.Hash.SHA1) (Irmin.Contents.String)
+module Wodan_git_S = Wodan_irmin.KV_git_sha1 (Wodan_DB)
 module Wodan_S = Wodan_git_S
 
 let wodan_config = Wodan_irmin.config ~path:"git-import.img" ~create:true ()

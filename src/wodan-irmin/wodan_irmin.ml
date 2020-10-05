@@ -613,24 +613,24 @@ struct
   let flush = DB.flush
 end
 
-module KV (DB : DB) (C : Irmin.Contents.S) =
+module KV (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) =
   Make (DB) (Irmin.Metadata.None) (C) (Irmin.Path.String_list)
-    (Irmin.Branch.String)
-    (Irmin.Hash.SHA1)
+    (Irmin.Branch.String) (H)
 
-module KV_git (DB : DB) = struct
+module KV_git (DB : DB) (H : Irmin.Hash.S) = struct
   module DB = DB
 
   (*module AO = AO_BUILDER(DB)*)
   (*module AO = Irmin_chunk.AO(AO_BUILDER(DB))*)
   module CA = Irmin_chunk.Content_addressable (AO_BUILDER (DB))
-  module AW = AW_BUILDER (DB) (Irmin.Hash.SHA1)
+  module AW = AW_BUILDER (DB) (H)
   include Irmin_git.Generic_KV (CA) (AW) (Irmin.Contents.String)
 
   let flush = DB.flush
 end
 
-module KV_chunked (DB : DB) (C : Irmin.Contents.S) =
+module KV_git_sha1 (DB : DB) = KV_git (DB) (Irmin.Hash.SHA1)
+
+module KV_chunked (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) =
   Make_chunked (DB) (Irmin.Metadata.None) (C) (Irmin.Path.String_list)
-    (Irmin.Branch.String)
-    (Irmin.Hash.SHA1)
+    (Irmin.Branch.String) (H)
