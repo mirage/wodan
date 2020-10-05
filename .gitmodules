@@ -1,6 +1,3 @@
 [submodule "afl/input"]
 	path = afl/input
 	url = https://github.com/g2p/wodan-fuzz-corpus.git
-[submodule "vendor/irmin"]
-	path = vendor/irmin
-	url = https://github.com/mirage/irmin.git
