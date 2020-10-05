@@ -1,3 +1,7 @@
 (lang dune 2.3)
 (name wodan)
 (implicit_transitive_deps false)
+(strict_package_deps true)
+(package (name wodan))
+(package (name wodan-unix) (depends wodan))
+(package (name wodan-irmin) (depends wodan))
