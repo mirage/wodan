@@ -4,15 +4,14 @@ build:
 	ln -sf _build/default/src/wodan-unix/wodanc.exe wodanc
 
 deps:
-	git submodule update --init --recursive
-	opam install --deps-only -y . vendor/*/
+	opam install -t --deps-only .
 
 sync:
 	git submodule sync --recursive
 	git submodule update --init --recursive
 
 ocamlformat:
-	# Use ocamlformat.0.9
+	# Use ocamlformat=0.11.0
 	dune build @fmt --auto-promote
 
 fuzz:

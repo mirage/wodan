@@ -23,7 +23,7 @@ exception BadVersion
 
 exception BadFlags
 
-exception BadCRC of int64
+exception BadCRC of Location.t
 
 exception BadParams
 
@@ -42,20 +42,43 @@ exception ValueTooLarge of string
 exception BadNodeType of int
 
 module type EXTBLOCK = sig
-  include Mirage_types_lwt.BLOCK
+  include Mirage_block.S
 
-  val discard : t -> int64 -> int64 -> (unit, write_error) result io
+  val discard : t -> int64 -> int64 -> (unit, write_error) result Lwt.t
 end
 
-module BlockCompat (B : Mirage_types_lwt.BLOCK) : EXTBLOCK with type t = B.t
+module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t
+
+module AllocId : sig
+  type t
+
+  val zero : t
+
+  val one : t
+
+  val equal : t -> t -> bool
+
+  val succ : t -> t
+
+  val pp : Format.formatter -> t -> unit
+
+  val hash : t -> int
+end
 
 type insertable =
   | InsValue of string
-  | InsChild of int64 * int64 option
+  | InsChild of Location.t * AllocId.t option
 
 (* loc, alloc_id *)
 
 val sizeof_superblock : int
+
+type relax = {
+  (* CRC errors ignored on any read where the magic CRC is used *)
+  magic_crc : bool;
+  (* Write non-superblock blocks with the magic CRC *)
+  magic_crc_write : bool;
+}
 
 (* All parameters that can't be read from the superblock *)
 type mount_options = {
@@ -67,7 +90,9 @@ type mount_options = {
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
   fast_scan : bool;
   (* How many blocks to keep in cache *)
-  cache_size : int
+  cache_size : int;
+  (* Integrity invariants to relax *)
+  relax : relax;
 }
 
 (* All parameters that can be read from the superblock *)
@@ -79,13 +104,18 @@ module type SUPERBLOCK_PARAMS = sig
   val key_size : int
 end
 
+module Testing : sig
+  val cstruct_cond_reset : Cstruct.t -> bool
+end
+
 module StandardSuperblockParams : SUPERBLOCK_PARAMS
 
 val standard_mount_options : mount_options
 
 val read_superblock_params :
-  (module Mirage_types_lwt.BLOCK with type t = 'a) ->
+  (module Mirage_block.S with type t = 'a) ->
   'a ->
+  relax ->
   (module SUPERBLOCK_PARAMS) Lwt.t
 
 type deviceOpenMode =
@@ -151,8 +181,7 @@ module type S = sig
 
   val log_statistics : root -> unit
 
-  val search_range :
-    root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
+  val search_range : root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
 
   val iter : root -> (key -> value -> unit) -> unit Lwt.t
 

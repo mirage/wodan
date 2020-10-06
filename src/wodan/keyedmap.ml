@@ -37,20 +37,16 @@ module Make (Ord : OrderedType) = struct
     m :=
       M.update k
         (function
-          | Some _ ->
-              Some v
-          | None ->
-              raise Not_found )
+          | Some _ -> Some v
+          | None -> raise Not_found)
         !m
 
   let xadd m k v =
     m :=
       M.update k
         (function
-          | Some _ ->
-              raise Already_exists
-          | None ->
-              Some v )
+          | Some _ -> raise Already_exists
+          | None -> Some v)
         !m
 
   let remove m k = m := M.remove k !m
@@ -61,14 +57,14 @@ module Make (Ord : OrderedType) = struct
     try
       M.to_seq_from start !m
       |> Seq.iter (fun (k, v) ->
-             if Ord.compare k end_excl < 0 then f k v else raise Exit )
+             if Ord.compare k end_excl < 0 then f k v else raise Exit)
     with Exit -> ()
 
   let iter_inclusive_range f m start end_incl =
     try
       M.to_seq_from start !m
       |> Seq.iter (fun (k, v) ->
-             if Ord.compare k end_incl <= 0 then f k v else raise Exit )
+             if Ord.compare k end_incl <= 0 then f k v else raise Exit)
     with Exit -> ()
 
   let fold f m acc = M.fold f !m acc
@@ -107,7 +103,7 @@ module Make (Ord : OrderedType) = struct
     m := m1;
     ref m2
 
-  let keys m = fold (fun k _v acc -> k :: acc) m []
+  let keys m = List.rev (fold (fun k _v acc -> k :: acc) m [])
 
   let swap m1 m2 =
     let m = !m1 in

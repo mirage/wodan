@@ -1,0 +1,10 @@
+sudo add-apt-repository ppa:projectatomic/ppa
+# Important: install fuse-overlayfs before first running buildah or podman
+# Otherwise it will auto-configure itself to use "vfs" storage rather than
+# "overlay", make a ton of copies and be dreadfully slow, and hard to migrate
+# from without blowing everything.
+# crun is not packaged, build manually from https://github.com/containers/crun
+# and add the path to the build product to ~/.config/containers/libpod.conf
+sudo apt install fuse-overlayfs podman
+podman run --rm docker://docker.io/hello-world
+

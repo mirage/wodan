@@ -1,54 +1,54 @@
-opam-version: "1.2"
+opam-version: "2.0"
 maintainer: "g2p.code@gmail.com"
 authors: [ "Gabriel de Perthuis" ]
 homepage: "https://github.com/mirage/wodan"
-dev-repo: "https://github.com/mirage/wodan.git"
+dev-repo: "git+https://github.com/mirage/wodan.git"
 bug-reports: "https://github.com/mirage/wodan/issues"
 name: "wodan"
-version: "dev"
-
+synopsis: "A flash-friendly, safe and flexible filesystem library"
 
 build: [
-  [ "dune" "build" "-p" name ]
-]
-
-build-test: [
-  [ "dune" "runtest" "-p" name ]
-  [ "dune" "build" "@fmt" "-p" name ]
+  ["dune" "build" "-p" name ]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+  ["dune" "build" "@fmt" "-p" name ] {with-test}
 ]
 
 depends: [
   "ocamlfind" {build}
   "dune"  {>= "1.7"}
 
-  "ocamlformat" {test & = "0.9"}
-  "alcotest" {test}
-  "bos" {test}
-  "ezjsonm" {test}
-  "mirage-block-unix" {test}
-  "ounit" {test}
-  "ocaml-migrate-parsetree" {test}
-  "ppx_sexp_conv" {test}
-  "yaml" {test}
+  "ocamlformat" {with-test & = "0.15.0"}
+  "alcotest" {with-test}
+  "bos" {with-test}
+  "ezjsonm" {with-test}
+  "mirage-block-unix" {with-test}
+  "ounit" {with-test}
+  "ocaml-migrate-parsetree" {with-test}
+  "ppx_sexp_conv" {with-test}
+  "yaml" {with-test}
 
   "bitv"
   "checkseum" {>= "0.0.2"}
   "cstruct"
-  "diet" {>= "0.2"}
+  "diet" {>= "0.4"}
   "io-page"
   "logs"
-  "lru" {= "0.2.0"}
+  "lru" {= "0.3.0"}
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
-  "mirage-logs"
-  "mirage-types"
-  "mirage-types-lwt" {>= "3.0.5"}
+  "mirage-block" {>= "2.0.0"}
   "nocrypto"
   "ppx_cstruct"
   "rresult"
-  "sexplib"
   "stdcompat"
+  "ocaml" {>= "4.07.0"}
 ]
 
-available: [ocaml-version >= "4.06.0"]
+pin-depends: [
+  ["mirage-block.dev" "git+https://github.com/g2p/mirage-block#barrier-and-discard"]
+  ["mirage-block-combinators.dev" "git+https://github.com/g2p/mirage-block#barrier-and-discard"]
+  ["mirage-block-unix.dev" "git+https://github.com/g2p/mirage-block-unix#barrier-and-discard"]
+  ["mirage-block-ramdisk.dev" "git+https://github.com/g2p/mirage-block-ramdisk#barrier-and-discard"]
+]
+
 tags: "org:mirage"

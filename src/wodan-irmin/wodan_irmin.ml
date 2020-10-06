@@ -30,8 +30,8 @@ module Conf = struct
       Irmin.Private.Conf.string "wodan.img"
 
   let create =
-    Irmin.Private.Conf.key ~doc:"Whether to create a fresh filesystem"
-      "create" Irmin.Private.Conf.bool false
+    Irmin.Private.Conf.key ~doc:"Whether to create a fresh filesystem" "create"
+      Irmin.Private.Conf.bool false
 
   let cache_size =
     Irmin.Private.Conf.key ~doc:"How many cache items to keep in the LRU"
@@ -59,31 +59,23 @@ let config ?(config = Irmin.Private.Conf.empty) ~path ~create ?cache_size
   let module C = Irmin.Private.Conf in
   let cache_size =
     match cache_size with
-    | None ->
-        C.default Conf.cache_size
-    | Some cache_size ->
-        cache_size
+    | None -> C.default Conf.cache_size
+    | Some cache_size -> cache_size
   in
   let fast_scan =
     match fast_scan with
-    | None ->
-        C.default Conf.fast_scan
-    | Some fast_scan ->
-        fast_scan
+    | None -> C.default Conf.fast_scan
+    | Some fast_scan -> fast_scan
   in
   let list_key =
     match list_key with
-    | None ->
-        C.default Conf.list_key
-    | Some list_key ->
-        list_key
+    | None -> C.default Conf.list_key
+    | Some list_key -> list_key
   in
   let autoflush =
     match autoflush with
-    | None ->
-        C.default Conf.autoflush
-    | Some autoflush ->
-        autoflush
+    | None -> C.default Conf.autoflush
+    | Some autoflush -> autoflush
   in
   C.add
     (C.add
@@ -168,8 +160,7 @@ end = struct
       let weak_t = ValueTab.find value_cache key in
       let opt_t = Weak.get weak_t 0 in
       match opt_t with
-      | None ->
-          None
+      | None -> None
       | Some t ->
           let config' = ConfigTab.find config_cache t in
           Some (config', t)
@@ -185,13 +176,15 @@ end = struct
 
   let read config =
     match find config with
-    | Some v ->
-        Lwt.return v
+    | Some v -> Lwt.return v
     | None ->
-        X.v config >|= fun t -> add config t; (config, t)
+        X.v config >|= fun t ->
+        add config t;
+        (config, t)
 end
 
-module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) -> DB =
+module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) ->
+  DB =
 functor
   (B : BLOCK_CON)
   (P : Wodan.SUPERBLOCK_PARAMS)
@@ -201,7 +194,7 @@ functor
 
     type t = {
       root : Stor.root;
-      autoflush : bool
+      autoflush : bool;
     }
 
     let db_root db = db.root
@@ -209,20 +202,16 @@ functor
     let do_autoflush root op =
       try%lwt op ()
       with Wodan.NeedsFlush -> (
-        Stor.flush root
-        >>= function
-        | _gen ->
-            op () )
+        Stor.flush root >>= function
+        | _gen -> op () )
 
     let may_autoflush db op =
       if db.autoflush then do_autoflush db.root op else op ()
 
     let make ~path ~create ~mount_options ~autoflush =
-      B.connect path
-      >>= function
+      B.connect path >>= function
       | disk -> (
-          B.get_info disk
-          >>= function
+          B.get_info disk >>= function
           | info ->
               let open_arg =
                 if create then
@@ -269,7 +258,8 @@ functor
     let flush db = Stor.flush (db_root db)
   end
 
-module CA_BUILDER : functor (DB : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER =
+module CA_BUILDER : functor (DB : DB) ->
+  Irmin.CONTENT_ADDRESSABLE_STORE_MAKER =
 functor
   (DB : DB)
   (K : Irmin.Hash.S)
@@ -282,15 +272,14 @@ functor
 
     type value = V.t
 
-    let () = assert (K.digest_size = DB.Stor.P.key_size)
+    let () = assert (K.hash_size = DB.Stor.P.key_size)
 
     let find db k =
       Log.debug (fun l -> l "CA.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
-      | None ->
-          Lwt.return_none
+      | None -> Lwt.return_none
       | Some v ->
           Lwt.return_some
             (Rresult.R.get_ok
@@ -303,26 +292,38 @@ functor
 
     let add db va =
       let raw_v = Irmin.Type.to_bin_string V.t va in
-      let k = K.digest raw_v in
+      let k = K.hash (fun f -> f raw_v) in
       Log.debug (fun m ->
-          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.digest_size );
-      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.digest_size (Irmin.Type.pp V.t) va);*)
-      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.digest_size raw_v);*)
+          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
+      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.hash_size (Irmin.Type.pp V.t) va);*)
+      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.hash_size raw_v);*)
       let raw_k = Irmin.Type.to_bin_string K.t k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
             (DB.Stor.key_of_string raw_k)
-            (DB.Stor.value_of_string raw_v) )
+            (DB.Stor.value_of_string raw_v))
       >>= function
-      | () ->
-          Lwt.return k
+      | () -> Lwt.return k
+
+    let unsafe_add db k va =
+      let raw_v = Irmin.Type.to_bin_string V.t va in
+      Log.debug (fun m ->
+          m "CA.unsafe_add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
+      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let root = DB.db_root db in
+      DB.may_autoflush db (fun () ->
+          DB.Stor.insert root
+            (DB.Stor.key_of_string raw_k)
+            (DB.Stor.value_of_string raw_v))
 
     let v = DB.v
 
-    let cast t = (t :> [`Read | `Write] t)
+    let cast t = (t :> [ `Read | `Write ] t)
 
     let batch t f = f (cast t)
+
+    let close _t = Lwt.return_unit
   end
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER =
@@ -343,8 +344,7 @@ functor
       DB.Stor.lookup (DB.db_root db)
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
-      | None ->
-          Lwt.return_none
+      | None -> Lwt.return_none
       | Some v ->
           Lwt.return_some
             (Rresult.R.get_ok
@@ -362,17 +362,19 @@ functor
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
             (DB.Stor.key_of_string raw_k)
-            (DB.Stor.value_of_string raw_v) )
+            (DB.Stor.value_of_string raw_v))
 
     let v = DB.v
 
-    let cast t = (t :> [`Read | `Write] t)
+    let cast t = (t :> [ `Read | `Write ] t)
 
     let batch t f = f (cast t)
+
+    let close _t = Lwt.return_unit
   end
 
-module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) -> Irmin
-                                                           .ATOMIC_WRITE_STORE_MAKER =
+module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
+  Irmin.ATOMIC_WRITE_STORE_MAKER =
 functor
   (DB : DB)
   (H : Irmin.Hash.S)
@@ -391,14 +393,14 @@ functor
       keydata : Stor.key KeyHashtbl.t;
       mutable magic_key : Stor.key;
       watches : W.t;
-      lock : L.t
+      lock : L.t;
     }
 
     let db_root db = BUILDER.db_root db.nested
 
     let may_autoflush db = BUILDER.may_autoflush db.nested
 
-    let () = assert (H.digest_size = Stor.P.key_size)
+    let () = assert (H.hash_size = Stor.P.key_size)
 
     type key = K.t
 
@@ -407,7 +409,7 @@ functor
     let key_to_inner_key k =
       Stor.key_of_string
         (Irmin.Type.to_bin_string H.t
-           (H.digest (Irmin.Type.to_bin_string K.t k)))
+           (H.hash (fun f -> f (Irmin.Type.to_bin_string K.t k))))
 
     let val_to_inner_val va =
       Stor.value_of_string (Irmin.Type.to_bin_string V.t va)
@@ -416,35 +418,34 @@ functor
       Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
 
     let key_of_inner_val va =
-      Rresult.R.get_ok
-        (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Rresult.R.get_ok
-        (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
+      Rresult.R.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t (H.digest (Stor.string_of_value va)))
+        (Irmin.Type.to_bin_string H.t
+           (H.hash (fun f -> f (Stor.string_of_value va))))
 
     let make ~list_key ~config =
       let%lwt db = BUILDER.v config in
       let root = BUILDER.db_root db in
-      let magic_key = Bytes.make H.digest_size '\000' in
+      let magic_key = Bytes.make H.hash_size '\000' in
       Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
       let db =
-        { nested = db;
+        {
+          nested = db;
           keydata = KeyHashtbl.create 10;
           magic_key = Stor.key_of_string (Bytes.unsafe_to_string magic_key);
           watches = W.v ();
-          lock = L.v () }
+          lock = L.v ();
+        }
       in
       ( try%lwt
           while%lwt true do
-            Stor.lookup root db.magic_key
-            >>= function
-            | None ->
-                Lwt.fail Exit
+            Stor.lookup root db.magic_key >>= function
+            | None -> Lwt.fail Exit
             | Some va ->
                 let ik = inner_val_to_inner_key va in
                 KeyHashtbl.add db.keydata ik db.magic_key;
@@ -470,8 +471,7 @@ functor
       let module C = Irmin.Private.Conf in
       let list_key = C.get config Conf.list_key in
       let path = C.get config Conf.path in
-      Cache.read (path, list_key, config)
-      >|= fun ((_, list_key', _), t) ->
+      Cache.read (path, list_key, config) >|= fun ((_, list_key', _), t) ->
       assert (list_key = list_key');
       t
 
@@ -484,15 +484,14 @@ functor
         db.magic_key <- Stor.next_key db.magic_key;
         Lwt.return_unit )
       else Lwt.return_unit )
-      >>= fun () ->
-      may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
+      >>= fun () -> may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
 
     let set db k va =
       Log.debug (fun m -> m "AW.set -> %a" (Irmin.Type.pp K.t) k);
       let ik = key_to_inner_key k in
       let iv = val_to_inner_val va in
       L.with_lock db.lock k (fun () ->
-          set_and_list db ik iv (key_to_inner_val k) )
+          set_and_list db ik iv (key_to_inner_val k))
       >>= fun () -> W.notify db.watches k (Some va)
 
     type watch = W.watch
@@ -505,12 +504,9 @@ functor
 
     let opt_equal f x y =
       match (x, y) with
-      | None, None ->
-          true
-      | Some x, Some y ->
-          f x y
-      | _ ->
-          false
+      | None, None -> true
+      | Some x, Some y -> f x y
+      | _ -> false
 
     (* XXX With autoflush, this might flush some data without finishing the insert *)
     let test_and_set db k ~test ~set =
@@ -519,14 +515,11 @@ functor
       let root = db_root db in
       let test =
         match test with
-        | Some va ->
-            Some (val_to_inner_val va)
-        | None ->
-            None
+        | Some va -> Some (val_to_inner_val va)
+        | None -> None
       in
       L.with_lock db.lock k (fun () ->
-          Stor.lookup root ik
-          >>= function
+          Stor.lookup root ik >>= function
           | v0 ->
               if opt_equal Stor.value_equal v0 test then
                 ( match set with
@@ -535,9 +528,9 @@ functor
                       (key_to_inner_val k)
                 | None ->
                     may_autoflush db (fun () ->
-                        Stor.insert root ik (Stor.value_of_string "") ) )
+                        Stor.insert root ik (Stor.value_of_string "")) )
                 >>= fun () -> Lwt.return_true
-              else Lwt.return_false )
+              else Lwt.return_false)
       >>= fun updated ->
       (if updated then W.notify db.watches k set else Lwt.return_unit)
       >>= fun () -> Lwt.return updated
@@ -548,7 +541,7 @@ functor
       let va = Stor.value_of_string "" in
       let root = db_root db in
       L.with_lock db.lock k (fun () ->
-          may_autoflush db (fun () -> Stor.insert root ik va) )
+          may_autoflush db (fun () -> Stor.insert root ik va))
       >>= fun () -> W.notify db.watches k None
 
     let list db =
@@ -556,32 +549,25 @@ functor
       let root = db_root db in
       KeyHashtbl.fold
         (fun ik mk io ->
-          io
-          >>= function
+          io >>= function
           | l -> (
-              Stor.mem root ik
-              >>= function
+              Stor.mem root ik >>= function
               | true -> (
-                  Stor.lookup root mk
-                  >>= function
-                  | None ->
-                      Lwt.fail (Failure "Missing metadata key")
-                  | Some iv ->
-                      Lwt.return (key_of_inner_val iv :: l) )
-              | false ->
-                  Lwt.return l ) )
+                  Stor.lookup root mk >>= function
+                  | None -> Lwt.fail (Failure "Missing metadata key")
+                  | Some iv -> Lwt.return (key_of_inner_val iv :: l) )
+              | false -> Lwt.return l ))
         db.keydata (Lwt.return [])
 
     let find db k =
       Log.debug (fun l -> l "AW.find %a" (Irmin.Type.pp K.t) k);
-      Stor.lookup (db_root db) (key_to_inner_key k)
-      >>= function
-      | None ->
-          Lwt.return_none
-      | Some va ->
-          Lwt.return_some (val_of_inner_val va)
+      Stor.lookup (db_root db) (key_to_inner_key k) >>= function
+      | None -> Lwt.return_none
+      | Some va -> Lwt.return_some (val_of_inner_val va)
 
     let mem db k = Stor.mem (db_root db) (key_to_inner_key k)
+
+    let close _t = Lwt.return_unit
   end
 
 module Make
@@ -617,24 +603,25 @@ struct
   let flush = DB.flush
 end
 
-module KV (DB : DB) (C : Irmin.Contents.S) =
+module KV (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) =
   Make (DB) (Irmin.Metadata.None) (C) (Irmin.Path.String_list)
     (Irmin.Branch.String)
-    (Irmin.Hash.SHA1)
+    (H)
 
-module KV_git (DB : DB) = struct
+module KV_git (DB : DB) (H : Irmin.Hash.S) = struct
   module DB = DB
 
   (*module AO = AO_BUILDER(DB)*)
   (*module AO = Irmin_chunk.AO(AO_BUILDER(DB))*)
   module CA = Irmin_chunk.Content_addressable (AO_BUILDER (DB))
-  module AW = AW_BUILDER (DB) (Irmin.Hash.SHA1)
+  module AW = AW_BUILDER (DB) (H)
   include Irmin_git.Generic_KV (CA) (AW) (Irmin.Contents.String)
 
   let flush = DB.flush
 end
 
-module KV_chunked (DB : DB) (C : Irmin.Contents.S) =
+module KV_git_sha1 (DB : DB) = KV_git (DB) (Irmin.Hash.SHA1)
+module KV_chunked (DB : DB) (H : Irmin.Hash.S) (C : Irmin.Contents.S) =
   Make_chunked (DB) (Irmin.Metadata.None) (C) (Irmin.Path.String_list)
     (Irmin.Branch.String)
-    (Irmin.Hash.SHA1)
+    (H)

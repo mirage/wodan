@@ -4,9 +4,8 @@
  (flags :standard -g)
  (ocamlopt_flags :standard -g -O3)
  (package wodan-unix)
- (libraries base64 benchmark csv cmdliner checkseum.c wodan io-page-unix
-   mirage-block-unix mirage-block-ramdisk nocrypto.lwt afl-persistent)
+ (libraries base64 benchmark csv cmdliner wodan io-page-unix result rresult
+   logs cstruct mirage-block mirage-block-unix mirage-block-ramdisk
+   nocrypto.lwt afl-persistent lwt.unix)
  (preprocess
   (pps lwt_ppx)))
-
-(copy_files ../crc32c/crc32c.ml*)

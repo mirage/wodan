@@ -16,7 +16,8 @@
 (********************************************************************************)
 
 module Wodan_DB =
-  Wodan_irmin.DB_BUILDER (struct
+  Wodan_irmin.DB_BUILDER
+    (struct
       include Block
 
       let connect name = Block.connect name
@@ -24,8 +25,8 @@ module Wodan_DB =
     (Wodan.StandardSuperblockParams)
 
 module Wodan_nongit_S =
-  Wodan_irmin.KV_chunked (Wodan_DB) (Irmin.Contents.String)
-module Wodan_git_S = Wodan_irmin.KV_git (Wodan_DB)
+  Wodan_irmin.KV_chunked (Wodan_DB) (Irmin.Hash.SHA1) (Irmin.Contents.String)
+module Wodan_git_S = Wodan_irmin.KV_git_sha1 (Wodan_DB)
 module Wodan_S = Wodan_git_S
 
 let wodan_config = Wodan_irmin.config ~path:"git-import.img" ~create:true ()
@@ -58,10 +59,13 @@ let run () =
   let%lwt wodan_master = Wodan_S.master wodan_repo in
   Logs.info (fun m -> m "Fetching from Git into Wodan");
   let%lwt head_commit = Wodan_sync.fetch_exn wodan_master remote in
-  let%lwt () = Wodan_S.Head.set wodan_master head_commit in
-  let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
-  let%lwt _gen = Wodan_S.DB.flush wodan_raw in
-  Lwt.return_unit
+  match head_commit with
+  | `Head commit ->
+      let%lwt () = Wodan_S.Head.set wodan_master commit in
+      let%lwt wodan_raw = Wodan_S.DB.v wodan_config in
+      let%lwt _gen = Wodan_S.DB.flush wodan_raw in
+      Lwt.return_unit
+  | `Empty -> Lwt.return_unit
 
 let () =
   Logs.set_reporter (Logs.format_reporter ());

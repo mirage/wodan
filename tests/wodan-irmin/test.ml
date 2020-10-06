@@ -14,8 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-let misc = [ (*"link", [
-    Test_link.test "wodan" Test_wodan.link;
-  ]*) ]
+let misc =
+  [ (*"link", [
+        Test_link.test "wodan" Test_wodan.link;
+      ]*) ]
 
 let () = Irmin_test.Store.run "irmin" ~misc [(`Quick, Test_wodan.suite)]

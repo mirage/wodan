@@ -44,12 +44,12 @@ This explains some of the design choices behind Wodan.
 ## Building, installing and running
 
 Wodan requires [Opam 2][opam], [Dune][dune], [Mirage 3][mirage],
-and [OCaml 4.06][ocaml].
+and [OCaml 4.07 through 4.11][ocaml].
 
 An opam switch with flambda is recommended for performance reasons.
 
 ```
-opam switch 4.06.1+fp+flambda
+opam switch 4.11.1+fp+flambda
 ```
 
 ### Building the library, CLI, and Irmin bindings
@@ -114,7 +114,7 @@ make test
 This requires OCaml compiled with AFL support.
 
 ```
-opam switch 4.06.1+afl
+opam switch 4.11.1+afl
 sudo sysctl kernel.core_pattern=core
 echo performance |sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 make fuzz

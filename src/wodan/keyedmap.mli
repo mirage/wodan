@@ -5,11 +5,11 @@ module type OrderedType = sig
 end
 
 module Make (Ord : OrderedType) : sig
-  (** The type for maps  *)
   type 'a t
+  (** The type for maps  *)
 
-  (** The type for keys  *)
   type key = Ord.t
+  (** The type for keys  *)
 
   val create : unit -> 'a t
   (** Creates a new empty map *)
