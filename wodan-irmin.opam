@@ -50,8 +50,8 @@ depends: [
 
 tags: "org:mirage"
 pin-depends: [
-  ["mirage-block.dev" "git+https://github.com/g2p/mirage-block#barrier-and-discard"]
-  ["mirage-block-combinators.dev" "git+https://github.com/g2p/mirage-block#barrier-and-discard"]
-  ["mirage-block-unix.dev" "git+https://github.com/g2p/mirage-block-unix#barrier-and-discard"]
-  ["mirage-block-ramdisk.dev" "git+https://github.com/g2p/mirage-block-ramdisk#barrier-and-discard"]
+  ["mirage-block.dev" "git+https://github.com/g2p/mirage-block#e0d74f1a37cc543cff4588270b548fa488ce7210"]
+  ["mirage-block-combinators.dev" "git+https://github.com/g2p/mirage-block#e0d74f1a37cc543cff4588270b548fa488ce7210"]
+  ["mirage-block-unix.dev" "git+https://github.com/g2p/mirage-block-unix#c993fef086b645175e45bd6c991b1dbaa95db714"]
+  ["mirage-block-ramdisk.dev" "git+https://github.com/g2p/mirage-block-ramdisk#b86f03c200f74138d9a0eab5f7e0b0cbf8a48294"]
 ]
