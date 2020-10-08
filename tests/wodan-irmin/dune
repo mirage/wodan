@@ -1,17 +1,4 @@
-(library
- (name test_wodan)
- (modules test_wodan)
- (libraries checkseum.c digestif.c irmin-test irmin-mem io-page-unix
-   nocrypto.lwt mirage-block-ramdisk wodan wodan-irmin lwt irmin))
-
-(executable
+(test
  (name test)
- (modules test)
- (libraries test_wodan irmin-test alcotest))
-
-(rule
- (alias runtest)
- (package wodan-irmin)
- (deps test.exe)
- (action
-  (run %{dep:test.exe} -q --color=always)))
+ (libraries alcotest irmin-test io-page-unix nocrypto.lwt
+   mirage-block-ramdisk wodan wodan-irmin lwt irmin))

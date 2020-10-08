@@ -31,6 +31,7 @@ uninstall:
 	dune uninstall
 
 clean:
-	rm -rf _build wodanc
+	dune clean
+	rm -f wodanc
 
 .PHONY: build deps ocamlformat fuzz doc test install uninstall clean

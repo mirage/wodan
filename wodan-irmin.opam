@@ -8,32 +8,26 @@ name: "wodan-irmin"
 synopsis: "Wodan as an Irmin store"
 
 build: [
-  ["dune" "build" "-p" name "-j" jobs]
-  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
-  ["dune" "build" "@fmt" "-p" name ] {with-test}
+  ["dune" "subst"] {pinned}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
 ]
 
 depends: [
-  "ocamlfind" {build}
-  "dune"  {>= "1.7"}
-
-  "ocamlformat" {with-test}
+  "ocaml"
+  "dune"  {>= "2.3.0"}
   "alcotest" {with-test}
-  "bos" {with-test}
-  "cstruct" {with-test}
-  "diet" {with-test}
-  "ezjsonm" {with-test}
-  "io-page" {with-test}
-  "irmin-mem" {with-test}
   "irmin-test" {with-test}
-  "logs" {with-test}
-  "lwt" {with-test}
   "mirage-block-unix" {with-test}
-  "ounit" {with-test}
-  "ocaml-migrate-parsetree" {with-test}
-  "ppx_sexp_conv" {with-test}
-  "yaml" {with-test}
-
   "checkseum" {>= "0.0.2"}
   "digestif"
   "io-page-unix"
@@ -41,6 +35,7 @@ depends: [
   "irmin-chunk"
   "irmin-git"
   "irmin-unix"
+  "lwt"
   "lwt_ppx"
   "mirage-block-ramdisk"
   "mirage-block-unix"
