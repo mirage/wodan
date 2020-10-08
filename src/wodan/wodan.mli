@@ -22,7 +22,7 @@ exception BadVersion
 
 exception BadFlags
 
-exception BadCRC of Location.t
+exception BadCRC of int64
 
 exception BadParams
 
@@ -51,22 +51,6 @@ end
 
     This uses stub implementations which may be incomplete. *)
 module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t
-
-module AllocId : sig
-  type t
-
-  val zero : t
-
-  val one : t
-
-  val equal : t -> t -> bool
-
-  val succ : t -> t
-
-  val pp : Format.formatter -> t -> unit
-
-  val hash : t -> int
-end
 
 val sizeof_superblock : int
 

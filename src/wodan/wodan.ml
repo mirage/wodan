@@ -27,7 +27,7 @@ exception BadVersion
 
 exception BadFlags
 
-exception BadCRC of Location.t
+exception BadCRC of int64
 
 exception BadParams
 
@@ -645,8 +645,7 @@ let read_superblock_params (type disk)
               raise BadVersion
             else if get_superblock_incompat_flags sb <> sb_required_incompat
             then raise BadFlags
-            else if not (cstruct_valid sb relax) then
-              raise (BadCRC Location.zero)
+            else if not (cstruct_valid sb relax) then raise (BadCRC 0L)
             else
               let block_size = Int32.to_int (get_superblock_block_size sb) in
               let key_size = get_superblock_key_size sb in
@@ -768,7 +767,7 @@ struct
           | Result.Error _ -> raise ReadError
           | Result.Ok () ->
               if not (cstruct_valid cstr filesystem.mount_options.relax) then
-                raise (BadCRC logical)
+                raise (BadCRC (Location.to_int64 logical))
               else cstr)
 
   let find_childlinks_offset cstr value_end =
@@ -1814,7 +1813,7 @@ struct
               else if get_superblock_incompat_flags sb <> sb_required_incompat
               then raise BadFlags
               else if not (cstruct_valid sb fs.mount_options.relax) then
-                raise (BadCRC Location.zero)
+                raise (BadCRC 0L)
               else if get_superblock_block_size sb <> Int32.of_int P.block_size
               then (
                 Logs.err (fun m ->
