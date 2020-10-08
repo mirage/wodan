@@ -15,6 +15,10 @@
 (*                                                                              *)
 (********************************************************************************)
 
+(** The Wodan module allows access to Wodan filesystems
+
+    The entry point is {!Wodan.Make}, which returns a
+    {!Wodan.S} module supporting filesystem operations *)
 
 exception BadMagic
 
@@ -53,13 +57,18 @@ end
 module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t
 
 val sizeof_superblock : int
+(** A constant that represents the size of Wodan superblocks
+
+    Will be a power of two and a multiple of a standard sector size *)
 
 type relax = {
-  (* CRC errors ignored on any read where the magic CRC is used *)
   magic_crc : bool;
-  (* Write non-superblock blocks with the magic CRC *)
-  magic_crc_write : bool;
+      (** CRC errors ignored on any read where the magic CRC is used *)
+  magic_crc_write : bool;  (** Write non-superblock blocks with the magic CRC *)
 }
+(** Flags representing integrity features that will be relaxed
+
+    Passed at mount time through {!mount_options} *)
 
 type mount_options = {
   (* XXX Should has_tombstone be a superblock flag? *)
@@ -83,26 +92,40 @@ module type SUPERBLOCK_PARAMS = sig
   (** The exact size of all keys, in bytes *)
 end
 
+(** Operations used when testing and fuzzing *)
 module Testing : sig
   val cstruct_cond_reset : Cstruct.t -> bool
 end
 
 module StandardSuperblockParams : SUPERBLOCK_PARAMS
-(** Defaults for SUPERBLOCK_PARAMS *)
+(** Defaults for {!SUPERBLOCK_PARAMS} *)
 
 val standard_mount_options : mount_options
-(** Defaults for mount_options *)
+(** Defaults for {!mount_options} *)
 
 val read_superblock_params :
   (module Mirage_block.S with type t = 'a) ->
   'a ->
   relax ->
   (module SUPERBLOCK_PARAMS) Lwt.t
+(** Read static filesystem parameters
 
+    These are set at creation time and recorded in the superblock.
+    See {!open_for_reading} if all you need is to mount the filesystem. *)
+
+(** Modes for opening a device, see {!S.prepare_io} *)
 type deviceOpenMode =
   | OpenExistingDevice
+      (** Open an existing device, read logical size from superblock *)
   | FormatEmptyDevice of int64
+      (** Format a device, which must contain only zeroes,
+          and use the given logical size (the number of blocks including the superblock) *)
 
+(** Filesystem operations
+
+    This module is specialized for a given set of superblock parameters,
+    with key and value types also being specialized to match.
+*)
 module type S = sig
   type key
   (** An opaque type for fixed-size keys
@@ -157,7 +180,7 @@ module type S = sig
   val next_key : key -> key
   (** The next highest key
 
-      Raises Invalid_argument if already at the highest possible key *)
+      Raises {!Invalid_argument} if already at the highest possible key *)
 
   val is_tombstone : root -> value -> bool
   (** Whether a value is a tombstone within a root *)
@@ -181,7 +204,7 @@ module type S = sig
 
   val live_trim : root -> int64 Lwt.t
   (** Discard blocks that have been unused since mounting
-   or since the last live_trim call *)
+      or since the last live_trim call *)
 
   val log_statistics : root -> unit
   (** Send statistics about operations to the log *)
@@ -204,13 +227,17 @@ module type S = sig
       has grown since the last flush *)
 end
 
-(** Build a Wodan.S module given a backing device and parameters
+(** Build a {!Wodan.S} module given a backing device and parameters
 
-    This is the main entry point to Wodan. *)
+    This is the main entry point to Wodan.
+    {!open_for_reading} is another entry point, used when you have an existing
+    filesystem and do not care about the superblock parameters. *)
 module Make (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) : S with type disk = B.t
 
+(** This is a type that packages together a {!Wodan.S} with an
+      opened root and the generation number read when mounting *)
 type open_ret =
-  | OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret
+  | OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret  (** *)
 
 val open_for_reading :
   (module EXTBLOCK with type t = 'a) -> 'a -> mount_options -> open_ret Lwt.t
