@@ -5,7 +5,8 @@ filesystem library for Mirage OS.
 
 It provides a key-value store as well as an Irmin backend.
 
-[![Build Status](https://travis-ci.org/mirage/wodan.svg?branch=master)](https://travis-ci.org/mirage/wodan)
+[![OCaml-CI Build Status](https://img.shields.io/endpoint?url=https%3A%2F%2Fci.ocamllabs.io%2Fbadge%2Fmirage%2Fwodan%2Fmaster&logo=ocaml)](https://ci.ocamllabs.io/github/mirage/wodan)
+[![Travis Build Status](https://travis-ci.org/mirage/wodan.svg?branch=master)](https://travis-ci.org/mirage/wodan)
 
 ## Status
 
@@ -122,15 +123,9 @@ make fuzz
 
 ## Contributing
 
-The code is formatted using `ocamlformat` and complies to the options described
-in `.ocamlformat` used with the development version of `ocamlformat` (until the
-next release).
-
-Please pin the package to their git repository :
-<https://github.com/ocaml-ppx/ocamlformat>
-
-And make sure the code is well formatted before any commit by executing
-`make ocamlformat`.
+You can rely on the CI for some checks, you can also run tests with
+`make test` and ensure the code is well formatted by running
+`make ocamlformat` before any commit.
 
 [opam]: https://opam.ocaml.org/
 [dune]: https://github.com/ocaml/dune#installation
