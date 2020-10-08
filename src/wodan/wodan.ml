@@ -21,8 +21,6 @@ let superblock_magic = "MIRAGE KVFS \xf0\x9f\x90\xaa"
 
 let superblock_version = 1l
 
-let max_dirty = 128
-
 exception BadMagic
 
 exception BadVersion
