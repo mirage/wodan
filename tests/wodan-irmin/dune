@@ -1,4 +1,5 @@
 (test
  (name test)
+ (package wodan-irmin)
  (libraries alcotest irmin-test io-page-unix nocrypto.lwt
    mirage-block-ramdisk wodan wodan-irmin lwt irmin))
