@@ -64,12 +64,21 @@ module type DB = sig
   val flush : t -> int64 Lwt.t
 end
 
+(** Builds a Wodan-backed database, that can be used to build higher-level
+    Irmin interfaces *)
 module DB_BUILDER : functor (_ : BLOCK_CON) (_ : Wodan.SUPERBLOCK_PARAMS) -> DB
 
-module CA_BUILDER : functor (_ : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER
-
+(** Builds an {!Irmin.APPEND_ONLY_STORE}, storing key to value mappings *)
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER
 
+(** Builds an {!Irmin.CONTENT_ADDRESSABLE_STORE}, storing values through stable
+    hashing *)
+module CA_BUILDER : functor (_ : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER
+
+(** Builds an {!Irmin.ATOMIC_WRITE_STORE}, storing key to value mappings with
+    extra features
+
+    Extra features currently incude: atomicity and watches, listing all keys *)
 module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
   Irmin.ATOMIC_WRITE_STORE_MAKER
 

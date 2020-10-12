@@ -15,31 +15,65 @@
 (*                                                                              *)
 (********************************************************************************)
 
-val max_dirty : int
+(** The Wodan module allows access to Wodan filesystems
+
+    The entry point is {!Wodan.Make}, which returns a {!Wodan.S} module
+    supporting filesystem operations *)
 
 exception BadMagic
+(** Raised when trying to open a superblock and it doesn't have the magic tag
+    for Wodan filesystems *)
 
 exception BadVersion
+(** Raised when trying to open a superblock and it doesn't have a supported
+    version for Wodan filesystems *)
 
 exception BadFlags
+(** Raised when trying to open a superblock and it sets must-support flags that
+    this version doesn't support *)
 
-exception BadCRC of Location.t
+exception BadCRC of int64
+(** Raised when a block doesn't have the expected CRC
+
+    The exception carries the logical offset of the block. *)
 
 exception BadParams
+(** Raised when {!SUPERBLOCK_PARAMS} passed to the Make functor don't match
+    actual settings saved in the superblock *)
 
 exception ReadError
+(** Raised on IO failures reading a block *)
 
 exception WriteError
+(** Raised on IO failures writing a block *)
 
 exception OutOfSpace
+(** Raised when the filesystem doesn't have enough space to perform the
+    operation *)
 
 exception NeedsFlush
+(** Raised when the filesystem doesn't have enough space to perform an
+    operation that would be possible if pending operations were flushed first *)
 
 exception BadKey of string
+(** Raised when converting to a key is impossible, eg because the input doesn't
+    have the expected length
+
+    The exception carries the original input. *)
 
 exception ValueTooLarge of string
+(** Raised when converting to a value is impossible, because the input would
+    not fit on a single block
+
+    Note that Wodan expects the user to chunk values if arbitrary lengths are
+    to be supported. See also {!Wodan_irmin}'s relationship to irmin-chunk.
+
+    The exception carries the original input *)
 
 exception BadNodeType of int
+(** Raised when a block doesn't have a known and expected node type
+
+    The exception carries the type tag that couldn't be handled. *)
 
 (** The standard Mirage block signature, with Wodan-specific extensions *)
 module type EXTBLOCK = sig
@@ -53,39 +87,28 @@ end
     This uses stub implementations which may be incomplete. *)
 module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t
 
-module AllocId : sig
-  type t
-
-  val zero : t
-
-  val one : t
-
-  val equal : t -> t -> bool
-
-  val succ : t -> t
-
-  val pp : Format.formatter -> t -> unit
-
-  val hash : t -> int
-end
-
 val sizeof_superblock : int
+(** A constant that represents the size of Wodan superblocks
+
+    Will be a power of two and a multiple of a standard sector size *)
 
 type relax = {
-  (* CRC errors ignored on any read where the magic CRC is used *)
   magic_crc : bool;
-  (* Write non-superblock blocks with the magic CRC *)
-  magic_crc_write : bool;
+      (** CRC errors ignored on any read where the magic CRC is used *)
+  magic_crc_write : bool;  (** Write non-superblock blocks with the magic CRC *)
 }
+(** Flags representing integrity features that will be relaxed
+
+    Passed at mount time through {!mount_options} *)
 
 type mount_options = {
   (* XXX Should has_tombstone be a superblock flag? *)
   has_tombstone : bool;
-      (** Whether the empty value should be considered a tombstone,
-      meaning that `mem` will return no value when finding it *)
+      (** Whether the empty value should be considered a tombstone, meaning
+          that `mem` will return no value when finding it *)
   fast_scan : bool;
       (** If enabled, instead of checking the entire filesystem when opening,
-      leaf nodes won't be scanned.  They will be scanned on open instead. *)
+          leaf nodes won't be scanned. They will be scanned on open instead. *)
   cache_size : int;  (** How many blocks to keep in cache *)
   relax : relax;  (** Integrity invariants to relax *)
 }
@@ -100,26 +123,39 @@ module type SUPERBLOCK_PARAMS = sig
   (** The exact size of all keys, in bytes *)
 end
 
+(** Operations used when testing and fuzzing *)
 module Testing : sig
   val cstruct_cond_reset : Cstruct.t -> bool
 end
 
 module StandardSuperblockParams : SUPERBLOCK_PARAMS
-(** Defaults for SUPERBLOCK_PARAMS *)
+(** Defaults for {!SUPERBLOCK_PARAMS} *)
 
 val standard_mount_options : mount_options
-(** Defaults for mount_options *)
+(** Defaults for {!mount_options} *)
 
 val read_superblock_params :
   (module Mirage_block.S with type t = 'a) ->
   'a ->
   relax ->
   (module SUPERBLOCK_PARAMS) Lwt.t
+(** Read static filesystem parameters
 
+    These are set at creation time and recorded in the superblock. See
+    {!open_for_reading} if all you need is to mount the filesystem. *)
+
+(** Modes for opening a device, see {!S.prepare_io} *)
 type deviceOpenMode =
   | OpenExistingDevice
+      (** Open an existing device, read logical size from superblock *)
   | FormatEmptyDevice of int64
+      (** Format a device, which must contain only zeroes, and use the given
+          logical size (the number of blocks including the superblock) *)
 
+(** Filesystem operations
+
+    This module is specialized for a given set of superblock parameters, with
+    key and value types also being specialized to match. *)
 module type S = sig
   type key
   (** An opaque type for fixed-size keys
@@ -174,7 +210,7 @@ module type S = sig
   val next_key : key -> key
   (** The next highest key
 
-      Raises Invalid_argument if already at the highest possible key *)
+      Raises {!Invalid_argument} if already at the highest possible key *)
 
   val is_tombstone : root -> value -> bool
   (** Whether a value is a tombstone within a root *)
@@ -197,14 +233,15 @@ module type S = sig
   (** Discard all blocks which the filesystem doesn't explicitly use *)
 
   val live_trim : root -> int64 Lwt.t
-  (** Discard blocks that have been unused since mounting
-   or since the last live_trim call *)
+  (** Discard blocks that have been unused since mounting or since the last
+      live_trim call *)
 
   val log_statistics : root -> unit
   (** Send statistics about operations to the log *)
 
   val search_range : root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
-  (** Call back a function for all elements in the range from start inclusive to end_ exclusive
+  (** Call back a function for all elements in the range from start inclusive
+      to end_ exclusive
 
       Results are in no particular order. *)
 
@@ -215,20 +252,24 @@ module type S = sig
     deviceOpenMode -> disk -> mount_options -> (root * int64) Lwt.t
   (** Open a filesystem
 
-      Returns a root and its generation number.
-      When integrating Wodan as part of a distributed system,
-      you may want to check here that the generation number
-      has grown since the last flush *)
+      Returns a root and its generation number. When integrating Wodan as part
+      of a distributed system, you may want to check here that the generation
+      number has grown since the last flush *)
 end
 
-(** Build a Wodan.S module given a backing device and parameters
+(** Build a {!Wodan.S} module given a backing device and parameters
 
-    This is the main entry point to Wodan. *)
+    This is the main entry point to Wodan. {!open_for_reading} is another entry
+    point, used when you have an existing filesystem and do not care about the
+    superblock parameters. *)
 module Make (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) : S with type disk = B.t
 
+(** This is a type that packages together a {!Wodan.S} with an opened root and
+    the generation number read when mounting *)
 type open_ret =
-  | OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret
+  | OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret  (** *)
 
 val open_for_reading :
   (module EXTBLOCK with type t = 'a) -> 'a -> mount_options -> open_ret Lwt.t
-(** Open an existing Wodan filesystem, getting static parameters from the superblock *)
+(** Open an existing Wodan filesystem, getting static parameters from the
+    superblock *)

@@ -6,29 +6,29 @@ end
 
 module Make (Ord : OrderedType) : sig
   type 'a t
-  (** The type for maps  *)
+  (** The type for maps *)
 
   type key = Ord.t
-  (** The type for keys  *)
+  (** The type for keys *)
 
   val create : unit -> 'a t
   (** Creates a new empty map *)
 
   val length : 'a t -> int
-  (** Returns the length of the map  *)
+  (** Returns the length of the map *)
 
   val clear : 'a t -> unit
-  (** Clears the map  *)
+  (** Clears the map *)
 
   val is_empty : 'a t -> bool
   (** [is_empty m] returns whether map [m] is empty *)
 
   val find : 'a t -> key -> 'a
-  (** [find m x] returns the binding of x in [m] or raises [Not_found]
-      if [x] is not bind.  *)
+  (** [find m x] returns the binding of x in [m] or raises [Not_found] if [x]
+      is not bind. *)
 
   val find_opt : 'a t -> key -> 'a option
-  (** Same as [find] but wrapped in an option  *)
+  (** Same as [find] but wrapped in an option *)
 
   val min_binding : 'a t -> key * 'a
   (** Returns the binding with the minimum key, or raises Not_found if the map
@@ -39,12 +39,12 @@ module Make (Ord : OrderedType) : sig
       is empty. *)
 
   val find_first : 'a t -> key -> key * 'a
-  (** [find_first_opt m k] finds the binding with the smallest key that
-      is greater than [k], or raises [Not_found] if empty *)
+  (** [find_first_opt m k] finds the binding with the smallest key that is
+      greater than [k], or raises [Not_found] if empty *)
 
   val find_last : 'a t -> key -> key * 'a
-  (** [find_first_opt m k] finds the binding with the greatest key that
-      is smaller than [k], or raises [Not_found] if empty *)
+  (** [find_first_opt m k] finds the binding with the greatest key that is
+      smaller than [k], or raises [Not_found] if empty *)
 
   val find_first_opt : 'a t -> key -> (key * 'a) option
   (** Same as [find_first] but wrapped in an option *)
@@ -53,32 +53,32 @@ module Make (Ord : OrderedType) : sig
   (** Same as [find_last] but wrapped in an option *)
 
   val mem : 'a t -> key -> bool
-  (** [mem m x] checks whether [x] is bind in [m]  *)
+  (** [mem m x] checks whether [x] is bind in [m] *)
 
   val exists : (key -> 'a -> bool) -> 'a t -> bool
-  (** [exists f m] checks whether there exists a binding in [m]
-      satisfying the predicate [f] *)
+  (** [exists f m] checks whether there exists a binding in [m] satisfying the
+      predicate [f] *)
 
   val add : 'a t -> key -> 'a -> unit
-  (** [add m k v] adds a binding from [k] to [v] in [m], replacing
-      the previous binding if any*)
+  (** [add m k v] adds a binding from [k] to [v] in [m], replacing the previous
+      binding if any*)
 
   val remove : 'a t -> key -> unit
   (** [remove m k] removes the binding of [k] in [m] *)
 
   val replace_existing : 'a t -> key -> 'a -> unit
-  (** [replace_existing m k v] replaces the binding of [k] in
-      [m] with the value [v] if any, otherwise raises [Not_found] *)
+  (** [replace_existing m k v] replaces the binding of [k] in [m] with the
+      value [v] if any, otherwise raises [Not_found] *)
 
   val xadd : 'a t -> key -> 'a -> unit
-  (** [xadd m k v] adds a binding from [k] to [v], or raises
-      [Already_exists] if there is already one *)
+  (** [xadd m k v] adds a binding from [k] to [v], or raises [Already_exists]
+      if there is already one *)
 
   val update : 'a t -> key -> ('a option -> 'a option) -> unit
   (** [update m x f] returns a map containing the same bindings as [m], except
       for the binding of [x]. Depending on the value of y where y is
-      [f (find_opt x m)], the binding of [x] is added, removed or updated.
-      If y is [None], the binding is removed if it exists; otherwise, if y is
+      [f (find_opt x m)], the binding of [x] is added, removed or updated. If y
+      is [None], the binding is removed if it exists; otherwise, if y is
       [Some z] then [x] is associated to [z] in the resulting map. If [x] was
       already bound in [m] to a value that is physically equal to [z], [m] is
       left unchanged *)
@@ -103,8 +103,8 @@ module Make (Ord : OrderedType) : sig
       that start <= x <= stop *)
 
   val split_off_after : 'a t -> key -> 'a t
-  (** [split_off_after m k] removes all the bindings [(x, v)] in [m] such
-      that [x > k] and returns them in a new map *)
+  (** [split_off_after m k] removes all the bindings [(x, v)] in [m] such that
+      [x > k] and returns them in a new map *)
 
   val split_off_le : 'a t -> key -> 'a t
   (** [split_off_le m k] removes all the bindings [(x, v)] in [m] such that
