@@ -21,28 +21,52 @@
     {!Wodan.S} module supporting filesystem operations *)
 
 exception BadMagic
+(** Raised when trying to open a superblock and it doesn't have the magic tag for Wodan filesystems *)
 
 exception BadVersion
+(** Raised when trying to open a superblock and it doesn't have a supported version for Wodan filesystems *)
 
 exception BadFlags
+(** Raised when trying to open a superblock and it sets must-support flags that this version doesn't support *)
 
 exception BadCRC of int64
+(** Raised when a block doesn't have the expected CRC
+
+    The exception carries the logical offset of the block. *)
 
 exception BadParams
+(** Raised when {!SUPERBLOCK_PARAMS} passed to the Make functor don't match actual settings saved in the superblock *)
 
 exception ReadError
+(** Raised on IO failures reading a block *)
 
 exception WriteError
+(** Raised on IO failures writing a block *)
 
 exception OutOfSpace
+(** Raised when the filesystem doesn't have enough space to perform the operation *)
 
 exception NeedsFlush
+(** Raised when the filesystem doesn't have enough space to perform an operation
+    that would be possible if pending operations were flushed first *)
 
 exception BadKey of string
+(** Raised when converting to a key is impossible, eg because the input doesn't have the expected length
+
+    The exception carries the original input. *)
 
 exception ValueTooLarge of string
+(** Raised when converting to a value is impossible, because the input would not fit on a single block
+
+    Note that Wodan expects the user to chunk values if arbitrary lengths are to be supported.
+    See also {!Wodan_irmin}'s relationship to irmin-chunk.
+
+    The exception carries the original input *)
 
 exception BadNodeType of int
+(** Raised when a block doesn't have a known and expected node type
+
+    The exception carries the type tag that couldn't be handled. *)
 
 (** The standard Mirage block signature, with Wodan-specific extensions *)
 module type EXTBLOCK = sig
