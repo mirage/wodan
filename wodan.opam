@@ -8,25 +8,23 @@ name: "wodan"
 synopsis: "A flash-friendly, safe and flexible filesystem library"
 
 build: [
-  ["dune" "build" "-p" name ]
-  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
-  ["dune" "build" "@fmt" "-p" name ] {with-test}
+  ["dune" "subst"] {pinned}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
 ]
 
 depends: [
-  "ocamlfind" {build}
+  "ocaml" {>= "4.08.0"}
   "dune"  {>= "1.7"}
-
-  "ocamlformat" {with-test & = "0.15.0"}
-  "alcotest" {with-test}
-  "bos" {with-test}
-  "ezjsonm" {with-test}
-  "mirage-block-unix" {with-test}
-  "ounit" {with-test}
-  "ocaml-migrate-parsetree" {with-test}
-  "ppx_sexp_conv" {with-test}
-  "yaml" {with-test}
-
   "bitv"
   "checkseum" {>= "0.0.2"}
   "cstruct"
@@ -39,9 +37,6 @@ depends: [
   "mirage-block" {>= "2.0.0"}
   "nocrypto"
   "ppx_cstruct"
-  "rresult"
-  "stdcompat"
-  "ocaml" {>= "4.07.0"}
 ]
 
 pin-depends: [

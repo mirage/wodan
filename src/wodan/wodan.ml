@@ -1065,7 +1065,7 @@ struct
           (mul n (of_int P.block_size))
           (of_int open_fs.filesystem.other_sector_size))
     >|= function
-    | res -> Rresult.R.get_ok res
+    | res -> Result.get_ok res
 
   let fstrim root =
     let open_fs = root.open_fs in

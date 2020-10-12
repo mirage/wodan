@@ -21,8 +21,5 @@ matrix:
   - env: OCAML_VERSION=4.08 PACKAGE=wodan
   - env: OCAML_VERSION=4.08 PACKAGE=wodan-unix
   - env: OCAML_VERSION=4.08 PACKAGE=wodan-irmin
-  - env: OCAML_VERSION=4.07 PACKAGE=wodan
-  - env: OCAML_VERSION=4.07 PACKAGE=wodan-unix
-  - env: OCAML_VERSION=4.07 PACKAGE=wodan-irmin
 os:
   - linux

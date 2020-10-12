@@ -1,5 +1,3 @@
-open Stdcompat
-
 module type OrderedType = sig
   type t
 

@@ -8,29 +8,23 @@ name: "wodan-unix"
 synopsis: "Wodan clients with Unix integration"
 
 build: [
-  ["dune" "build" "-p" name "-j" jobs]
-  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
-  ["dune" "build" "@fmt" "-p" name ] {with-test}
+  ["dune" "subst"] {pinned}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
 ]
 
 depends: [
-  "ocamlfind" {build}
-  "dune"  {>= "1.7"}
-  "ocamlformat" {with-test}
-  "alcotest" {with-test}
-  "bos" {with-test}
-  "cstruct" {with-test}
-  "diet" {with-test}
-  "ezjsonm" {with-test}
-  "io-page" {with-test}
-  "logs" {with-test}
-  "lwt" {with-test}
-  "mirage-block-unix" {with-test}
-  "ounit" {with-test}
-  "ocaml-migrate-parsetree" {with-test}
-  "ppx_sexp_conv" {with-test}
-  "yaml" {with-test}
-
+  "ocaml"
+  "dune"  {>= "2.3.0"}
   "afl-persistent"
   "base64" {>= "3.0.0"}
   "benchmark"
