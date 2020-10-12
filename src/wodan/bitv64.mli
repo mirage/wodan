@@ -5,8 +5,7 @@ type t
 (** The type for [Location.t] indexed [Bitv]s *)
 
 val create : int64 -> bool -> t
-(** [create n b] creates a new bit vector of length [n],
-    initialized with [b].
+(** [create n b] creates a new bit vector of length [n], initialized with [b].
     [n] must be smaller than [max_int], otherwise raises Invalid_argument. *)
 
 val set : t -> Location.t -> bool -> unit
@@ -22,5 +21,5 @@ val iter : (bool -> unit) -> t -> unit
 (** [iter f v] applies [f] to every element in [v]. *)
 
 val iteri : (Location.t -> bool -> unit) -> t -> unit
-(** [iteri] is like [iter], but applies f to the index of the element,
-    as first argument, and to the element itself, as second argument. *)
+(** [iteri] is like [iter], but applies f to the index of the element, as first
+    argument, and to the element itself, as second argument. *)

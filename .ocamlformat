@@ -5,3 +5,4 @@ space-around-lists=false
 space-around-records=false
 margin=79
 type-decl=sparse
+parse-docstrings

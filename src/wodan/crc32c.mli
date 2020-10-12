@@ -22,5 +22,5 @@ val cstruct_valid : Cstruct.t -> bool
     0xffffffffl *)
 
 val cstruct_reset : Cstruct.t -> unit
-(** [cstruct_reset cstruct] rewrites the last four bytes of
-    cstruct so that [cstruct_valid cstruct] is true *)
+(** [cstruct_reset cstruct] rewrites the last four bytes of cstruct so that
+    [cstruct_valid cstruct] is true *)
