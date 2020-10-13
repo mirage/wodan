@@ -19,6 +19,11 @@ module Log : Logs.LOG
 
 val standard_mount_options : Wodan.mount_options
 
+module StandardSuperblockParams : Wodan.SUPERBLOCK_PARAMS
+(** Defaults for {!SUPERBLOCK_PARAMS}
+
+    Unlike {!Wodan.SUPERBLOCK_PARAMS}, this has tombstones enabled *)
+
 module Conf : sig
   val path : string Irmin.Private.Conf.key
 
@@ -78,7 +83,8 @@ module CA_BUILDER : functor (_ : DB) -> Irmin.CONTENT_ADDRESSABLE_STORE_MAKER
 (** Builds an {!Irmin.ATOMIC_WRITE_STORE}, storing key to value mappings with
     extra features
 
-    Extra features currently incude: atomicity and watches, listing all keys *)
+    Extra features currently incude: atomicity and watches, listing all keys,
+    deleting keys. *)
 module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
   Irmin.ATOMIC_WRITE_STORE_MAKER
 

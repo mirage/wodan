@@ -26,7 +26,7 @@ module RamBlockCon = struct
 end
 
 module DB_ram =
-  Wodan_irmin.DB_BUILDER (RamBlockCon) (Wodan.StandardSuperblockParams)
+  Wodan_irmin.DB_BUILDER (RamBlockCon) (Wodan_irmin.StandardSuperblockParams)
 
 module FileBlockCon = struct
   include Block
@@ -35,7 +35,7 @@ module FileBlockCon = struct
 end
 
 module DB_fs =
-  Wodan_irmin.DB_BUILDER (FileBlockCon) (Wodan.StandardSuperblockParams)
+  Wodan_irmin.DB_BUILDER (FileBlockCon) (Wodan_irmin.StandardSuperblockParams)
 
 let _ =
   Resolver.Store.add "wodan-mem"

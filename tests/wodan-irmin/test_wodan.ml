@@ -25,7 +25,7 @@ module BlockCon = struct
 end
 
 module DB_ram =
-  Wodan_irmin.DB_BUILDER (BlockCon) (Wodan.StandardSuperblockParams)
+  Wodan_irmin.DB_BUILDER (BlockCon) (Wodan_irmin.StandardSuperblockParams)
 
 (* let store = Irmin_test.store (module Wodan_irmin.Make(DB_ram)) (module Irmin.Metadata.None) *)
 let store =

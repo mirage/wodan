@@ -16,7 +16,8 @@ module BlockCon = struct
   let discard _ _ _ = Lwt.return (Ok ())
 end
 
-module DB = Wodan_irmin.DB_BUILDER (BlockCon) (Wodan.StandardSuperblockParams)
+module DB =
+  Wodan_irmin.DB_BUILDER (BlockCon) (Wodan_irmin.StandardSuperblockParams)
 module Wodan_Git_KV = Wodan_irmin.KV_git (DB)
 
 module Dispatch (S : HTTP) = struct

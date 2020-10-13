@@ -22,7 +22,7 @@ module Wodan_DB =
 
       let connect name = Block.connect name
     end)
-    (Wodan.StandardSuperblockParams)
+    (Wodan_irmin.StandardSuperblockParams)
 
 module Wodan_nongit_S =
   Wodan_irmin.KV_chunked (Wodan_DB) (Irmin.Hash.SHA1) (Irmin.Contents.String)
