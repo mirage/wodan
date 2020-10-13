@@ -21,8 +21,7 @@ let src = Logs.Src.create "irmin.wodan"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-let standard_mount_options =
-  {Wodan.standard_mount_options with has_tombstone = true}
+let standard_mount_options = Wodan.standard_mount_options
 
 module Conf = struct
   let path =
@@ -476,7 +475,7 @@ functor
       t
 
     let set_and_list db ik iv ikv =
-      assert (not (Stor.is_tombstone (db_root db) iv));
+      assert (not (Stor.is_tombstone iv));
       ( if not (KeyHashtbl.mem db.keydata ik) then (
         KeyHashtbl.add db.keydata ik db.magic_key;
         may_autoflush db (fun () -> Stor.insert (db_root db) db.magic_key ikv)
