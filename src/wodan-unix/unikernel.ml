@@ -226,7 +226,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
           ~size_sectors:Int64.(div (of_int disk_size) 512L)
           ~sector_size:512
       in
-      let disk = Rresult.R.get_ok disk_res in
+      let disk = Result.get_ok disk_res in
       let%lwt info = Ramdisk.get_info disk in
       Lwt.return (disk, info)
     in
