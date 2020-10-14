@@ -282,7 +282,7 @@ functor
       | None -> Lwt.return_none
       | Some v ->
           Lwt.return_some
-            (Rresult.R.get_ok
+            (Result.get_ok
                (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
 
     let mem db k =
@@ -347,7 +347,7 @@ functor
       | None -> Lwt.return_none
       | Some v ->
           Lwt.return_some
-            (Rresult.R.get_ok
+            (Result.get_ok
                (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
 
     let mem db k =
@@ -418,10 +418,10 @@ functor
       Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
 
     let key_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
+      Result.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Rresult.R.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
+      Result.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
 
     let inner_val_to_inner_key va =
       Stor.key_of_string
