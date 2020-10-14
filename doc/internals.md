@@ -1,14 +1,14 @@
 # Wodan internals
 
-config.ml is the standard MirageOS configuration file. It configures a test
-client which runs over a generic storage implementation, either file-backed or
-a ramdisk.
+## Packages
 
-unikernel.ml contains the unikernel main method, which runs tests over the
-storage API. The current tests exercise inserting, flushing, closing and
-reopening the filesystem, in a random fashion.
+### wodan
 
-storage.ml contains the storage implementation.
+The wodan package is at the bottom of the package hierarchy
+and implements the file-system, provided an abstract module
+that does IO.
+
+#### Implementation notes
 
 There are data structures and utility methods defined at the top level.
 
@@ -16,22 +16,19 @@ There are cstructs defined for the layout of different types of blocks:
 superblock, root node or child node. Additionally, an anynode cstruct contains
 the fields common to root and child nodes.
 
-The main data structures are an LRU cache and LRU entries. These are the
-in-memory representation of nodes. The nodes can be in various states of
-indexing; either the child keys or the data keys can be indexed. This is
-managed through lazy values. Some mass updates in the insert code can make data
-keys lazy again. Child keys always stay materialized because they contain extra
-metadata which isn't available in the cold representation of a node. The
-childlink can contain an alloc id if the child has been loaded, which allows
-navigating the live tree.
+The main data structures are a cache, containing a LRU, and LRU entries.
 
-The main cache structure contains the LRU, a set of dirty roots, various
-counters which are used to allocate sequential numbers, counters used to track
-free space, a map of where free space is on the filesystem, other counters used
-to track statistics.
+LRU entries are the in-memory representation of nodes.  Nodes contain and index
+children and inline data.  The childlink can contain an alloc id if the child
+has been loaded, which allows navigating the live tree.
 
-The main module is a Make functor, which takes a block device and a set of
-parameters that control data layout.
+The cache structure contains the LRU, a subtree for dirty nodes, various counters
+which are used to allocate sequential numbers, counters used to track free
+space, a map of where free space is on the filesystem, other counters used to
+track statistics.
+
+The main user-facing module is a Make functor, which takes a block device and a
+set of parameters that control data layout.
 
 The API contains the verbs:
 
@@ -58,5 +55,20 @@ sometimes called to reserve space for a batch of fast inserts; this is the case
 when a node spills into a lower node. This split allows better error reporting
 when there is no free space.
 
+### wodan-unix
 
+The wodan-unix package depends on Wodan and Unix,
+so that the filesystem can be backed by standard files.
 
+It contains a wodanc command, which is a multitool
+that can create filesystems, dump and restore data
+from/into filesystems, and trim unused blocks.
+
+It can also run benchmarks, run other tests that
+attempt to exercise most of the code base, and
+fuzz the same tests.
+
+### wodan-irmin
+
+The wodan-irmin package provides some Irmin database types
+that can be constructed from Wodan filesystems.

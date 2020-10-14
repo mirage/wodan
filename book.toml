@@ -1,0 +1,7 @@
+[book]
+title = "Wodan book"
+src = "doc"
+
+[preprocessor.toc]
+command = "mdbook-toc"
+renderer = ["html"]
