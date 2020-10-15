@@ -33,7 +33,7 @@ jobs:
       - run: sudo apt install gnuplot-nox
       - run: make deps
 
-      - run: make doc
+      - run: opam exec make doc
 
       # Move things a bit for clean and durable urls
       - run: mkdir pages pages/doc
