@@ -29,9 +29,11 @@ jobs:
       - run: mkdir -- "$GITHUB_WORKSPACE/bin"
       - run: mv -t "$GITHUB_WORKSPACE/bin" /tmp/mdbook /tmp/mdbook-toc
       - run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+      - run: which mdbook
 
       - name: Setup OCaml
         uses: avsm/setup-ocaml@v1
+      - run: opam exec which mdbook
       # Required through irmin-test -> metrics-unix -> conf-gnuplot
       - run: sudo apt install gnuplot-nox
       - run: make deps
