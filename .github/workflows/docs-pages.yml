@@ -27,7 +27,7 @@ jobs:
           use-tool-cache: true
 
       - name: Setup OCaml
-        user: avsm/setup-ocaml@v1
+        uses: avsm/setup-ocaml@v1
         with:
           ocaml-version: 4.11.1
 
