@@ -1,4 +1,4 @@
-# Git design
+# Git design (DRAFT)
 
 ```
 module type KEY = sig

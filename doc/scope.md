@@ -4,6 +4,8 @@
 This document describes a flash friendly, functional, safe and flexible
 filesystem library.
 
+<!-- toc -->
+
 ## Flash friendly and flash optimised
 
 The primary target of this filesystem is a flash translation layer.
@@ -68,10 +70,11 @@ are no in-place rewrites.
 We use hitchhiker trees, which minimise the write amplification functional
 updates would cause by batching changes close to the root.
 
-While there may be multiple roots referring to a subtree, only one of them is
-valid at any point.  This is single ownership.  It simplifies tracking
-whether a block on the disk is in use: once a block is written on disk, its
-previous instance can be re-used.
+While there may be multiple roots referring to a subtree on disk, for
+the live filesystem, only one of them is valid at any point.  This is
+single ownership.  It simplifies tracking whether a block on the disk is
+in use: once a block is written on disk, its previous instance can be
+re-used.
 
 With single ownership, the data structures in memory don't need to be
 functionally updated.  We lose snapshot support, but this can be provided
@@ -97,7 +100,7 @@ On file-backed devices, barriers are harder, though [not
 impossible](https://lwn.net/Articles/667788/ "see discussion").  Having
 journaled data makes this unnecessary, at a performance cost.
 
-## Verified
+## Integrity validated
 
 The filesystem is checked at mount time.
 

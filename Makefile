@@ -6,6 +6,9 @@ build:
 deps:
 	opam install -t --deps-only .
 
+doc-deps:
+	cargo install mdbook mdbook-toc
+
 sync:
 	git submodule sync --recursive
 	git submodule update --init --recursive
@@ -20,6 +23,7 @@ fuzz:
 
 doc:
 	dune build @doc
+	mdbook build
 
 test:
 	dune runtest tests
@@ -34,4 +38,4 @@ clean:
 	dune clean
 	rm -f wodanc
 
-.PHONY: build deps ocamlformat fuzz doc test install uninstall clean
+.PHONY: build deps doc-deps ocamlformat fuzz doc test install uninstall clean

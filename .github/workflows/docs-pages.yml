@@ -1,0 +1,31 @@
+name: Publish docs on GitHub pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup mdBook
+        uses: peaceiris/actions-mdbook@v1
+        with:
+          mdbook-version: '0.4'
+          # mdbook-version: 'latest'
+
+      - run: make doc
+      - run: mkdir pages pages/doc
+      - run: mv -t pages book
+      - run: mv -t pages/doc doc/wodan-for-mirage.html
+      - run: mv -T _build/default/_doc/_html pages/odoc
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./pages
+
