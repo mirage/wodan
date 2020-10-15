@@ -13,26 +13,34 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Setup mdBook
-        uses: actions-rs/install@v0.1
+        uses: XAMPPRocky/get-github-release@v1
         with:
-          crate: mdbook
-          version: 0.4
-          use-tool-cache: true
-
+          owner: rust-lang
+          repo: mdbook
+          matches: x86_64-unknown-linux-gnu
+          token: "${{ secrets.GITHUB_TOKEN }}"
       - name: Setup mdBook TOC postprocessor
-        uses: actions-rs/install@v0.1
+        uses: XAMPPRocky/get-github-release@v1
         with:
-          crate: mdbook-toc
-          version: 0.5
-          use-tool-cache: true
+          owner: badboy
+          repo: mdbook-toc
+          matches: x86_64-unknown-linux-gnu
+          token: "${{ secrets.GITHUB_TOKEN }}"
+      - run: mkdir -- "$GITHUB_WORKSPACE/bin"
+      - run: mv -t "$GITHUB_WORKSPACE/bin" /tmp/mdbook /tmp/mdbook-toc
+      - run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+      - run: which mdbook
 
       - name: Setup OCaml
-        user: avsm/setup-ocaml@v1
-        with:
-          ocaml-version: 4.11.1
+        uses: avsm/setup-ocaml@v1
+      - run: opam exec which mdbook
+      # Required through irmin-test -> metrics-unix -> conf-gnuplot
+      - run: sudo apt install gnuplot-nox
+      - run: make deps
+
+      - run: opam exec make doc
 
       # Move things a bit for clean and durable urls
-      - run: make doc
       - run: mkdir pages pages/doc
       - run: mv -t pages book
       - run: mv -t pages/doc doc/wodan-for-mirage.html

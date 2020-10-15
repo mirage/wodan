@@ -36,6 +36,7 @@ depends: [
   "lwt_ppx"
   "mirage-block" {>= "2.0.0"}
   "nocrypto"
+  "odoc" {with-doc}
   "ppx_cstruct"
 ]
 

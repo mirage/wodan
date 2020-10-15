@@ -4,7 +4,7 @@ build:
 	ln -sf _build/default/src/wodan-unix/wodanc.exe wodanc
 
 deps:
-	opam install -t --deps-only .
+	opam install --deps-only --with-doc --with-test .
 
 doc-deps:
 	cargo install mdbook mdbook-toc
