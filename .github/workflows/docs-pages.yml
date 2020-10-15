@@ -29,6 +29,8 @@ jobs:
 
       - name: Setup OCaml
         uses: avsm/setup-ocaml@v1
+      # Required through irmin-test -> metrics-unix -> conf-gnuplot
+      - run: sudo apt install gnuplot-nox
       - run: make deps
 
       - run: make doc
