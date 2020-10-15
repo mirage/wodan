@@ -1,0 +1,831 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Wodan book</title>
+        
+        <meta name="robots" content="noindex" />
+        
+        
+
+
+        <!-- Custom HTML head -->
+        
+
+
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        
+        <link rel="icon" href="favicon.svg">
+        
+        
+        <link rel="shortcut icon" href="favicon.png">
+        
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        
+        <link rel="stylesheet" href="fonts/fonts.css">
+        
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        
+
+        
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="intro.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Design</li><li class="chapter-item expanded "><a href="scope.html"><strong aria-hidden="true">1.</strong> Scope</a></li><li class="chapter-item expanded "><a href="semantics.html"><strong aria-hidden="true">2.</strong> Semantics</a></li><li class="chapter-item expanded "><a href="design.html"><strong aria-hidden="true">3.</strong> Design choices</a></li><li class="chapter-item expanded affix "><li class="part-title">Internals</li><li class="chapter-item expanded "><a href="layout.html"><strong aria-hidden="true">4.</strong> On-disk layout</a></li><li class="chapter-item expanded "><a href="internals.html"><strong aria-hidden="true">5.</strong> Code organisation</a></li><li class="chapter-item expanded "><a href="free-space.html"><strong aria-hidden="true">6.</strong> Free space and ENOSPC</a></li><li class="chapter-item expanded affix "><li class="part-title">Proposed features</li><li class="chapter-item expanded "><a href="proposed/linear-layout.html"><strong aria-hidden="true">7.</strong> Linear, growable layout</a></li><li class="chapter-item expanded "><a href="proposed/git.html"><strong aria-hidden="true">8.</strong> Git on top of Wodan</a></li><li class="chapter-item expanded affix "><li class="part-title">Further reading</li><li class="chapter-item expanded "><a href="references.html"><strong aria-hidden="true">9.</strong> References</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                        
+                    </div>
+
+                    <h1 class="menu-title">Wodan book</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        
+                    </div>
+                </div>
+
+                
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" name="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <p>Wodan is a flash friendly, safe and flexible filesystem library for Mirage OS</p>
+<p>This documentation focuses on design choices and implementation choices.</p>
+<h1><a class="header" href="#design-targets" id="design-targets">Design targets</a></h1>
+<p>This document describes a flash friendly, functional, safe and flexible
+filesystem library.</p>
+<ul>
+<li><a href="scope.html#flash-friendly-and-flash-optimised">Flash friendly and flash optimised</a></li>
+<li><a href="scope.html#functional">Functional</a></li>
+<li><a href="scope.html#consistent">Consistent</a></li>
+<li><a href="scope.html#integrity-validated">Integrity validated</a></li>
+<li><a href="scope.html#domain-specific">Domain specific</a></li>
+<li><a href="scope.html#tunable-performance">Tunable performance</a></li>
+<li><a href="scope.html#an-irmin-backend">An Irmin backend</a></li>
+<li><a href="scope.html#other-considerations">Other considerations</a></li>
+</ul>
+<h2><a class="header" href="#flash-friendly-and-flash-optimised" id="flash-friendly-and-flash-optimised">Flash friendly and flash optimised</a></h2>
+<p>The primary target of this filesystem is a flash translation layer.
+A secondary target is hybrid devices layered using a FTL (bcache and
+bcachefs included).</p>
+<p>Whenever possible, we pick a design that performs well on both raw flash and
+SSDs.   For example, having a large block size means that the FTL's log is
+largely bypassed (thanks to the switch/merge optimisation).</p>
+<p>However, we take advantage of the FTL by assuming that it handles bad blocks.
+Neither is rewriting old blocks to prevent decay handled in the filesystem
+layer.  Support for bad blocks and refreshing old blocks could be added
+(preventing decay is easy in the current design) but this is not a primary
+goal.</p>
+<p>The filesystem uses a block size that must be a multiple of the erase block
+size of the underlying flash (between 256k and 4M), and, ideally, the exact
+same size.
+Using a multiple guarantees that there is no write amplification and that the
+FTL's garbage collection can perform well.
+Using the exact same block size guarantees that writes aren't amplified at the
+filesystem level when nodes are split or when the library user does periodic
+checkpointing in order to get data durability.
+Larger block sizes (up to the cluster block size, around 16M) may be
+advantageous in order to take full advantage of the FTL's internal parallelism,
+however this is only useful at very high throughput and periodic checkpointing
+should not be used in those cases.</p>
+<p>Another characteristic that makes the filesystem flash-friendly is that writes
+are evenly distributed over the device.  The only exception is the superblock,
+which is the first block, and is written to exactly once.  The first write is
+to a random location, and every write after that is sequential.  Once writes
+wrap around to used blocks, they skip over them.</p>
+<p>Resizing is not supported because it would interfere with the mount-time
+operation of locating the root block (which needs monotonic generation
+numbers for root nodes), or alternatively require large scale copying and
+rewriting.</p>
+<p>Thin provisioning may be supported in the future, with a garbage collection
+feature that periodically batches and discards blocks that are not in use
+(which also improves the performance of the FTL).</p>
+<p>The flip side of being flash friendly is that the filesystem can be optimised
+to take advantage of the performance characteristics of flash, such as fast
+random read access.  Tree nodes are not required to be grouped according to
+access patterns.</p>
+<p>References</p>
+<ul>
+<li>http://codecapsule.com/2014/02/12/coding-for-ssds-part-6-a-summary-what-every-programmer-should-know-about-solid-state-drives/</li>
+<li>https://www.usenix.org/system/files/conference/inflow14/inflow14-yang.pdf</li>
+</ul>
+<h2><a class="header" href="#functional" id="functional">Functional</a></h2>
+<p>On disk, the filesystem provides a functional key value map.</p>
+<p>The main advantage of being functional is that this is flash-friendly: there
+are no in-place rewrites.</p>
+<p>We use hitchhiker trees, which minimise the write amplification functional
+updates would cause by batching changes close to the root.</p>
+<p>While there may be multiple roots referring to a subtree on disk, for
+the live filesystem, only one of them is valid at any point.  This is
+single ownership.  It simplifies tracking whether a block on the disk is
+in use: once a block is written on disk, its previous instance can be
+re-used.</p>
+<p>With single ownership, the data structures in memory don't need to be
+functionally updated.  We lose snapshot support, but this can be provided
+by Irmin.</p>
+<p>Mounting the filesystem provides a tree_id -&gt; root map.</p>
+<p>Most operations: read key, write key, search key interval, flush are done on a root.</p>
+<h2><a class="header" href="#consistent" id="consistent">Consistent</a></h2>
+<p>The filesystem is such that loss of the backing device at any point will
+keep its contents in a consistent state.</p>
+<p>To prevent torn writes and corruption at the backing device level, every block
+of data is written with a valid CRC32C.</p>
+<p>To prevent out-of-order writes, a write barrier is issued before every write
+of a root block on devices that support it, so that the contents referenced
+by the root block are always available if the root block is.</p>
+<p>On file-backed devices, barriers are harder, though <a href="https://lwn.net/Articles/667788/" title="see discussion">not
+impossible</a>.  Having
+journaled data makes this unnecessary, at a performance cost.</p>
+<h2><a class="header" href="#integrity-validated" id="integrity-validated">Integrity validated</a></h2>
+<p>The filesystem is checked at mount time.</p>
+<p>This guarantees that the filesystem checker code is maintained and matches
+every implemented feature.</p>
+<p>It also provides an opportunity to build in-memory data structures to help
+with filesystem access, particularly write access and garbage collection.</p>
+<p>Those data structures may later be serialised, in a way that doesn't increase
+the io bandwidth unreasonably and allows for faster, unverified mounts, but
+this is not a primary goal.  Those unverified mounts will help support large
+filesystems and particularly hybrid devices.</p>
+<p>A possible help with barrier-less writes to the filesystem would be locating
+the newest root block that passes filesystem checks.  When an inconsistency is
+detected, the search for a valid root block could continue immediately before
+the newest block with an inconsistency.  Assuming the window for in-flight data
+isn't too large, the newest valid root block should still be fairly recent.</p>
+<p>Corruption of a rarely-updated leaf node (bitrot) cannot be corrected in such a way.
+Having filesystem checks at mount time gives early warning that backups or a
+higher-level redundancy mechanism should be used, increasing the chances that
+the data may be recovered.</p>
+<h2><a class="header" href="#domain-specific" id="domain-specific">Domain specific</a></h2>
+<p>The filesystem can be tailored for the target domain.</p>
+<p>It provides a key-&gt;value map, within some constraints.</p>
+<p>The filesystem has a fixed key size that is chosen by the user.
+This allows a better fit for the target domain.  For example,
+the key size can be large to allow perfect/cryptographic hashing.
+Or, the key size can be much smaller, and the filesystem may be
+used as a hash table with open addressing.  The user must then
+check for collisions before inserting and must implement
+collision handling such as robin hood hashing.</p>
+<p>The block size is also chosen by the user (taking into account FTL
+characteristics).</p>
+<p>The value size is bounded, the limit is such that a key value pair must
+fit into a single block after leaf overhead is taken into account.
+Large values won't pack well into leaf nodes, so values should all be
+either small or close to the maximum allowed.  Large values will also
+force frequent leaf insertions, and performance will be closer to btree
+characteristics rather than fractal/hitchhiker tree characteristics.</p>
+<p>Layering a generic posix-ish filesystem over this might be left as an exercice
+for the library user.  This filesystem is meant to be a good, efficient fit for
+domain-specific storage, and genericity is not a design goal at this level.</p>
+<h2><a class="header" href="#tunable-performance" id="tunable-performance">Tunable performance</a></h2>
+<p>Like the data layout, performance characteristics are user controlled.</p>
+<p>A root node will be written every time its in-memory representation fills up.
+Since that may take a while, the user may implement regular checkpoint
+intervals so that the on-flash data isn't stale.  More frequent checkpointing
+will cause write amplification, but not enough to overwhelm or wear out the
+flash (which would otherwise be idle).  Flushing without checkpointing (no FUA
+or fdatasync) is also an option.</p>
+<p>Write order (ascending or descending logical addresses) could also be chosen
+at filesystem creation time.  Descending addresses may allow for more
+sequential checking in a bcache scenario.</p>
+<h2><a class="header" href="#an-irmin-backend" id="an-irmin-backend">An Irmin backend</a></h2>
+<p>The filesystem can be used as an Irmin backend.</p>
+<p>The layer immediately above it should be irmin-chunk, so that values are of
+bounded size.  Irmin-chunk might be extended to do a compression pass.  It
+could also be extended to provide deduplication by using content-defined
+chunking.</p>
+<p>At a minimum, this means providing an implementation of the AO_MAKER_RAW and
+LINK_MAKER signatures.</p>
+<h2><a class="header" href="#other-considerations" id="other-considerations">Other considerations</a></h2>
+<p>Tiering, parallelism (both of which involve splitting allocations into multiple
+pools) could conceivably be added to the existing design, but aren't design
+goals at the moment.  FTLs already take advantage of internal parallelism and
+doing the same in another layer would simply fragment the write patterns.</p>
+<p>Redundancy (raid and other uptime preserving mechanisms) is not a design goal,
+and should be handled at a higher or lower level.</p>
+<h1><a class="header" href="#semantics" id="semantics">Semantics</a></h1>
+<p>Wodan provides a persistent store containing ordered mappings.</p>
+<h2><a class="header" href="#persistence" id="persistence">Persistence</a></h2>
+<p>Updates affect the in-memory view of the store.
+They are not persisted until a flush is explicitly requested.</p>
+<h2><a class="header" href="#generations" id="generations">Generations</a></h2>
+<p>When flushing, a generation number is returned.
+Generations grow at every flush.</p>
+<h2><a class="header" href="#keys" id="keys">Keys</a></h2>
+<p>Keys are fixed-size byte sequences.</p>
+<p>Keys can be accessed in lexicographical order, with amenities such as
+range searches.</p>
+<h2><a class="header" href="#mappings" id="mappings">Mappings</a></h2>
+<p>Key-value mappings are mutable, and later updates shadow previous
+writes.</p>
+<h2><a class="header" href="#values" id="values">Values</a></h2>
+<p>Values are byte sequences of bounded size.</p>
+<h3><a class="header" href="#tombstones" id="tombstones">Tombstones</a></h3>
+<p>Values are generally treated as opaque.</p>
+<p>An exception is if tombstone support is enabled (at filesystem creation
+time); mapping to the empty value is then treated as absence of the
+mapping.</p>
+<p>Since tombstone semantics persist across mounts, when tombstones reach a
+leaf, they can be removed entirely.</p>
+<p>This allows tombstones to be used to provide an operation that deletes
+mappings.  The caller will have to ensure that empty values don't become
+ambiguous.  Some encodings never produce empty values, but when
+arbitrary data needs to be handled, a one-byte prefix is a good
+solution.</p>
+<p>In the future, upsert semantics could be added by using the first byte
+as a tag byte.  Operations like appending would then be possible.</p>
+<h1><a class="header" href="#design-notes" id="design-notes">Design notes</a></h1>
+<p>Notes about important choices in the filesystem and implementation design</p>
+<h2><a class="header" href="#caching" id="caching">Caching</a></h2>
+<p>Caching is done at the block level.</p>
+<h3><a class="header" href="#cache-priority" id="cache-priority">Cache priority</a></h3>
+<p>There's an LRU list that combines clean and dirty items.
+Flushing dirty items doesn't bump them or discard them from the cache.
+They become clean, their priority order stays the same.</p>
+<h3><a class="header" href="#hierarchical-consistency" id="hierarchical-consistency">Hierarchical consistency</a></h3>
+<p>The LRU can't be arbitrarily reordered as usual;
+we want it to preserve hierarchy, so that it only contains
+subtrees of the main tree sharing the same root.</p>
+<p>To do this, we make sure that a parent stays more recent than its child.
+Order LRU calls properly, and require the LRU to have room for a few
+paths from the tree root.</p>
+<h2><a class="header" href="#allocation-and-adressing-cache-items" id="allocation-and-adressing-cache-items">Allocation and adressing cache items</a></h2>
+<p>All cache items are accessed through an AllocID. These IDs, strongly
+typed to prevent some likely bugs, are pulled from an arbitrary sequence
+started at mount time. Whenever a node is loaded or created, it gets an
+AllocID, and when it is finally dropped from cache, that identifier
+isn't reused. Since nodes are only ever accessed from one path (no
+snapshots or subtree sharing, hierarchical consistency of the LRU), a
+node will only ever have one AllocID as long as it is in memory.</p>
+<p>Other choices of identifier that were considered and rejected:</p>
+<ul>
+<li>locations: old location would introduce some ambiguities (wrapping
+reuses locations), require updating on flushes, and not cover new
+nodes.  New one can't be predicted.</li>
+<li>generations: same issues as locations mostly</li>
+<li>direct ownership through references: that might work, but
+would interfere with lru ownership, probably requiring ephemerons
+somewhere</li>
+</ul>
+<p>When dropping items from cache, there is still some work required
+to record the location of nodes on their parents.
+Parents were only referencing them by their AllocIDs, and will
+switch back to using locations at this point.  Only clean nodes
+can be dropped, so the location is known.</p>
+<p>The following can keep an alloc id alive:</p>
+<ul>
+<li>it's been lent to the library user through a root handle</li>
+<li>it's dirty</li>
+<li>it's been recently used and is within the LRU list</li>
+</ul>
+<h2><a class="header" href="#single-ownership" id="single-ownership">Single ownership</a></h2>
+<p>Single ownership of nodes is necessary to track when a node is used,
+to enable bitmap tracking for gc purposes.
+Refcounting is out because we will never update in place.
+Mark and sweep is also out because it would cause a ton of IO.
+Single ownership also means a logical address is referenced by its parent
+exactly once (ghost trees don't matter to the cache), which means the cache
+can drop the logical address and use the alloc id instead.</p>
+<h2><a class="header" href="#garbage-collection" id="garbage-collection">Garbage collection</a></h2>
+<p>We keep track of blocks which we have explicitly stopped using (whenever
+we rewrite them to a new address).  This allows periodically sending
+discards, which is useful for flash-backed stores or for thin
+provisioning.
+This is complemented by a full fstrim operation which trims everything
+not in use.</p>
+<h2><a class="header" href="#integrity" id="integrity">Integrity</a></h2>
+<p>Integrity checks are preferably done when mounting.  This prevents
+bitrot and makes it easier to maintain integrity.  With fast_scan
+enabled, we defer checks on leaves until they are loaded, but all inner
+nodes are checked at mount time.  This ensures that the tree is well
+formed, and builds a reliable space map.</p>
+<h2><a class="header" href="#concurrency" id="concurrency">Concurrency</a></h2>
+<p>This is single-threaded at the moment.
+Add locking around node updates and some cache operations to change this, possibly.</p>
+<h1><a class="header" href="#layout" id="layout">Layout</a></h1>
+<h2><a class="header" href="#blocks" id="blocks">Blocks</a></h2>
+<p>Blocks are currently one of:</p>
+<ul>
+<li>the superblock, which is the first block at offset 0</li>
+<li>node blocks, representing serialized nodes</li>
+<li>unallocated blocks, which are generally ignored
+when mounting (mounting starts with a bisect operation
+that will look for the newest valid root and ignore blocks
+that don't seem to belong to the filesystem; currently
+this looks at the fsid, the crc, and the type flag
+which must indicate a root).</li>
+</ul>
+<h2><a class="header" href="#the-superblock" id="the-superblock">The superblock</a></h2>
+<pre><code>(* 512 bytes.  The rest of the block isn't crc-controlled. *)
+type%cstruct superblock = {
+  magic : uint8_t; [@len 16]
+  (* major version, all later fields may change if this does *)
+  version : uint32_t;
+  compat_flags : uint32_t;
+  (* refuse to mount if unknown incompat_flags are set *)
+  incompat_flags : uint32_t;
+  block_size : uint32_t;
+  key_size : uint8_t;
+  first_block_written : uint64_t;
+  logical_size : uint64_t;
+  (* FSID is UUID-sized (128 bits) *)
+  fsid : uint8_t; [@len 16]
+  reserved : uint8_t; [@len 443]
+  crc : uint32_t;
+}
+[@@little_endian]
+</code></pre>
+<p>The focus is on managing compatibility.
+This is written once at filesystem creation and never edited.</p>
+<p>The magic string must be &quot;MIRAGE KVFS \xf0\x9f\x90\xaa&quot;.</p>
+<p>The major version must be 1.</p>
+<p>Compat flags is currently empty, but may be added to without the
+current implementation refusing to mount.</p>
+<p>Incompat flags must currently contain the following, tracking
+evolutions of the data layout:</p>
+<ul>
+<li>sb_incompat_rdepth; nodes now track their rdepth (which
+is their height, starting with leaves at 0)</li>
+<li>sb_incompat_fsid; all blocks now repeat the fsid to
+reduce risks of mixing two different filesystems or
+of parsing foreign or uninitialized data at the block
+level</li>
+<li>sb_incompat_value_count; nodes now mark the end of the value
+data area by keeping a count of values, instead of relying
+on the previous redzone mechanism</li>
+</ul>
+<p>They may also contain the following optional flag:</p>
+<ul>
+<li>sb_incompat_tombstones; this affects semantics but not layout</li>
+</ul>
+<p>Adding anything else to the incompat flags will prevent
+the current implementation from mounting.
+This is to prevent reading or writing newer formats that
+are not compatible.</p>
+<p>In the future, an sb_incompat_linear flag is considered for
+indicating a linear (as opposed to circular and bisectable)
+layout.</p>
+<p>The block size defines how large blocks are and how to map
+logical addresses (used for child pointers, from blocks to
+other blocks) to physical addresses.</p>
+<p>First block written points to the first block ever written
+(generally an empty root), and is used to guide the bisection
+process that finds the newest root.</p>
+<p>Logical size says how large the filesystem is.  Resizing is not
+supported in the current, circular layout.
+The underlying device may grow, but the filesystem won't access
+beyond its original logical size.</p>
+<p>FSID is meant to uniquely identify a filesystem, and initialized
+to cryptographically random bytes.</p>
+<p>Reserved data is currently initialised to zero, but ignored when
+mounting so that new fields aren't necessarily introducing
+incompatible changes.</p>
+<p>The CRC controls the first 512 bytes.  The first block may be larger than
+the superblock; the extra padding behaves like reserved data, currently
+initialised to zero but won't break mounting.</p>
+<p>The block size must be a multiple of the IO size.
+The IO size must match the page size which is the unit
+for direct IO, on platforms that require direct IO.
+The IO size must be a multiple of the sector size,
+the size at which writes are atomic, which must be a
+multiple of 512.</p>
+<h2><a class="header" href="#node-blocks" id="node-blocks">Node blocks</a></h2>
+<p>There are two types of nodes: root and child.
+A leaf is a child that doesn't have children;
+there is no longer a special type marker or a specific layout for leaves.</p>
+<p>The focus is on compacity and the ability to grow logged data and child data
+independently.</p>
+<pre><code>type%cstruct anynode_hdr = {
+  nodetype : uint8_t;
+  generation : uint64_t;
+  fsid : uint8_t; [@len 16]
+  value_count : uint32_t;
+}
+[@@little_endian]
+
+type%cstruct rootnode_hdr = {
+  (* nodetype = 1 *)
+  nodetype : uint8_t;
+  (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
+  generation : uint64_t;
+  fsid : uint8_t; [@len 16]
+  value_count : uint32_t;
+  depth : uint32_t;
+}
+[@@little_endian]
+
+(* Contents: logged data, and child node links *)
+(* All node types end with a CRC *)
+(* rootnode_hdr
+ * logged data: (key, datalen, data)*, grow from the left end towards the right
+ *
+ * child links: (key, logical offset)*, grow from the right end towards the left
+ * crc *)
+
+type%cstruct childnode_hdr = {
+  (* nodetype = 2 *)
+  nodetype : uint8_t;
+  generation : uint64_t;
+  fsid : uint8_t; [@len 16]
+  value_count : uint32_t;
+}
+[@@little_endian]
+
+(* Contents: logged data, and child node links *)
+(* Layout: see above *)
+</code></pre>
+<p>All nodes start with a node type, a generation number,
+a fsid identifying the filesystem, and a count of inline values.</p>
+<p>The generation number uniquely identifies a block and its contents
+on disk.  When the content changes, a new block is written at
+another location with a new, greater generation number.
+Children are written before the parents that reference them.
+When a node has children, their generation number is strictly
+lower.  This prevents loops.</p>
+<p>All nodes end with a CRC (CRC32C) controlling the whole block.</p>
+<p>Root nodes (nodetype: 1) are tree roots.</p>
+<p>Child nodes have just the basic, generic header (nodetype, generation).
+Root nodes also store their height (currently misnamed depth); this is
+enough to compute the height (called rdepth in the code) of all nodes,
+as well as ensure that all leaves are at depth zero.</p>
+<p>Node content is made of two packed lists, one that grows towards higher
+addresses and contains logged data, one that grows towards lower addresses
+from just before the CRC and contains child data.  The latter is empty in
+leaf nodes.</p>
+<p>Logged data is made of contiguous logged items.  An item is a key followed
+by a data size and the data itself (forming a length-prefixed, Pascal-style string).</p>
+<p>Child data is made of contiguous child links.  A child link is a key followed
+by the on-disk location of the child.  All-zeroes is not a valid representation
+of a childlink, so the child data area ends either when running into
+logged data, or when a run of zeroes is found when trying to load a childlink.</p>
+<h1><a class="header" href="#wodan-internals" id="wodan-internals">Wodan internals</a></h1>
+<h2><a class="header" href="#packages" id="packages">Packages</a></h2>
+<h3><a class="header" href="#wodan" id="wodan">wodan</a></h3>
+<p>The wodan package is at the bottom of the package hierarchy
+and implements the file-system, provided an abstract module
+that does IO.</p>
+<h4><a class="header" href="#implementation-notes" id="implementation-notes">Implementation notes</a></h4>
+<p>There are data structures and utility methods defined at the top level.</p>
+<p>There are cstructs defined for the layout of different types of blocks:
+superblock, root node or child node. Additionally, an anynode cstruct contains
+the fields common to root and child nodes.</p>
+<p>The main data structures are a cache, containing a LRU, and LRU entries.</p>
+<p>LRU entries are the in-memory representation of nodes.  Nodes contain and index
+children and inline data.  The childlink can contain an alloc id if the child
+has been loaded, which allows navigating the live tree.</p>
+<p>The cache structure contains the LRU, a subtree for dirty nodes, various counters
+which are used to allocate sequential numbers, counters used to track free
+space, a map of where free space is on the filesystem, other counters used to
+track statistics.</p>
+<p>The main user-facing module is a Make functor, which takes a block device and a
+set of parameters that control data layout.</p>
+<p>The API contains the verbs:</p>
+<ul>
+<li>
+<p>prepare_io for opening a device. Takes flags for either formatting an empty
+device, or opening an existing filesystem. This returns a set of filesystem
+roots indexed by their root id. Roots are references to a filesystem root.</p>
+</li>
+<li>
+<p>insert for inserting data into a root. Currently deleting is done by
+inserting a zero-sized value.</p>
+</li>
+<li>
+<p>lookup for reading the value associated with a key within a root.</p>
+</li>
+<li>
+<p>flush for landing pending data on the disk.</p>
+</li>
+</ul>
+<p>Opening the filesystem involves locating the root block (using a bisection that
+looks for the highest generation number of a root), checking the filesystem,
+and scanning the entirety of if to establish a free space map. This will be
+improved by maintaining a space map as part of a secondary metadata root.</p>
+<p>The implementation for insert is split into a half that reserves space, might
+rebalance the tree, might load nodes from disk, and a fast half that
+immediately inserts into already available space. The reserve implementation is
+sometimes called to reserve space for a batch of fast inserts; this is the case
+when a node spills into a lower node. This split allows better error reporting
+when there is no free space.</p>
+<h3><a class="header" href="#wodan-unix" id="wodan-unix">wodan-unix</a></h3>
+<p>The wodan-unix package depends on Wodan and Unix,
+so that the filesystem can be backed by standard files.</p>
+<p>It contains a wodanc command, which is a multitool
+that can create filesystems, dump and restore data
+from/into filesystems, and trim unused blocks.</p>
+<p>It can also run benchmarks, run other tests that
+attempt to exercise most of the code base, and
+fuzz the same tests.</p>
+<h3><a class="header" href="#wodan-irmin" id="wodan-irmin">wodan-irmin</a></h3>
+<p>The wodan-irmin package provides some Irmin database types
+that can be constructed from Wodan filesystems.</p>
+<h1><a class="header" href="#free-space-management" id="free-space-management">Free space management</a></h1>
+<h2><a class="header" href="#enospc" id="enospc">ENOSPC</a></h2>
+<p>The API ensures that flush can be called at all times,
+unless the generation limit has been reached.</p>
+<p>If an operation would succeed in-memory but would be impossible
+to flush, an error is returned and the operation is not performed.
+The actual error can be used to discriminate two cases:</p>
+<ul>
+<li>NeedsFlush means that the operation would succeed if a flush is
+performed immediately before the operation is attempted again.</li>
+<li>OutOfSpace means that the operation will not succeed after
+such a flush is performed.</li>
+</ul>
+<p>To emit the correct error, Wodan has a function called reserve_dirty.
+When an operation is about to dirty a node (which will propagate to
+any parents that are still clean), sometimes creating child or sibling
+nodes, it calls this function with the relevant info.
+reserve_dirty computes how many nodes would be newly created or dirtied.
+If the sum of both is below the count of free nodes, the operation
+will not succeed as-is.
+A second step can determine if it would work after flushing.
+Flushing will turn any new or dirty nodes (prior to the operation)
+into clean ones and reduce free space by the number of new nodes.
+After this, the operation would dirty everything anew along the
+node's parent path, and create new nodes as passed.</p>
+<h1><a class="header" href="#linear-layout" id="linear-layout">Linear layout</a></h1>
+<p>This is a modification of the original circular layout.
+The goal is to enable growth of the backing device,
+making Wodan more convenient to use when the size of the
+data isn't known in advance.</p>
+<h2><a class="header" href="#changes-to-the-layout" id="changes-to-the-layout">Changes to the layout</a></h2>
+<p>Instead of allocating from a free space map, blocks are always
+allocated after the previously allocated space.</p>
+<p>When a block is replaced, once everything has been flushed and a
+barrier issued, the previous position of the block is discarded
+from the backing device.
+For performance reasons, this can be deferred.</p>
+<h2><a class="header" href="#changes-to-backing-device-commands" id="changes-to-backing-device-commands">Changes to backing device commands</a></h2>
+<p>There are two new commands (relative to what the circular layout uses)
+which mirage-block has to support:</p>
+<ul>
+<li>discard, which will send a trim if the backing device is a block
+device, or a FALLOC_FL_PUNCH_HOLE / F_PUNCHHOLE if the backing
+device is a file on a Unix filesystem.</li>
+<li>grow, which will require extra space from the backing device.</li>
+</ul>
+<p>Growing is already supported through <code>resize</code> (though it will likely
+require extra support so that LVM or such can know to provide extra
+blocks).
+Discard currently isn't, although there is a pull request:
+https://github.com/mirage/mirage-block-unix/pull/86</p>
+<h2><a class="header" href="#changes-to-wodan-commands" id="changes-to-wodan-commands">Changes to Wodan commands</a></h2>
+<p>A new command is introduced to trim freed blocks.
+This is user-triggered because it introduces latency.</p>
+<h2><a class="header" href="#changes-to-data-structures" id="changes-to-data-structures">Changes to data structures</a></h2>
+<p>Instead of tracking a free space map to allocate from,
+we track the size of the allocated space.</p>
+<p>We also track recently freed blocks so that they can be trimmed
+in a batch operation.  Instead of using a bit vector (that
+can't grow), we use a HashMap or similar.</p>
+<h2><a class="header" href="#changes-to-the-mount-operation" id="changes-to-the-mount-operation">Changes to the mount operation</a></h2>
+<p>The newest root is found by scanning from the end of the device.
+This is instead of bisecting the device for the highest generation
+number.</p>
+<h2><a class="header" href="#growth-and-initialisation" id="growth-and-initialisation">Growth and initialisation</a></h2>
+<p>Depending on the backend, growing the device will either provide
+zero-initialised data (regular file backend) or uninitialised data
+(LVM, although this needs to be confirmed).
+We will assume zero-initialised data for now.
+If we have to deal with uninitialised data, we'll have two options:
+discarding the new data (which will have a performance impact),
+and extending the format to carry uuids on every node.
+The latter change would be useful on its own for making filesystem
+initialisation more fool-proof.</p>
+<h1><a class="header" href="#git-design-draft" id="git-design-draft">Git design (DRAFT)</a></h1>
+<pre><code>module type KEY = sig
+  type t
+end
+
+module type AO_CONTAINER = sig
+  type t
+  type handle = t * KEY.t
+
+  val exists : handle -&gt; bool
+  val get : handle -&gt; Cstruct.t
+  val set : handle -&gt; Cstruct.t -&gt; unit
+end
+
+module type RW_CONTAINER = sig
+  include AO_CONTAINER
+
+  val delete : handle -&gt; ()
+  (* move is atomic *)
+  val move : handle -&gt; KEY.t -&gt; ()
+  val list : () -&gt; KEY.t list
+end
+
+module type DELAYED_CONTAINER = sig
+  include AO_CONTAINER
+  type delayed_handle
+
+  val open_ao : () -&gt; delayed_handle
+  val append : delayed_handle -&gt; Cstruct.t -&gt; ()
+  val close : delayed_handle -&gt; handle
+end
+
+module type HANDLE = sig
+  type ref_handle = RW_CONTAINER.handle
+  type object_handle = DELAYED_CONTAINER.handle
+  type object_delayed_handle = DELAYED_CONTAINER.delayed_handle
+  type pack_delayed_handle = DELAYED_CONTAINER.delayed_handle
+
+  val ref : string -&gt; ref_handle
+  val object : hash -&gt; object_handle
+  val new_object : () -&gt; object_delayed_handle
+  val new_pack : () -&gt; pack_delayed_handle
+  (* commit is atomic *)
+  val commit : () -&gt; ()
+end
+
+</code></pre>
+<p>The design doesn't include a scratch space as previous.
+Instead, it features delayed objects, which are not named yet but can be appended to.
+This is used when writing packfiles.
+To implement delayed objects, the chunking layer is extended.</p>
+<p>GC is not implemented currently.
+To add it, we need a graph walker that copies objects recursively,
+and a function that switches the filesystem between two partitions.</p>
+<p>The object and packfile containers may perform autocommit to flush data to disk
+when necessary.  This will not commit any incomplete delayed objects; partial
+data may be written, but the root of the object won't be.
+Closing a delayed object will write a Merkle tree indexing it.
+The tree is built in memory by the chunking layer, but writing it is delayed
+to avoid unnecessary churn.</p>
+<h1><a class="header" href="#references" id="references">References</a></h1>
+<p><a href="https://g2p.github.io/research/wodan.pdf">ICFP 2017 paper</a> explaining the design choices</p>
+<p><a href="https://g2p.github.io/research/wodan-slides.pdf">ICFP 2017 presentation</a>,
+with visuals illustrating Bε trees</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                        
+
+                        
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                
+
+                
+            </nav>
+
+        </div>
+
+        
+
+        
+
+        
+
+        
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        
+
+        
+
+        
+        <script src="elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="searcher.js" type="text/javascript" charset="utf-8"></script>
+        
+
+        <script src="clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+        
+
+        
+        
+        <script type="text/javascript">
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+        
+        
+
+    </body>
+</html>

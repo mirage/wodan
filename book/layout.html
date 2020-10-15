@@ -1,0 +1,386 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>On-disk layout - Wodan book</title>
+        
+        
+
+
+        <!-- Custom HTML head -->
+        
+
+
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        
+        <link rel="icon" href="favicon.svg">
+        
+        
+        <link rel="shortcut icon" href="favicon.png">
+        
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        
+        <link rel="stylesheet" href="fonts/fonts.css">
+        
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        
+
+        
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="intro.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Design</li><li class="chapter-item expanded "><a href="scope.html"><strong aria-hidden="true">1.</strong> Scope</a></li><li class="chapter-item expanded "><a href="semantics.html"><strong aria-hidden="true">2.</strong> Semantics</a></li><li class="chapter-item expanded "><a href="design.html"><strong aria-hidden="true">3.</strong> Design choices</a></li><li class="chapter-item expanded affix "><li class="part-title">Internals</li><li class="chapter-item expanded "><a href="layout.html" class="active"><strong aria-hidden="true">4.</strong> On-disk layout</a></li><li class="chapter-item expanded "><a href="internals.html"><strong aria-hidden="true">5.</strong> Code organisation</a></li><li class="chapter-item expanded "><a href="free-space.html"><strong aria-hidden="true">6.</strong> Free space and ENOSPC</a></li><li class="chapter-item expanded affix "><li class="part-title">Proposed features</li><li class="chapter-item expanded "><a href="proposed/linear-layout.html"><strong aria-hidden="true">7.</strong> Linear, growable layout</a></li><li class="chapter-item expanded "><a href="proposed/git.html"><strong aria-hidden="true">8.</strong> Git on top of Wodan</a></li><li class="chapter-item expanded affix "><li class="part-title">Further reading</li><li class="chapter-item expanded "><a href="references.html"><strong aria-hidden="true">9.</strong> References</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                        
+                    </div>
+
+                    <h1 class="menu-title">Wodan book</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        
+                    </div>
+                </div>
+
+                
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" name="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1><a class="header" href="#layout" id="layout">Layout</a></h1>
+<h2><a class="header" href="#blocks" id="blocks">Blocks</a></h2>
+<p>Blocks are currently one of:</p>
+<ul>
+<li>the superblock, which is the first block at offset 0</li>
+<li>node blocks, representing serialized nodes</li>
+<li>unallocated blocks, which are generally ignored
+when mounting (mounting starts with a bisect operation
+that will look for the newest valid root and ignore blocks
+that don't seem to belong to the filesystem; currently
+this looks at the fsid, the crc, and the type flag
+which must indicate a root).</li>
+</ul>
+<h2><a class="header" href="#the-superblock" id="the-superblock">The superblock</a></h2>
+<pre><code>(* 512 bytes.  The rest of the block isn't crc-controlled. *)
+type%cstruct superblock = {
+  magic : uint8_t; [@len 16]
+  (* major version, all later fields may change if this does *)
+  version : uint32_t;
+  compat_flags : uint32_t;
+  (* refuse to mount if unknown incompat_flags are set *)
+  incompat_flags : uint32_t;
+  block_size : uint32_t;
+  key_size : uint8_t;
+  first_block_written : uint64_t;
+  logical_size : uint64_t;
+  (* FSID is UUID-sized (128 bits) *)
+  fsid : uint8_t; [@len 16]
+  reserved : uint8_t; [@len 443]
+  crc : uint32_t;
+}
+[@@little_endian]
+</code></pre>
+<p>The focus is on managing compatibility.
+This is written once at filesystem creation and never edited.</p>
+<p>The magic string must be &quot;MIRAGE KVFS \xf0\x9f\x90\xaa&quot;.</p>
+<p>The major version must be 1.</p>
+<p>Compat flags is currently empty, but may be added to without the
+current implementation refusing to mount.</p>
+<p>Incompat flags must currently contain the following, tracking
+evolutions of the data layout:</p>
+<ul>
+<li>sb_incompat_rdepth; nodes now track their rdepth (which
+is their height, starting with leaves at 0)</li>
+<li>sb_incompat_fsid; all blocks now repeat the fsid to
+reduce risks of mixing two different filesystems or
+of parsing foreign or uninitialized data at the block
+level</li>
+<li>sb_incompat_value_count; nodes now mark the end of the value
+data area by keeping a count of values, instead of relying
+on the previous redzone mechanism</li>
+</ul>
+<p>They may also contain the following optional flag:</p>
+<ul>
+<li>sb_incompat_tombstones; this affects semantics but not layout</li>
+</ul>
+<p>Adding anything else to the incompat flags will prevent
+the current implementation from mounting.
+This is to prevent reading or writing newer formats that
+are not compatible.</p>
+<p>In the future, an sb_incompat_linear flag is considered for
+indicating a linear (as opposed to circular and bisectable)
+layout.</p>
+<p>The block size defines how large blocks are and how to map
+logical addresses (used for child pointers, from blocks to
+other blocks) to physical addresses.</p>
+<p>First block written points to the first block ever written
+(generally an empty root), and is used to guide the bisection
+process that finds the newest root.</p>
+<p>Logical size says how large the filesystem is.  Resizing is not
+supported in the current, circular layout.
+The underlying device may grow, but the filesystem won't access
+beyond its original logical size.</p>
+<p>FSID is meant to uniquely identify a filesystem, and initialized
+to cryptographically random bytes.</p>
+<p>Reserved data is currently initialised to zero, but ignored when
+mounting so that new fields aren't necessarily introducing
+incompatible changes.</p>
+<p>The CRC controls the first 512 bytes.  The first block may be larger than
+the superblock; the extra padding behaves like reserved data, currently
+initialised to zero but won't break mounting.</p>
+<p>The block size must be a multiple of the IO size.
+The IO size must match the page size which is the unit
+for direct IO, on platforms that require direct IO.
+The IO size must be a multiple of the sector size,
+the size at which writes are atomic, which must be a
+multiple of 512.</p>
+<h2><a class="header" href="#node-blocks" id="node-blocks">Node blocks</a></h2>
+<p>There are two types of nodes: root and child.
+A leaf is a child that doesn't have children;
+there is no longer a special type marker or a specific layout for leaves.</p>
+<p>The focus is on compacity and the ability to grow logged data and child data
+independently.</p>
+<pre><code>type%cstruct anynode_hdr = {
+  nodetype : uint8_t;
+  generation : uint64_t;
+  fsid : uint8_t; [@len 16]
+  value_count : uint32_t;
+}
+[@@little_endian]
+
+type%cstruct rootnode_hdr = {
+  (* nodetype = 1 *)
+  nodetype : uint8_t;
+  (* will this wrap? there's no uint128_t. Nah, flash will wear out first. *)
+  generation : uint64_t;
+  fsid : uint8_t; [@len 16]
+  value_count : uint32_t;
+  depth : uint32_t;
+}
+[@@little_endian]
+
+(* Contents: logged data, and child node links *)
+(* All node types end with a CRC *)
+(* rootnode_hdr
+ * logged data: (key, datalen, data)*, grow from the left end towards the right
+ *
+ * child links: (key, logical offset)*, grow from the right end towards the left
+ * crc *)
+
+type%cstruct childnode_hdr = {
+  (* nodetype = 2 *)
+  nodetype : uint8_t;
+  generation : uint64_t;
+  fsid : uint8_t; [@len 16]
+  value_count : uint32_t;
+}
+[@@little_endian]
+
+(* Contents: logged data, and child node links *)
+(* Layout: see above *)
+</code></pre>
+<p>All nodes start with a node type, a generation number,
+a fsid identifying the filesystem, and a count of inline values.</p>
+<p>The generation number uniquely identifies a block and its contents
+on disk.  When the content changes, a new block is written at
+another location with a new, greater generation number.
+Children are written before the parents that reference them.
+When a node has children, their generation number is strictly
+lower.  This prevents loops.</p>
+<p>All nodes end with a CRC (CRC32C) controlling the whole block.</p>
+<p>Root nodes (nodetype: 1) are tree roots.</p>
+<p>Child nodes have just the basic, generic header (nodetype, generation).
+Root nodes also store their height (currently misnamed depth); this is
+enough to compute the height (called rdepth in the code) of all nodes,
+as well as ensure that all leaves are at depth zero.</p>
+<p>Node content is made of two packed lists, one that grows towards higher
+addresses and contains logged data, one that grows towards lower addresses
+from just before the CRC and contains child data.  The latter is empty in
+leaf nodes.</p>
+<p>Logged data is made of contiguous logged items.  An item is a key followed
+by a data size and the data itself (forming a length-prefixed, Pascal-style string).</p>
+<p>Child data is made of contiguous child links.  A child link is a key followed
+by the on-disk location of the child.  All-zeroes is not a valid representation
+of a childlink, so the child data area ends either when running into
+logged data, or when a run of zeroes is found when trying to load a childlink.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                        
+                            <a rel="prev" href="design.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                        
+
+                        
+                            <a rel="next" href="internals.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                
+                    <a rel="prev" href="design.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                
+
+                
+                    <a rel="next" href="internals.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                
+            </nav>
+
+        </div>
+
+        
+
+        
+
+        
+
+        
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        
+
+        
+
+        
+        <script src="elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="searcher.js" type="text/javascript" charset="utf-8"></script>
+        
+
+        <script src="clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+        
+
+        
+
+    </body>
+</html>
