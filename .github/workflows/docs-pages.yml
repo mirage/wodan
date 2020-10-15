@@ -1,9 +1,10 @@
-name: Publish docs on GitHub pages
+name: Build docs.  When updating master, publish to GitHub pages
 
 on:
   push:
     branches:
       - master
+  pull_request:
 
 jobs:
   deploy:
@@ -12,20 +13,34 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Setup mdBook
-        uses: peaceiris/actions-mdbook@v1
+        uses: actions-rs/install@v0.1
         with:
-          mdbook-version: '0.4'
-          # mdbook-version: 'latest'
+          crate: mdbook
+          version: 0.4
+          use-tool-cache: true
 
+      - name: Setup mdBook TOC postprocessor
+        uses: actions-rs/install@v0.1
+        with:
+          crate: mdbook-toc
+          version: 0.5
+          use-tool-cache: true
+
+      - name: Setup OCaml
+        user: avsm/setup-ocaml@v1
+        with:
+          ocaml-version: 4.11.1
+
+      # Move things a bit for clean and durable urls
       - run: make doc
       - run: mkdir pages pages/doc
       - run: mv -t pages book
       - run: mv -t pages/doc doc/wodan-for-mirage.html
       - run: mv -T _build/default/_doc/_html pages/odoc
 
-      - name: Deploy
+      - name: Deploy (master to gh-pages)
         uses: peaceiris/actions-gh-pages@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./pages
-
