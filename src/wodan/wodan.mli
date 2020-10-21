@@ -102,10 +102,6 @@ type relax = {
     Passed at mount time through {!mount_options} *)
 
 type mount_options = {
-  (* XXX Should has_tombstone be a superblock flag? *)
-  has_tombstone : bool;
-      (** Whether the empty value should be considered a tombstone, meaning
-          that `mem` will return no value when finding it *)
   fast_scan : bool;
       (** If enabled, instead of checking the entire filesystem when opening,
           leaf nodes won't be scanned. They will be scanned on open instead. *)
@@ -114,6 +110,28 @@ type mount_options = {
 }
 (** All parameters that can't be read from the superblock *)
 
+(** Superblock flags that are supported but not required by this Wodan version *)
+module OptionalSuperblockFlags : sig
+  type t
+  (** A set of flags *)
+
+  val empty : t
+  (** The empty set of flags *)
+
+  val tombstones_enabled : t
+  (** The flag for tombstone support
+
+      If set, the empty value will be considered a tombstone, meaning that
+      functions that query values (mem, lookup, iter, search_range…) will
+      treat it as if there was no value.
+
+      This enables optimisations on the write path, allowing tombstones to
+      fully disappear from storage eventually *)
+
+  val intersect : t -> t -> t
+  (** Take two sets of flags, return the common subset *)
+end
+
 (** All parameters that can be read from the superblock *)
 module type SUPERBLOCK_PARAMS = sig
   val block_size : int
@@ -121,6 +139,9 @@ module type SUPERBLOCK_PARAMS = sig
 
   val key_size : int
   (** The exact size of all keys, in bytes *)
+
+  val optional_flags : OptionalSuperblockFlags.t
+  (** The set of optional superblock flags *)
 end
 
 (** Operations used when testing and fuzzing *)
@@ -212,8 +233,8 @@ module type S = sig
 
       Raises {!Invalid_argument} if already at the highest possible key *)
 
-  val is_tombstone : root -> value -> bool
-  (** Whether a value is a tombstone within a root *)
+  val is_tombstone : value -> bool
+  (** Whether a value is a tombstone *)
 
   val insert : root -> key -> value -> unit Lwt.t
   (** Store data in the filesystem

@@ -21,8 +21,13 @@ let src = Logs.Src.create "irmin.wodan"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-let standard_mount_options =
-  {Wodan.standard_mount_options with has_tombstone = true}
+let standard_mount_options = Wodan.standard_mount_options
+
+module StandardSuperblockParams : Wodan.SUPERBLOCK_PARAMS = struct
+  include Wodan.StandardSuperblockParams
+
+  let optional_flags = Wodan.OptionalSuperblockFlags.tombstones_enabled
+end
 
 module Conf = struct
   let path =
@@ -238,6 +243,16 @@ functor
         make ~path ~create ~mount_options ~autoflush
     end)
 
+    (* Must support tombstones
+
+       This is important for AW_BUILDER-derived stores.
+       Since we have a Cache module allowing filesystems to be shared
+       between multiple Irmin instances, we must enable tombstones in
+       all cases, and extend values by one byte everywhere. *)
+    let () =
+      assert (
+        P.optional_flags = Wodan.OptionalSuperblockFlags.tombstones_enabled )
+
     let v config =
       let module C = Irmin.Private.Conf in
       let path = C.get config Conf.path in
@@ -274,16 +289,25 @@ functor
 
     let () = assert (K.hash_size = DB.Stor.P.key_size)
 
+    let val_to_inner va =
+      let raw_v = Irmin.Type.to_bin_string V.t va in
+      let k = K.hash (fun f -> f raw_v) in
+      let raw_k = Irmin.Type.to_bin_string K.t k in
+      (k, DB.Stor.key_of_string raw_k, DB.Stor.value_of_string ("C" ^ raw_v))
+
+    let val_of_inner_val va =
+      let va1 = DB.Stor.string_of_value va in
+      assert (va1.[0] = 'C');
+      let va2 = String.sub va1 1 (String.length va1 - 1) in
+      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+
     let find db k =
       Log.debug (fun l -> l "CA.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
       | None -> Lwt.return_none
-      | Some v ->
-          Lwt.return_some
-            (Result.get_ok
-               (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
+      | Some v -> Lwt.return_some (val_of_inner_val v)
 
     let mem db k =
       Log.debug (fun l -> l "CA.mem %a" (Irmin.Type.pp K.t) k);
@@ -291,19 +315,11 @@ functor
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
 
     let add db va =
-      let raw_v = Irmin.Type.to_bin_string V.t va in
-      let k = K.hash (fun f -> f raw_v) in
+      let k, ik, iv = val_to_inner va in
       Log.debug (fun m ->
           m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
-      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %a" (Irmin.Type.pp K.t) k K.hash_size (Irmin.Type.pp V.t) va);*)
-      (*Log.debug (fun m -> m "AO.add -> %a (%d) -> %s" (Irmin.Type.pp K.t) k K.hash_size raw_v);*)
-      let raw_k = Irmin.Type.to_bin_string K.t k in
       let root = DB.db_root db in
-      DB.may_autoflush db (fun () ->
-          DB.Stor.insert root
-            (DB.Stor.key_of_string raw_k)
-            (DB.Stor.value_of_string raw_v))
-      >>= function
+      DB.may_autoflush db (fun () -> DB.Stor.insert root ik iv) >>= function
       | () -> Lwt.return k
 
     let unsafe_add db k va =
@@ -339,16 +355,22 @@ functor
 
     type value = V.t
 
+    let val_to_inner_val va =
+      DB.Stor.value_of_string ("A" ^ Irmin.Type.to_bin_string V.t va)
+
+    let val_of_inner_val va =
+      let va1 = DB.Stor.string_of_value va in
+      assert (va1.[0] = 'A');
+      let va2 = String.sub va1 1 (String.length va1 - 1) in
+      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+
     let find db k =
       Log.debug (fun l -> l "AO.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
       >>= function
       | None -> Lwt.return_none
-      | Some v ->
-          Lwt.return_some
-            (Result.get_ok
-               (Irmin.Type.of_bin_string V.t (DB.Stor.string_of_value v)))
+      | Some v -> Lwt.return_some (val_of_inner_val v)
 
     let mem db k =
       Log.debug (fun l -> l "AO.mem %a" (Irmin.Type.pp K.t) k);
@@ -356,13 +378,12 @@ functor
         (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
 
     let add db k va =
-      let raw_v = Irmin.Type.to_bin_string V.t va in
       let raw_k = Irmin.Type.to_bin_string K.t k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
             (DB.Stor.key_of_string raw_k)
-            (DB.Stor.value_of_string raw_v))
+            (val_to_inner_val va))
 
     let v = DB.v
 
@@ -406,13 +427,18 @@ functor
 
     type value = V.t
 
+    (* The outside layer is Irmin, the inner layer is Wodan, here are some conversions *)
     let key_to_inner_key k =
       Stor.key_of_string
         (Irmin.Type.to_bin_string H.t
            (H.hash (fun f -> f (Irmin.Type.to_bin_string K.t k))))
 
+    (* Prefix values so that we can use both tombstones and empty values
+
+       Irmin.Type.to_bin_string can produce empty values, unlike some
+       other Irmin serializers that encode length up-front *)
     let val_to_inner_val va =
-      Stor.value_of_string (Irmin.Type.to_bin_string V.t va)
+      Stor.value_of_string ("V" ^ Irmin.Type.to_bin_string V.t va)
 
     let key_to_inner_val k =
       Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
@@ -421,8 +447,13 @@ functor
       Result.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
 
     let val_of_inner_val va =
-      Result.get_ok (Irmin.Type.of_bin_string V.t (Stor.string_of_value va))
+      let va1 = Stor.string_of_value va in
+      assert (va1.[0] = 'V');
+      let va2 = String.sub va1 1 (String.length va1 - 1) in
+      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
 
+    (* Convert a Wodan value to a Wodan key
+       Used to traverse the linked list that lists all keys stored through the AW interface *)
     let inner_val_to_inner_key va =
       Stor.key_of_string
         (Irmin.Type.to_bin_string H.t
@@ -476,7 +507,7 @@ functor
       t
 
     let set_and_list db ik iv ikv =
-      assert (not (Stor.is_tombstone (db_root db) iv));
+      assert (not (Stor.is_tombstone iv));
       ( if not (KeyHashtbl.mem db.keydata ik) then (
         KeyHashtbl.add db.keydata ik db.magic_key;
         may_autoflush db (fun () -> Stor.insert (db_root db) db.magic_key ikv)
@@ -535,13 +566,14 @@ functor
       (if updated then W.notify db.watches k set else Lwt.return_unit)
       >>= fun () -> Lwt.return updated
 
+    let tombstone = Stor.value_of_string ""
+
     let remove db k =
       Log.debug (fun l -> l "AW.remove %a" (Irmin.Type.pp K.t) k);
       let ik = key_to_inner_key k in
-      let va = Stor.value_of_string "" in
       let root = db_root db in
       L.with_lock db.lock k (fun () ->
-          may_autoflush db (fun () -> Stor.insert root ik va))
+          may_autoflush db (fun () -> Stor.insert root ik tombstone))
       >>= fun () -> W.notify db.watches k None
 
     let list db =

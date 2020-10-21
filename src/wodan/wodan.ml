@@ -96,9 +96,16 @@ let sb_incompat_fsid = 2l
 
 let sb_incompat_value_count = 4l
 
+let sb_incompat_tombstones = 8l
+
 let sb_required_incompat =
   Int32.logor sb_incompat_rdepth
     (Int32.logor sb_incompat_fsid sb_incompat_value_count)
+
+let sb_optional_incompat = sb_incompat_tombstones
+
+let sb_accepted_incompat =
+  Int32.logor sb_required_incompat sb_optional_incompat
 
 [@@@warning "-32"]
 
@@ -107,6 +114,7 @@ type%cstruct superblock = {
   magic : uint8_t; [@len 16]
   (* major version, all later fields may change if this does *)
   version : uint32_t;
+  (* not used at the moment *)
   compat_flags : uint32_t;
   (* refuse to mount if unknown incompat_flags are set *)
   incompat_flags : uint32_t;
@@ -491,9 +499,6 @@ type relax = {
 }
 
 type mount_options = {
-  (* Whether the empty value should be considered a tombstone,
-   * meaning that `mem` will return no value when finding it *)
-  has_tombstone : bool;
   (* If enabled, instead of checking the entire filesystem when opening,
    * leaf nodes won't be scanned.  They will be scanned on open instead. *)
   fast_scan : bool;
@@ -503,6 +508,16 @@ type mount_options = {
   relax : relax;
 }
 
+module OptionalSuperblockFlags = struct
+  type t = int32
+
+  let empty = 0l
+
+  let tombstones_enabled = 1l
+
+  let intersect = Int32.logand
+end
+
 (* All parameters that can be read from the superblock *)
 module type SUPERBLOCK_PARAMS = sig
   (* Size of blocks, in bytes *)
@@ -510,6 +525,9 @@ module type SUPERBLOCK_PARAMS = sig
 
   (* The exact size of all keys, in bytes *)
   val key_size : int
+
+  (* The set of optional superblock flags *)
+  val optional_flags : int32
 end
 
 module type PARAMS = sig
@@ -518,7 +536,6 @@ end
 
 let standard_mount_options =
   {
-    has_tombstone = false;
     fast_scan = true;
     cache_size = 1024;
     relax = {magic_crc = false; magic_crc_write = false};
@@ -528,6 +545,8 @@ module StandardSuperblockParams : SUPERBLOCK_PARAMS = struct
   let block_size = 256 * 1024
 
   let key_size = 20
+
+  let optional_flags = OptionalSuperblockFlags.empty
 end
 
 type deviceOpenMode =
@@ -573,7 +592,7 @@ module type S = sig
 
   val next_key : key -> key
 
-  val is_tombstone : root -> value -> bool
+  val is_tombstone : value -> bool
 
   val insert : root -> key -> value -> unit Lwt.t
 
@@ -631,6 +650,24 @@ module Testing = struct
     else false
 end
 
+(** Return optional flags, raising if any incompat flags can't be supported *)
+let validate_and_extract_superblock_flags sb =
+  (* NB: No compat flags are used at the moment *)
+  let flags = get_superblock_incompat_flags sb in
+  if Int32.logand flags sb_required_incompat <> sb_required_incompat then
+    (* Required flags don't match, some are missing *)
+    raise BadFlags;
+  let remflags = Int32.logand flags (Int32.lognot sb_required_incompat) in
+  if Int32.logor remflags sb_accepted_incompat <> sb_accepted_incompat then
+    (* There are some incompat flags we don't understand and can't support *)
+    raise BadFlags;
+  let optflags = Int32.logand remflags sb_optional_incompat in
+  if optflags = sb_incompat_tombstones then
+    OptionalSuperblockFlags.tombstones_enabled
+  else (
+    assert (optflags = 0l);
+    OptionalSuperblockFlags.empty )
+
 let read_superblock_params (type disk)
     (module B : Mirage_block.S with type t = disk) disk relax =
   let block_io = get_superblock_io () in
@@ -647,12 +684,15 @@ let read_superblock_params (type disk)
             then raise BadFlags
             else if not (cstruct_valid sb relax) then raise (BadCRC 0L)
             else
+              let optional_flags = validate_and_extract_superblock_flags sb in
               let block_size = Int32.to_int (get_superblock_block_size sb) in
               let key_size = get_superblock_key_size sb in
               ( module struct
                 let block_size = block_size
 
                 let key_size = key_size
+
+                let optional_flags = optional_flags
               end : SUPERBLOCK_PARAMS ))
 
 module Make (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) : S with type disk = B.t =
@@ -749,8 +789,8 @@ struct
     root_key : AllocId.t;
   }
 
-  let is_tombstone root value =
-    root.open_fs.filesystem.mount_options.has_tombstone
+  let is_tombstone value =
+    OptionalSuperblockFlags.(intersect P.optional_flags tombstones_enabled <> empty)
     && String.length value = 0
 
   let load_data_at filesystem logical =
@@ -1455,16 +1495,6 @@ struct
         | Some centry -> centry.meta <- Child alloc_id)
       entry.children_alloc_ids
 
-  let value_at fs va =
-    let len = String.length va in
-    if fs.mount_options.has_tombstone && len = 0 then None else Some va
-
-  let is_value fs va =
-    if not fs.mount_options.has_tombstone then true
-    else
-      let len = String.length va in
-      len <> 0
-
   (* lwt because it might load from disk *)
   let rec reserve_insert fs alloc_id space split_path depth =
     (*Logs.debug (fun m -> m "reserve_insert %Ld" depth);*)
@@ -1695,7 +1725,7 @@ struct
     | Some entry -> (
         match KeyedMap.find_opt entry.logdata.contents key with
         | Some va ->
-            if is_value open_fs.filesystem va then Lwt.return_some va
+            if not (is_tombstone va) then Lwt.return_some va
             else Lwt.return_none
         | None ->
             if not (has_children entry) then Lwt.return_none
@@ -1711,7 +1741,7 @@ struct
     | None -> raise (MissingLRUEntry alloc_id)
     | Some entry -> (
         match KeyedMap.find_opt entry.logdata.contents key with
-        | Some va -> Lwt.return (is_value open_fs.filesystem va)
+        | Some va -> Lwt.return (not (is_tombstone va))
         | None ->
             Logs.debug (fun m -> m "_mem");
             if not (has_children entry) then Lwt.return_false
@@ -1743,9 +1773,7 @@ struct
         (* The range from start inclusive to end_ exclusive *)
         KeyedMap.iter_range
           (fun k va ->
-            ( match value_at open_fs.filesystem va with
-            | Some v -> callback k v
-            | None -> () );
+            if not (is_tombstone va) then callback k va;
             seen1 := KeyedSet.add k !seen1)
           entry.logdata.contents start end_;
         (* As above, but end at end_ inclusive *)
@@ -1776,10 +1804,7 @@ struct
     | Some entry ->
         let lwt_queue = ref [] in
         KeyedMap.iter
-          (fun k va ->
-            match value_at open_fs.filesystem va with
-            | Some v -> callback k v
-            | None -> ())
+          (fun k va -> if not (is_tombstone va) then callback k va)
           entry.logdata.contents;
         KeyedMap.iter
           (fun key1 _logical -> lwt_queue := key1 :: !lwt_queue)
