@@ -1,5 +1,19 @@
 (test
  (name test)
+ (modules test test_wodan)
  (package wodan-irmin)
  (libraries alcotest irmin-test io-page-unix nocrypto.lwt
    mirage-block-ramdisk wodan wodan-irmin lwt irmin))
+
+(executable
+ (name bench)
+ (modules bench)
+ (libraries wodan-irmin irmin-test.bench mirage-block-ramdisk io-page-unix
+   lwt lwt.unix nocrypto.lwt irmin))
+
+(rule
+ (alias runbench)
+ (package wodan-irmin)
+ (deps bench.exe)
+ (action
+  (run ./bench.exe)))
