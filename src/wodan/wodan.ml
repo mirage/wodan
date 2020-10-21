@@ -790,9 +790,7 @@ struct
   }
 
   let is_tombstone value =
-    OptionalSuperblockFlags.intersect P.optional_flags
-      OptionalSuperblockFlags.tombstones_enabled
-    <> OptionalSuperblockFlags.empty
+    OptionalSuperblockFlags.(intersect P.optional_flags tombstones_enabled <> empty)
     && String.length value = 0
 
   let load_data_at filesystem logical =
