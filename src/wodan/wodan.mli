@@ -20,6 +20,49 @@
     The entry point is {!Wodan.Make}, which returns a {!Wodan.S} module
     supporting filesystem operations *)
 
+(** This module is used to look at Wodan performance *)
+module Statistics : sig
+  (** A generic interface for statistics *)
+  module type STATISTICS = sig
+    type t
+
+    val pp : Format.formatter -> t -> unit
+
+    val data : t -> Metrics.Data.t
+  end
+
+  (** stats of high-level Wodan operations *)
+  module HighLevel : sig
+    (* A very reduced, read-only view *)
+    include STATISTICS
+
+    val create : unit -> t
+  end
+
+  (** Stats of operations on the backing store *)
+  module LowLevel : sig
+    (* A very reduced, read-only view *)
+    type t = private {
+      mutable reads : int;
+      mutable writes : int;
+      mutable discards : int;
+      mutable barriers : int;
+      block_size : int;
+    }
+
+    include STATISTICS with type t := t
+
+    val create : int -> t
+  end
+
+  (** Stats of amplification between high-level and low-level operations *)
+  module Amplification : sig
+    include STATISTICS
+
+    val build : HighLevel.t -> LowLevel.t -> t
+  end
+end
+
 exception BadMagic
 (** Raised when trying to open a superblock and it doesn't have the magic tag
     for Wodan filesystems *)
@@ -86,6 +129,17 @@ end
 
     This uses stub implementations which may be incomplete. *)
 module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t
+
+(** Extends an EXTBLOCK backend to keep track of low-level statistics *)
+module BlockWithStats (B : EXTBLOCK) : sig
+  include EXTBLOCK
+
+  val v : B.t -> int -> t
+  (** Build a high-level block device with stats from a low-devel block device
+      and a block size in bytes *)
+
+  val stats : t -> Statistics.LowLevel.t
+end
 
 val sizeof_superblock : int
 (** A constant that represents the size of Wodan superblocks
@@ -271,6 +325,9 @@ module type S = sig
 
   val log_statistics : root -> unit
   (** Send statistics about operations to the log *)
+
+  val stats : root -> Statistics.HighLevel.t
+  (** Grab a snapshot of statistics about high-level operations *)
 
   val search_range : root -> key -> key -> (key -> value -> unit) -> unit Lwt.t
   (** Call back a function for all elements in the range from start inclusive

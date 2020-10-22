@@ -6,4 +6,4 @@
  (preprocess
   (pps lwt_ppx ppx_cstruct))
  (libraries cstruct mirage-block lwt io-page lru logs nocrypto bitv diet
-   checkseum optint))
+   checkseum optint metrics))
