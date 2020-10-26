@@ -1,0 +1,14 @@
+(executable
+ (name bench)
+ (modules bench)
+ (preprocess
+  (pps ppx_repr ppx_deriving_yojson))
+ (libraries wodan mirage-block-ramdisk io-page-unix metrics fmt lwt lwt.unix
+   nocrypto.lwt metrics-unix yojson re cmdliner))
+
+(rule
+ (alias runbench)
+ (package wodan)
+ (deps bench.exe)
+ (action
+  (run ./bench.exe)))
