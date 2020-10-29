@@ -1,6 +1,12 @@
 open Lwt.Infix
 
-let key_size = 32
+module SBParams = struct
+  include Wodan.StandardSuperblockParams
+
+  let key_size = 32
+end
+
+let key_size = SBParams.key_size
 
 let value_size = 13
 
@@ -56,7 +62,7 @@ let merge_data d1 d2 =
   aux d1 (Metrics.Data.fields d2)
 
 module Backing = Wodan.BlockWithStats (Ramdisk)
-module Stor = Wodan.Make (Backing) (Wodan.StandardSuperblockParams)
+module Stor = Wodan.Make (Backing) (SBParams)
 
 let make_bindings_pool nb_entries =
   Array.init nb_entries (fun _ ->
@@ -186,7 +192,9 @@ module Index = struct
 
   let run ~nb_entries ~root ~name ~fresh b =
     let path = root // name in
-    Ramdisk.connect ~name:path >>= fun rd ->
+    Ramdisk.create ~name:path ~size_sectors:131072L ~sector_size:512
+    >>= fun rde ->
+    let rd = Result.get_ok rde in
     let disk = Backing.v rd block_size in
     Stor.prepare_io
       ( if fresh then
@@ -355,6 +363,7 @@ let cleanup root =
 let init config =
   Printexc.record_backtrace true;
   Random.init config.seed;
+  Lwt_main.run (Nocrypto_entropy_lwt.initialize ());
   if config.with_metrics then (
     Metrics.enable_all ();
     Metrics_gnuplot.set_reporter ();
