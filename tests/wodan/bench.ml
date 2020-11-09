@@ -148,18 +148,20 @@ module Benchmark = struct
        Read amplification in syscalls: %f@\n\
        Read amplification in bytes: %f@\n\
        Write amplification in syscalls: %f@\n\
-       Write amplification in bytes: %f@" result.time result.ops_per_sec
-      result.mbs_per_sec result.read_amplification_calls
-      result.read_amplification_size result.write_amplification_calls
-      result.write_amplification_size
+       Write amplification in bytes: %f@\n"
+      result.time result.ops_per_sec result.mbs_per_sec
+      result.read_amplification_calls result.read_amplification_size
+      result.write_amplification_calls result.write_amplification_size
 end
 
 module Index = struct
   let write ?(with_flush = false) bindings rw =
-    Lwt_list.iter_s
-      (fun (k, v) ->
+    Lwt_list.iteri_s
+      (fun i (k, v) ->
         let r = Stor.insert rw k v in
-        if with_flush then r >>= fun () -> Stor.flush rw >|= ignore else r)
+        if with_flush || i mod 250_000 = 0 then
+          r >>= fun () -> Stor.flush rw >|= ignore
+        else r)
       (Array.to_list bindings)
 
   let read bindings r =
