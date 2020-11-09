@@ -7,6 +7,8 @@ module SBParams = struct
   include Wodan.StandardSuperblockParams
 
   let key_size = 32
+
+  (*let block_size = 64*1024*)
 end
 
 let key_size = SBParams.key_size
@@ -78,12 +80,6 @@ let bindings_pool = ref [||]
 let absent_bindings_pool = ref [||]
 
 let sorted_bindings_pool = ref [||]
-
-(* default is 256k *)
-let block_size = Wodan.StandardSuperblockParams.block_size
-
-(* comes out to 64M *)
-let block_count = 256L
 
 module Benchmark = struct
   type result = {
@@ -197,17 +193,22 @@ module Index = struct
 
   let run ~nb_entries ~root ~name ~fresh b =
     let path = root // name in
-    let sectors = 2097152L in
+    let size = Int64.mul 1048576L 1024L in
+    let sector_size = 512 in
+    assert (Int64.(rem size (of_int sector_size) = 0L));
+    let sectors = Int64.(div size (of_int sector_size)) in
     (try Unix.mkdir root 0o700 with Unix.Unix_error (EEXIST, _, _) -> ());
     let fd = Unix.openfile path [Unix.O_CREAT] 0o600 in
     Unix.close fd;
-    (*Ramdisk.create ~name:path ~size_sectors:sectors ~sector_size:512 >|= Result.get_ok >>= fun disk ->*)
+    (*Ramdisk.create ~name:path ~size_sectors:sectors ~sector_size >|= Result.get_ok >>= fun disk ->*)
     Block.connect path >>= fun disk ->
     Block.resize disk sectors >|= Result.get_ok >>= fun () ->
     Block.get_info disk >>= fun info ->
-    assert (info.sector_size == 512);
-    assert (info.size_sectors == sectors);
-    let disk = Backing.v disk block_size in
+    assert (info.sector_size = sector_size);
+    assert (info.size_sectors = sectors);
+    assert (Int64.(rem size (of_int Stor.P.block_size)) = 0L);
+    let block_count = Int64.(div size (of_int Stor.P.block_size)) in
+    let disk = Backing.v disk Stor.P.block_size in
     Stor.prepare_io
       ( if fresh then
         Wodan.FormatEmptyDevice
@@ -216,7 +217,8 @@ module Index = struct
             preroots_interval = Wodan.default_preroots_interval;
           }
       else Wodan.OpenExistingDevice )
-      disk Wodan.standard_mount_options
+      disk
+      {Wodan.standard_mount_options with cache_size = 2048}
     >>= fun (stor, _gen) ->
     let result = Benchmark.run ~nb_entries b stor disk in
     Stor.flush stor >>= fun _gen -> result
