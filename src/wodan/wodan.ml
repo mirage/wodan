@@ -460,15 +460,25 @@ let reserve_dirty cache alloc_id new_count depth =
   let new_count = ref new_count in
   let dirty_count = ref 0L in
   reserve_dirty_rec cache alloc_id new_count dirty_count;
-  (*Logs.debug (fun m -> m "reserve_dirty %Ld free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld depth %Ld"
-             alloc_id cache.free_count cache.new_count cache.dirty_count !new_count !dirty_count depth);*)
+  (*Logs.debug (fun m ->
+      m
+        "reserve_dirty %a free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld \
+         depth %Ld"
+        AllocId.pp alloc_id cache.free_count cache.new_count cache.dirty_count
+        !new_count !dirty_count depth);*)
   if
     Int64.(
       compare cache.free_count
         (add cache.dirty_count
            (add !dirty_count (add cache.new_count !new_count))))
     < 0
-  then
+  then (
+    Logs.warn (fun m ->
+        m
+          "reserve_dirty %a free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld \
+           depth %Ld"
+          AllocId.pp alloc_id cache.free_count cache.new_count
+          cache.dirty_count !new_count !dirty_count depth);
     if
       Int64.(
         compare cache.free_count
@@ -476,7 +486,7 @@ let reserve_dirty cache alloc_id new_count depth =
              (add cache.new_count (add !new_count (succ depth)))))
       >= 0
     then raise NeedsFlush (* flush and retry, it will succeed *)
-    else raise OutOfSpace
+    else raise OutOfSpace )
 
 (* flush if you like, but retrying will not succeed *)
 
@@ -1956,6 +1966,7 @@ struct
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
   let format open_fs format_params first_block_written fsid =
     let logical_size = format_params.logical_size in
+    Logs.info (fun m -> m "Formatting, logical size is %Ld" logical_size);
     let block_io = get_superblock_io () in
     let block_io_fanned =
       make_fanned_io_list open_fs.filesystem.sector_size block_io
@@ -2067,6 +2078,7 @@ struct
     match mode with
     | OpenExistingDevice ->
         let%lwt fbw, logical_size, fsid = read_superblock fs in
+        Logs.info (fun m -> m "Opening, logical size is %Ld" logical_size);
         let%lwt lroot = scan_for_root fs fbw logical_size fsid in
         let%lwt cstr = load_data_at fs lroot in
         let typ = get_anynode_hdr_nodetype cstr in
