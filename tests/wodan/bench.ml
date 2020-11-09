@@ -1,3 +1,6 @@
+(* Defaults:
+  BENCH_NB_ENTRIES (10_000_000 for index, lowered to 1M here) entries, with key_size=32 and value_size=13 -> large *)
+
 open Lwt.Infix
 
 module SBParams = struct
@@ -61,7 +64,7 @@ let merge_data d1 d2 =
   in
   aux d1 (Metrics.Data.fields d2)
 
-module Backing = Wodan.BlockWithStats (Ramdisk)
+module Backing = Wodan.BlockWithStats (Block)
 module Stor = Wodan.Make (Backing) (SBParams)
 
 let make_bindings_pool nb_entries =
@@ -192,10 +195,17 @@ module Index = struct
 
   let run ~nb_entries ~root ~name ~fresh b =
     let path = root // name in
-    Ramdisk.create ~name:path ~size_sectors:131072L ~sector_size:512
-    >>= fun rde ->
-    let rd = Result.get_ok rde in
-    let disk = Backing.v rd block_size in
+    let sectors = 2097152L in
+    (try Unix.mkdir root 0o700 with Unix.Unix_error (EEXIST, _, _) -> ());
+    let fd = Unix.openfile path [Unix.O_CREAT] 0o600 in
+    Unix.close fd;
+    (*Ramdisk.create ~name:path ~size_sectors:sectors ~sector_size:512 >|= Result.get_ok >>= fun disk ->*)
+    Block.connect path >>= fun disk ->
+    Block.resize disk sectors >|= Result.get_ok >>= fun () ->
+    Block.get_info disk >>= fun info ->
+    assert (info.sector_size == 512);
+    assert (info.size_sectors == sectors);
+    let disk = Backing.v disk block_size in
     Stor.prepare_io
       ( if fresh then
         Wodan.FormatEmptyDevice
@@ -237,7 +247,7 @@ module Index = struct
         fresh = true;
         benchmark = write_sync;
         dependency = None;
-        speed = `Quick;
+        speed = `Slow;
       };
       {
         name = "replace_increasing_keys";
@@ -441,6 +451,7 @@ let run filter root output seed with_metrics log_size nb_entries json
            | None -> b.name
            | Some name -> name
          in
+         Printf.printf "Benching %s with %d entries\n%!" b.name nb_entries;
          let result =
            Lwt_main.run
              (Index.run ~nb_entries ~root ~name ~fresh:b.fresh b.benchmark)
@@ -457,7 +468,7 @@ let run filter root output seed with_metrics log_size nb_entries json
 
 open Cmdliner
 
-let env_var s = Arg.env_var ("INDEX_BENCH_" ^ s)
+let env_var s = Arg.env_var ("BENCH_" ^ s)
 
 let new_file =
   let parse s =
@@ -516,7 +527,7 @@ let log_size =
 let nb_entries =
   let doc = "The number of bindings." in
   let env = env_var "NB_ENTRIES" in
-  Arg.(value & opt int 10_000_000 & info ["nb-entries"] ~env ~doc)
+  Arg.(value & opt int 1_000_000 & info ["nb-entries"] ~env ~doc)
 
 let list_cmd =
   let doc = "List all available benchmarks." in
