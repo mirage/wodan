@@ -425,6 +425,8 @@ let get_suite_list minimal_flag =
 let run filter root output seed with_metrics log_size nb_entries json
     sampling_interval minimal_flag =
   Memtrace.trace_if_requested ();
+  (*Logs.set_reporter (Logs.format_reporter ());*)
+  (*Logs.set_level (Some Logs.Info);*)
   let config =
     {
       key_size;

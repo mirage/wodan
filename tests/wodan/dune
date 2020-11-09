@@ -4,7 +4,7 @@
  (preprocess
   (pps ppx_repr ppx_deriving_yojson))
  (libraries wodan mirage-block mirage-block-unix io-page-unix metrics fmt lwt
-   lwt.unix nocrypto.lwt metrics-unix yojson re cmdliner memtrace))
+   lwt.unix nocrypto.lwt metrics-unix yojson re cmdliner memtrace logs))
 
 (rule
  (alias runbench)
