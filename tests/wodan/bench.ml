@@ -150,6 +150,44 @@ module Benchmark = struct
       result.write_amplification_calls result.write_amplification_size
 end
 
+(* from https://erratique.ch/software/logs/doc/Logs/index.html#ex1 *)
+let stamp_tag : Mtime.span Logs.Tag.def =
+  Logs.Tag.def "stamp" ~doc:"Relative monotonic time stamp" Mtime.Span.pp
+
+let stamp c = Logs.Tag.(empty |> add stamp_tag (Mtime_clock.count c))
+
+(* Switched to use Logs_fmt.pp_header, a valid format string,
+   the default app/dst, and not show timestamps when no tag is given;
+   minimal changes because this is clearly complex *)
+let reporter () =
+  let report _src level ~over k msgf =
+    let k _ =
+      over ();
+      k ()
+    in
+    let with_stamp h tags k ppf fmt =
+      let stamp =
+        match tags with
+        | None -> None
+        | Some tags -> Logs.Tag.find stamp_tag tags
+      in
+      match stamp with
+      | None ->
+          Format.kfprintf k ppf
+            ("%a @[" ^^ fmt ^^ "@]@.")
+            Logs_fmt.pp_header (level, h)
+      | Some s ->
+          Format.kfprintf k ppf
+            ("%a[%a] @[" ^^ fmt ^^ "@]@.")
+            Logs_fmt.pp_header (level, h) Mtime.Span.pp s
+    in
+    let ppf =
+      if level = App then Format.std_formatter else Format.err_formatter
+    in
+    msgf @@ fun ?header ?tags fmt -> with_stamp header tags k ppf fmt
+  in
+  {Logs.report}
+
 module Index = struct
   let write ?(with_flush = false) bindings rw =
     Lwt_list.iteri_s
@@ -427,8 +465,9 @@ let get_suite_list minimal_flag =
 let run filter root output seed with_metrics log_size nb_entries json
     sampling_interval minimal_flag =
   Memtrace.trace_if_requested ();
-  (*Logs.set_reporter (Logs.format_reporter ());*)
-  (*Logs.set_level (Some Logs.Info);*)
+  Fmt_tty.setup_std_outputs ();
+  Logs.set_reporter (reporter ());
+  Logs.set_level (Some Logs.Info);
   let config =
     {
       key_size;
@@ -449,6 +488,7 @@ let run filter root output seed with_metrics log_size nb_entries json
     | None -> fun _ -> true
     | Some re -> Re.execp re
   in
+  let c = Mtime_clock.counter () in
   current_suite
   |> schedule name_filter
   |> List.map (fun (b : Index.suite_elt) ->
@@ -457,7 +497,8 @@ let run filter root output seed with_metrics log_size nb_entries json
            | None -> b.name
            | Some name -> name
          in
-         Printf.printf "Benching %s with %d entries\n%!" b.name nb_entries;
+         Logs.app (fun m ->
+             m "Benching %s with %d entries" b.name nb_entries ~tags:(stamp c));
          let result =
            Lwt_main.run
              (Index.run ~nb_entries ~root ~name ~fresh:b.fresh b.benchmark)
