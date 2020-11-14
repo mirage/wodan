@@ -229,7 +229,7 @@ module Index = struct
 
   let find_absent t () = read_absent !absent_bindings_pool t
 
-  let run ~nb_entries ~root ~name ~fresh b =
+  let run ~nb_entries ~root ~name ~fresh ~clock b =
     let path = root // name in
     let size = Int64.mul 1048576L 1024L in
     let sector_size = 512 in
@@ -256,8 +256,9 @@ module Index = struct
           }
       else Wodan.OpenExistingDevice )
       disk
-      {Wodan.standard_mount_options with cache_size = 2048}
+      {Wodan.standard_mount_options with fast_scan = true; cache_size = 1024}
     >>= fun (stor, _gen) ->
+    Logs.app (fun m -> m "Opened device for %s" name ~tags:(stamp clock));
     let result = Benchmark.run ~nb_entries b stor disk in
     Stor.flush stor >>= fun _gen -> result
 
@@ -488,7 +489,7 @@ let run filter root output seed with_metrics log_size nb_entries json
     | None -> fun _ -> true
     | Some re -> Re.execp re
   in
-  let c = Mtime_clock.counter () in
+  let clock = Mtime_clock.counter () in
   current_suite
   |> schedule name_filter
   |> List.map (fun (b : Index.suite_elt) ->
@@ -498,10 +499,12 @@ let run filter root output seed with_metrics log_size nb_entries json
            | Some name -> name
          in
          Logs.app (fun m ->
-             m "Benching %s with %d entries" b.name nb_entries ~tags:(stamp c));
+             m "Benching %s with %d entries" b.name nb_entries
+               ~tags:(stamp clock));
          let result =
            Lwt_main.run
-             (Index.run ~nb_entries ~root ~name ~fresh:b.fresh b.benchmark)
+             (Index.run ~nb_entries ~root ~name ~fresh:b.fresh ~clock
+                b.benchmark)
          in
          (b, result))
   |> fun results ->
