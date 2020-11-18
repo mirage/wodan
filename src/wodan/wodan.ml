@@ -790,7 +790,8 @@ struct
   }
 
   let is_tombstone value =
-    OptionalSuperblockFlags.(intersect P.optional_flags tombstones_enabled <> empty)
+    OptionalSuperblockFlags.(
+      intersect P.optional_flags tombstones_enabled <> empty)
     && String.length value = 0
 
   let load_data_at filesystem logical =
@@ -887,7 +888,7 @@ struct
 
   let load_child_node_at open_fs logical highest_key parent_key rdepth =
     Logs.debug (fun m -> m "load_child_node_at %a" Location.pp logical);
-    assert (logical != Location.zero);
+    assert (logical <> Location.zero);
     let cache = open_fs.node_cache in
     assert (Bitv64.get cache.space_map logical);
     let%lwt cstr = load_data_at open_fs.filesystem logical in
@@ -1412,7 +1413,7 @@ struct
           (fun _k va ->
             vend := !vend + P.key_size + sizeof_datalen + String.length va)
           entry.logdata.contents;
-        if !vend != entry.logdata.value_end then (
+        if !vend <> entry.logdata.value_end then (
           Logs.err (fun m ->
               m "Inconsistent value_end depth:%Ld expected:%d actual:%d %a"
                 depth !vend entry.logdata.value_end Statistics.pp
@@ -1502,7 +1503,7 @@ struct
     match lru_get fs.node_cache.lru alloc_id with
     | None -> raise (MissingLRUEntry alloc_id)
     | Some entry -> (
-        assert (has_children entry == (entry.rdepth > 0l));
+        assert (has_children entry = (entry.rdepth > 0l));
         if has_free_space entry space then (
           reserve_dirty fs.node_cache alloc_id 0L depth;
           Lwt.return () )
@@ -1589,7 +1590,7 @@ struct
               match median with
               | None -> raise UnableToSplit
               | Some median ->
-                  assert (median != entry.highest_key);
+                  assert (median <> entry.highest_key);
                   let alloc1, entry1 =
                     new_node fs 2 (Some alloc_id) median entry.rdepth
                   in
@@ -1658,12 +1659,12 @@ struct
               match median with
               | None -> raise UnableToSplit
               | Some median -> (
-                  if median == entry.highest_key then
+                  if median = entry.highest_key then
                     Logs.err (fun m ->
                         m "Bad split %d %d"
                           (KeyedMap.length entry.children)
                           (KeyedMap.length entry.logdata.contents));
-                  assert (median != entry.highest_key);
+                  assert (median <> entry.highest_key);
                   let alloc1, entry1 =
                     new_node fs 2 (Some parent_key) median entry.rdepth
                   in
