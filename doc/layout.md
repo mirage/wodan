@@ -12,6 +12,13 @@ that don't seem to belong to the filesystem; currently
 this looks at the fsid, the crc, and the type flag
 which must indicate a root).
 
+There is also a special kind of unallocated block, which
+looks like a root node block but is at generation zero
+(considered invalid).
+This is used to speed up bisection on freshly created filesystems.
+The bisection considers these blocks valid as lower bounds,
+but they are not valid root nodes.
+
 ## The superblock
 
 ```
