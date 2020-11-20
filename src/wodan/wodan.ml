@@ -534,6 +534,13 @@ module type PARAMS = sig
   include SUPERBLOCK_PARAMS
 end
 
+type format_params = {
+  logical_size : int64;
+  preroots_interval : int64;
+}
+
+let default_preroots_interval = 32L
+
 let standard_mount_options =
   {
     fast_scan = true;
@@ -551,7 +558,7 @@ end
 
 type deviceOpenMode =
   | OpenExistingDevice
-  | FormatEmptyDevice of int64
+  | FormatEmptyDevice of format_params
 
 module type S = sig
   type key
@@ -1024,7 +1031,7 @@ struct
               (of_int open_fs.filesystem.other_sector_size))
           io_data
         >>= function
-        | Result.Ok () -> Lwt.return ()
+        | Result.Ok () -> Lwt.return_unit
         | Result.Error _ -> Lwt.fail WriteError )
 
   let log_cache_statistics cache =
@@ -1506,7 +1513,7 @@ struct
         assert (has_children entry = (entry.rdepth > 0l));
         if has_free_space entry space then (
           reserve_dirty fs.node_cache alloc_id 0L depth;
-          Lwt.return () )
+          Lwt.return_unit )
         else if (not split_path) && has_children entry && has_logdata entry
         then (
           (* log spilling *)
@@ -1717,7 +1724,7 @@ struct
     fast_insert root.open_fs root.root_key key (InsValue value) 0L;
     check_live_integrity root.open_fs root.root_key 0L;
     lru_trim root.open_fs.node_cache.lru;
-    Lwt.return ()
+    Lwt.return_unit
 
   let rec lookup_rec open_fs alloc_id key =
     (*Logs.debug (fun m -> m "lookup_rec");*)
@@ -1797,7 +1804,7 @@ struct
     search_range_rec root.open_fs root.root_key start end_ seen callback
     >>= fun () ->
     lru_trim root.open_fs.node_cache.lru;
-    Lwt.return ()
+    Lwt.return_unit
 
   let rec iter_rec open_fs alloc_id callback =
     match lru_get open_fs.node_cache.lru alloc_id with
@@ -1822,7 +1829,7 @@ struct
     Statistics.add_iter root.open_fs.node_cache.statistics;
     iter_rec root.open_fs root.root_key callback >>= fun () ->
     lru_trim root.open_fs.node_cache.lru;
-    Lwt.return ()
+    Lwt.return_unit
 
   let read_superblock fs =
     let block_io = get_superblock_io () in
@@ -1854,15 +1861,59 @@ struct
                   get_superblock_logical_size sb,
                   Cstruct.to_string (get_superblock_fsid sb) ))
 
+  let write_preroots open_fs preroots_interval first_block_written =
+    let n = open_fs.node_cache.logical_size in
+    if preroots_interval = 0L || preroots_interval >= n then Lwt.return_unit
+    else
+      let raw_node = get_block_io () in
+      let io_data =
+        make_fanned_io_list open_fs.filesystem.sector_size raw_node
+      in
+      (* Only nodetype and fsid are nonzero anyway *)
+      set_anynode_hdr_nodetype raw_node (nodetype Root);
+      set_anynode_hdr_generation raw_node 0L;
+      set_anynode_hdr_fsid open_fs.node_cache.fsid 0 raw_node;
+      set_rootnode_hdr_depth raw_node 0l;
+      cstruct_reset raw_node open_fs.filesystem.mount_options.relax;
+      let loc0 = Location.to_int64 first_block_written in
+      let loc = ref loc0 in
+      let wrapped = ref false in
+      try%lwt
+        while%lwt true do
+          let loc1 = Int64.add !loc preroots_interval in
+          assert (loc1 > !loc);
+          loc := loc1;
+          if !loc > n then (
+            loc := Int64.sub !loc n;
+            wrapped := true;
+            (* asserted because preroots_interval < n *)
+            assert (!loc < n) );
+          if !loc = 0L then loc := 1L;
+          if !wrapped && !loc >= loc0 then Lwt.fail Exit
+          else
+            B.write open_fs.filesystem.disk
+              Int64.(
+                div
+                  (mul !loc (of_int P.block_size))
+                  (of_int open_fs.filesystem.other_sector_size))
+              io_data
+            >>= function
+            | Result.Ok () -> Lwt.return_unit
+            | Result.Error _ -> Lwt.fail WriteError
+        done
+      with Exit -> Lwt.return_unit
+
   (* Requires the caller to discard the entire device first.
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
-  let format open_fs logical_size first_block_written fsid =
+  let format open_fs format_params first_block_written fsid =
+    let logical_size = format_params.logical_size in
     let block_io = get_superblock_io () in
     let block_io_fanned =
       make_fanned_io_list open_fs.filesystem.sector_size block_io
     in
     let alloc_id, _root = new_root open_fs in
     open_fs.node_cache.new_count <- 1L;
+    (* Write the empty root node before writing the superblock *)
     write_node open_fs alloc_id >>= fun () ->
     log_cache_statistics open_fs.node_cache;
     let sb = sb_io block_io in
@@ -1877,8 +1928,10 @@ struct
     set_superblock_fsid fsid 0 sb;
     Crc32c.cstruct_reset sb;
     B.write open_fs.filesystem.disk 0L block_io_fanned >>= function
-    | Result.Ok () -> Lwt.return ()
     | Result.Error _ -> Lwt.fail WriteError
+    | Result.Ok () ->
+        write_preroots open_fs format_params.preroots_interval
+          first_block_written
 
   let mid_range start end_ lsize =
     (* might overflow, limit lsize *)
@@ -1898,6 +1951,7 @@ struct
       Some mid
 
   let scan_for_root fs start0 lsize fsid =
+    (* XXX This is slow with a near-empty device if we didn't use preroots; add a failsafe? *)
     Logs.debug (fun m -> m "scan_for_root");
     let lsize = Location.of_int64 lsize in
     let cstr = get_block_io () in
@@ -1911,7 +1965,7 @@ struct
         io_data
       >>= function
       | Result.Error _ -> Lwt.fail ReadError
-      | Result.Ok () -> Lwt.return ()
+      | Result.Ok () -> Lwt.return_unit
     in
     let next_logical logical =
       let log1 = Location.succ logical in
@@ -1935,14 +1989,16 @@ struct
     let rec sfr_rec start0 end0 gen0 =
       (* end/start swapped on purpose *)
       match mid_range end0 start0 lsize with
-      | None -> Lwt.return end0
+      | None -> Lwt.return (end0, gen0)
       | Some start1 ->
           let%lwt end1, gen1 = scan_range start1 None in
           if gen0 < gen1 then sfr_rec start0 end1 gen1
           else sfr_rec start1 end0 gen0
     in
     let%lwt end0, gen0 = scan_range start0 None in
-    sfr_rec start0 end0 gen0
+    let%lwt end1, gen1 = sfr_rec start0 end0 gen0 in
+    if gen1 > 0L then Lwt.return end1
+    else Lwt.fail (Failure "Found only preroots")
 
   let prepare_io mode disk mount_options =
     B.get_info disk >>= fun info ->
@@ -2004,7 +2060,8 @@ struct
         let root = {open_fs; root_key} in
         log_statistics root;
         Lwt.return (root, root_generation)
-    | FormatEmptyDevice logical_size ->
+    | FormatEmptyDevice format_params ->
+        let logical_size = format_params.logical_size in
         assert (logical_size >= 2L);
         let space_map = Bitv64.create logical_size false in
         Bitv64.set space_map Location.zero true;
@@ -2033,7 +2090,7 @@ struct
           }
         in
         let open_fs = {filesystem = fs; node_cache} in
-        format open_fs logical_size first_block_written fsid >>= fun () ->
+        format open_fs format_params first_block_written fsid >>= fun () ->
         let root_key = AllocId.one in
         Lwt.return ({open_fs; root_key}, 1L)
 end

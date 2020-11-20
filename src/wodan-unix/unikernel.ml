@@ -44,10 +44,14 @@ module Client (B : Wodan.EXTBLOCK) = struct
     let%lwt _root, _gen =
       Stor.prepare_io
         (Wodan.FormatEmptyDevice
-           Int64.(
-             div
-               (mul info.size_sectors (of_int info.sector_size))
-               (of_int Wodan.StandardSuperblockParams.block_size)))
+           {
+             logical_size =
+               Int64.(
+                 div
+                   (mul info.size_sectors (of_int info.sector_size))
+                   (of_int Stor.P.block_size));
+             preroots_interval = Wodan.default_preroots_interval;
+           })
         disk Wodan.standard_mount_options
     in
     Lwt.return_unit
@@ -115,10 +119,14 @@ module Client (B : Wodan.EXTBLOCK) = struct
     let%lwt rootval, _gen0 =
       Stor.prepare_io
         (Wodan.FormatEmptyDevice
-           Int64.(
-             div
-               (mul info.size_sectors (of_int info.sector_size))
-               (of_int Stor.P.block_size)))
+           {
+             logical_size =
+               Int64.(
+                 div
+                   (mul info.size_sectors (of_int info.sector_size))
+                   (of_int Stor.P.block_size));
+             preroots_interval = Wodan.default_preroots_interval;
+           })
         disk Wodan.standard_mount_options
     in
     (let root = ref rootval in
@@ -181,7 +189,7 @@ module Client (B : Wodan.EXTBLOCK) = struct
                          in
                          root := rootval;
                          assert (gen3 = gen4);
-                         Lwt.return () )
+                         Lwt.return_unit )
                    else
                      if%lwt Lwt.return (false && Nocrypto.Rng.Int.gen 8192 = 0)
                      then (
@@ -246,10 +254,14 @@ module Client (B : Wodan.EXTBLOCK) = struct
       let%lwt root, _gen =
         Stor.prepare_io
           (Wodan.FormatEmptyDevice
-             Int64.(
-               div
-                 (mul info.size_sectors (of_int info.sector_size))
-                 (of_int Stor.P.block_size)))
+             {
+               logical_size =
+                 Int64.(
+                   div
+                     (mul info.size_sectors (of_int info.sector_size))
+                     (of_int Stor.P.block_size));
+               preroots_interval = Wodan.default_preroots_interval;
+             })
           disk Wodan.standard_mount_options
       in
       (* Sequential, otherwise expect bugs *)
@@ -320,5 +332,5 @@ module Client (B : Wodan.EXTBLOCK) = struct
             Cstruct.equal
               (Stor.cstruct_of_value cval)
               (Stor.cstruct_of_value cval2) );
-          Lwt.return () )
+          Lwt.return_unit )
 end

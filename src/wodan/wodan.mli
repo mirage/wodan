@@ -165,13 +165,25 @@ val read_superblock_params :
     These are set at creation time and recorded in the superblock. See
     {!open_for_reading} if all you need is to mount the filesystem. *)
 
+type format_params = {
+  logical_size : int64;
+      (** The number of blocks, including the superblock, that are part of the
+          filesystem *)
+  preroots_interval : int64;
+      (** The (maximum) interval between pre-roots. Pre-roots are used to
+          ensure that bisection will not be slow on freshly-formatted devices. *)
+}
+(** Parameters passed when creating a filesystem *)
+
+val default_preroots_interval : int64
+
 (** Modes for opening a device, see {!S.prepare_io} *)
 type deviceOpenMode =
   | OpenExistingDevice
       (** Open an existing device, read logical size from superblock *)
-  | FormatEmptyDevice of int64
+  | FormatEmptyDevice of format_params
       (** Format a device, which must contain only zeroes, and use the given
-          logical size (the number of blocks including the superblock) *)
+          format_params *)
 
 (** Filesystem operations
 

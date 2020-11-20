@@ -221,10 +221,14 @@ functor
               let open_arg =
                 if create then
                   Wodan.FormatEmptyDevice
-                    Int64.(
-                      div
-                        (mul info.size_sectors (of_int info.sector_size))
-                        (of_int Wodan.StandardSuperblockParams.block_size))
+                    {
+                      logical_size =
+                        Int64.(
+                          div
+                            (mul info.size_sectors (of_int info.sector_size))
+                            (of_int P.block_size));
+                      preroots_interval = Wodan.default_preroots_interval;
+                    }
                 else Wodan.OpenExistingDevice
               in
               Stor.prepare_io open_arg disk mount_options
