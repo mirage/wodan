@@ -429,8 +429,8 @@ let init config =
 
 let print fmt (config, results) =
   let pp_bench fmt (b, result) =
-    Format.fprintf fmt "%s@\n    @[%a@]" b.Index.synopsis Benchmark.pp_result
-      result
+    Format.fprintf fmt "%s [%s]@\n    @[%a@]" b.Index.synopsis b.Index.name
+      Benchmark.pp_result result
   in
   Format.fprintf fmt
     "Configuration:@\n    @[%a@]@\n@\nResults:@\n    @[%a@]@\n" pp_config
