@@ -50,7 +50,7 @@ val config :
   Irmin.config
 
 module type BLOCK_CON = sig
-  include Wodan.EXTBLOCK
+  include Mirage_block.S
 
   val connect : string -> t Lwt.t
 end

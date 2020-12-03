@@ -22,7 +22,7 @@ let unwrap_opt = function
   | None -> failwith "Expected Some"
   | Some x -> x
 
-module Client (B : Wodan.EXTBLOCK) = struct
+module Client (B : Mirage_block.S) = struct
   let trim disk =
     Wodan.open_for_reading (module B) disk Wodan.standard_mount_options
     >>= function

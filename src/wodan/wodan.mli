@@ -118,21 +118,9 @@ exception BadNodeType of int
 
     The exception carries the type tag that couldn't be handled. *)
 
-(** The standard Mirage block signature, with Wodan-specific extensions *)
-module type EXTBLOCK = sig
+(** Extends a Mirage_block.S backend to keep track of low-level statistics *)
+module BlockWithStats (B : Mirage_block.S) : sig
   include Mirage_block.S
-
-  val discard : t -> int64 -> int64 -> (unit, write_error) result Lwt.t
-end
-
-(** Extend a basic Mirage block backend to provide Wodan-specific extensions
-
-    This uses stub implementations which may be incomplete. *)
-module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t
-
-(** Extends an EXTBLOCK backend to keep track of low-level statistics *)
-module BlockWithStats (B : EXTBLOCK) : sig
-  include EXTBLOCK
 
   val v : B.t -> int -> t
   (** Build a high-level block device with stats from a low-devel block device
@@ -352,7 +340,8 @@ end
     This is the main entry point to Wodan. {!open_for_reading} is another entry
     point, used when you have an existing filesystem and do not care about the
     superblock parameters. *)
-module Make (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) : S with type disk = B.t
+module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
+  S with type disk = B.t
 
 (** This is a type that packages together a {!Wodan.S} with an opened root and
     the generation number read when mounting *)
@@ -360,6 +349,9 @@ type open_ret =
   | OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret  (** *)
 
 val open_for_reading :
-  (module EXTBLOCK with type t = 'a) -> 'a -> mount_options -> open_ret Lwt.t
+  (module Mirage_block.S with type t = 'a) ->
+  'a ->
+  mount_options ->
+  open_ret Lwt.t
 (** Open an existing Wodan filesystem, getting static parameters from the
     superblock *)

@@ -78,19 +78,7 @@ end
 
 exception MissingLRUEntry of AllocId.t
 
-module type EXTBLOCK = sig
-  include Mirage_block.S
-
-  val discard : t -> int64 -> int64 -> (unit, write_error) result Lwt.t
-end
-
-module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t = struct
-  include B
-
-  let discard _ _ _ = Lwt.return (Ok ())
-end
-
-module BlockWithStats (B : EXTBLOCK) = struct
+module BlockWithStats (B : Mirage_block.S) = struct
   type t = {
     low : B.t;
     stats : Statistics.LowLevel.t;
@@ -100,7 +88,7 @@ module BlockWithStats (B : EXTBLOCK) = struct
 
   include (
     B :
-      EXTBLOCK
+      Mirage_block.S
         with type t := B.t
         (* this erases t from B's signature to prevent a namespace clash *)
          and type error = B.error
@@ -754,8 +742,8 @@ let read_superblock_params (type disk)
                 let optional_flags = optional_flags
               end : SUPERBLOCK_PARAMS ))
 
-module Make (B : EXTBLOCK) (P : SUPERBLOCK_PARAMS) : S with type disk = B.t =
-struct
+module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
+  S with type disk = B.t = struct
   type key = string
 
   type value = string
@@ -2156,11 +2144,20 @@ struct
         Lwt.return ({open_fs; root_key}, 1L)
 end
 
+(* This is a GADT
+
+  'a and the module type are existential since they are not named
+  in the open_ret type
+
+  https://caml.inria.fr/pub/docs/manual-ocaml/gadts.html
+  https://caml.inria.fr/pub/docs/manual-ocaml/firstclassmodules.html
+  https://discuss.ocaml.org/t/first-class-modules-and-gadt-existentials/1657
+  *)
 type open_ret =
   | OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret
 
-let open_for_reading (type disk) (module B : EXTBLOCK with type t = disk) disk
-    mount_options =
+let open_for_reading (type disk) (module B : Mirage_block.S with type t = disk)
+    disk mount_options =
   read_superblock_params (module B) disk mount_options.relax >>= function
   | sp -> (
       let module Stor = Make (B) ((val sp)) in

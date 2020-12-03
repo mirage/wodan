@@ -95,7 +95,7 @@ let config ?(config = Irmin.Private.Conf.empty) ~path ~create ?cache_size
     Conf.create create
 
 module type BLOCK_CON = sig
-  include Wodan.EXTBLOCK
+  include Mirage_block.S
 
   (* XXX mirage-block-unix and mirage-block-ramdisk don't have the
    * exact same signature *)
