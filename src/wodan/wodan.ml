@@ -16,6 +16,7 @@
 (********************************************************************************)
 
 open Lwt.Infix
+module Statistics = Statistics
 
 let superblock_magic = "MIRAGE KVFS \xf0\x9f\x90\xaa"
 
@@ -87,6 +88,45 @@ module BlockCompat (B : Mirage_block.S) : EXTBLOCK with type t = B.t = struct
   include B
 
   let discard _ _ _ = Lwt.return (Ok ())
+end
+
+module BlockWithStats (B : EXTBLOCK) = struct
+  type t = {
+    low : B.t;
+    stats : Statistics.LowLevel.t;
+  }
+
+  let v low block_size = {low; stats = Statistics.LowLevel.create block_size}
+
+  include (
+    B :
+      EXTBLOCK
+        with type t := B.t
+        (* this erases t from B's signature to prevent a namespace clash *)
+         and type error = B.error
+         and type write_error = B.write_error )
+
+  let get_info t = B.get_info t.low
+
+  let read t =
+    t.stats.reads <- succ t.stats.reads;
+    B.read t.low
+
+  let write t =
+    t.stats.writes <- succ t.stats.writes;
+    B.write t.low
+
+  let discard t =
+    t.stats.discards <- succ t.stats.discards;
+    B.discard t.low
+
+  let barrier ?durable t =
+    t.stats.barriers <- succ t.stats.barriers;
+    B.barrier ?durable t.low
+
+  let disconnect t = B.disconnect t.low
+
+  let stats t = t.stats
 end
 
 (* Incompatibility flags *)
@@ -340,7 +380,7 @@ type node_cache = {
   space_map : Bitv64.t;
   scan_map : Bitv64.t option;
   mutable freed_intervals : BlockIntervals.t;
-  statistics : Statistics.t;
+  statistics : Statistics.HighLevel.t;
 }
 
 let has_scan_map cache =
@@ -420,15 +460,25 @@ let reserve_dirty cache alloc_id new_count depth =
   let new_count = ref new_count in
   let dirty_count = ref 0L in
   reserve_dirty_rec cache alloc_id new_count dirty_count;
-  (*Logs.debug (fun m -> m "reserve_dirty %Ld free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld depth %Ld"
-             alloc_id cache.free_count cache.new_count cache.dirty_count !new_count !dirty_count depth);*)
+  (*Logs.debug (fun m ->
+      m
+        "reserve_dirty %a free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld \
+         depth %Ld"
+        AllocId.pp alloc_id cache.free_count cache.new_count cache.dirty_count
+        !new_count !dirty_count depth);*)
   if
     Int64.(
       compare cache.free_count
         (add cache.dirty_count
            (add !dirty_count (add cache.new_count !new_count))))
     < 0
-  then
+  then (
+    Logs.warn (fun m ->
+        m
+          "reserve_dirty %a free %Ld allocs N %Ld D %Ld counter N %Ld D %Ld \
+           depth %Ld"
+          AllocId.pp alloc_id cache.free_count cache.new_count
+          cache.dirty_count !new_count !dirty_count depth);
     if
       Int64.(
         compare cache.free_count
@@ -436,7 +486,7 @@ let reserve_dirty cache alloc_id new_count depth =
              (add cache.new_count (add !new_count (succ depth)))))
       >= 0
     then raise NeedsFlush (* flush and retry, it will succeed *)
-    else raise OutOfSpace
+    else raise OutOfSpace )
 
 (* flush if you like, but retrying will not succeed *)
 
@@ -614,6 +664,8 @@ module type S = sig
   val live_trim : root -> int64 Lwt.t
 
   val log_statistics : root -> unit
+
+  val stats : root -> Statistics.HighLevel.t
 
   val search_range :
     root ->
@@ -1035,7 +1087,7 @@ struct
         | Result.Error _ -> Lwt.fail WriteError )
 
   let log_cache_statistics cache =
-    Logs.info (fun m -> m "%a" Statistics.pp cache.statistics);
+    Logs.info (fun m -> m "%a" Statistics.HighLevel.pp cache.statistics);
     let logical_size = Bitv64.length cache.space_map in
     (* Don't count the superblock as a node *)
     Logs.debug (fun m -> m "Decreasing free_count to log stats");
@@ -1052,6 +1104,8 @@ struct
   let log_statistics root =
     let cache = root.open_fs.node_cache in
     log_cache_statistics cache
+
+  let stats root = root.open_fs.node_cache.statistics
 
   let flush root =
     let open_fs = root.open_fs in
@@ -1423,7 +1477,7 @@ struct
         if !vend <> entry.logdata.value_end then (
           Logs.err (fun m ->
               m "Inconsistent value_end depth:%Ld expected:%d actual:%d %a"
-                depth !vend entry.logdata.value_end Statistics.pp
+                depth !vend entry.logdata.value_end Statistics.HighLevel.pp
                 fs.node_cache.statistics);
           fail := true );
         ( match entry.flush_children with
@@ -1714,7 +1768,8 @@ struct
                       reserve_insert fs alloc_id space split_path depth ) ) )
 
   let insert root key value =
-    Statistics.add_insert root.open_fs.node_cache.statistics;
+    root.open_fs.node_cache.statistics.inserts <-
+      succ root.open_fs.node_cache.statistics.inserts;
     check_live_integrity root.open_fs root.root_key 0L;
     reserve_insert root.open_fs root.root_key
       (ins_req_space (InsValue value))
@@ -1761,13 +1816,15 @@ struct
               mem_rec open_fs child_alloc_id key )
 
   let lookup root key =
-    Statistics.add_lookup root.open_fs.node_cache.statistics;
+    root.open_fs.node_cache.statistics.lookups <-
+      succ root.open_fs.node_cache.statistics.lookups;
     lookup_rec root.open_fs root.root_key key >>= fun r ->
     lru_trim root.open_fs.node_cache.lru;
     Lwt.return r
 
   let mem root key =
-    Statistics.add_lookup root.open_fs.node_cache.statistics;
+    root.open_fs.node_cache.statistics.lookups <-
+      succ root.open_fs.node_cache.statistics.lookups;
     mem_rec root.open_fs root.root_key key >>= fun r ->
     lru_trim root.open_fs.node_cache.lru;
     Lwt.return r
@@ -1800,7 +1857,8 @@ struct
      Results are in no particular order. *)
   let search_range root start end_ callback =
     let seen = KeyedSet.empty in
-    Statistics.add_range_search root.open_fs.node_cache.statistics;
+    root.open_fs.node_cache.statistics.range_searches <-
+      succ root.open_fs.node_cache.statistics.range_searches;
     search_range_rec root.open_fs root.root_key start end_ seen callback
     >>= fun () ->
     lru_trim root.open_fs.node_cache.lru;
@@ -1826,7 +1884,8 @@ struct
           !lwt_queue
 
   let iter root callback =
-    Statistics.add_iter root.open_fs.node_cache.statistics;
+    root.open_fs.node_cache.statistics.iters <-
+      succ root.open_fs.node_cache.statistics.iters;
     iter_rec root.open_fs root.root_key callback >>= fun () ->
     lru_trim root.open_fs.node_cache.lru;
     Lwt.return_unit
@@ -1907,6 +1966,7 @@ struct
      Don't add call sites beyond prepare_io, the io pages must be zeroed *)
   let format open_fs format_params first_block_written fsid =
     let logical_size = format_params.logical_size in
+    Logs.info (fun m -> m "Formatting, logical size is %Ld" logical_size);
     let block_io = get_superblock_io () in
     let block_io_fanned =
       make_fanned_io_list open_fs.filesystem.sector_size block_io
@@ -2018,6 +2078,7 @@ struct
     match mode with
     | OpenExistingDevice ->
         let%lwt fbw, logical_size, fsid = read_superblock fs in
+        Logs.info (fun m -> m "Opening, logical size is %Ld" logical_size);
         let%lwt lroot = scan_for_root fs fbw logical_size fsid in
         let%lwt cstr = load_data_at fs lroot in
         let typ = get_anynode_hdr_nodetype cstr in
@@ -2048,8 +2109,8 @@ struct
             dirty_count = 0L;
             fsid;
             next_logical_alloc = lroot;
-            (* in use, but that's okay *)
-            statistics = Statistics.create ();
+            (* lroot is in use, but that's okay *)
+            statistics = Statistics.HighLevel.create ();
           }
         in
         let open_fs = {filesystem = fs; node_cache} in
@@ -2086,7 +2147,7 @@ struct
             dirty_count = 0L;
             fsid;
             next_logical_alloc = first_block_written;
-            statistics = Statistics.create ();
+            statistics = Statistics.HighLevel.create ();
           }
         in
         let open_fs = {filesystem = fs; node_cache} in

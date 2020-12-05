@@ -29,11 +29,13 @@ depends: [
   "checkseum" {>= "0.0.2"}
   "cstruct"
   "diet" {>= "0.4"}
+  "fmt" {with-test}
   "io-page"
   "logs"
   "lru" {= "0.3.0"}
   "lwt" {>= "3.1.0"}
   "lwt_ppx"
+  "metrics"
   "mirage-block" {>= "2.0.0"}
   "nocrypto"
   "odoc" {with-doc}
