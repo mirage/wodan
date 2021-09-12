@@ -294,21 +294,21 @@ functor
     let () = assert (K.hash_size = DB.Stor.P.key_size)
 
     let val_to_inner va =
-      let raw_v = Irmin.Type.to_bin_string V.t va in
+      let raw_v = (Repr.unstage (Irmin.Type.to_bin_string V.t)) va in
       let k = K.hash (fun f -> f raw_v) in
-      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let raw_k = (Repr.unstage (Irmin.Type.to_bin_string K.t)) k in
       (k, DB.Stor.key_of_string raw_k, DB.Stor.value_of_string ("C" ^ raw_v))
 
     let val_of_inner_val va =
       let va1 = DB.Stor.string_of_value va in
       assert (va1.[0] = 'C');
       let va2 = String.sub va1 1 (String.length va1 - 1) in
-      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+      Result.get_ok ((Repr.unstage (Irmin.Type.of_bin_string V.t)) va2)
 
     let find db k =
       Log.debug (fun l -> l "CA.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+        (DB.Stor.key_of_string ((Repr.unstage (Irmin.Type.to_bin_string K.t)) k))
       >>= function
       | None -> Lwt.return_none
       | Some v -> Lwt.return_some (val_of_inner_val v)
@@ -316,7 +316,7 @@ functor
     let mem db k =
       Log.debug (fun l -> l "CA.mem %a" (Irmin.Type.pp K.t) k);
       DB.Stor.mem (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+        (DB.Stor.key_of_string ((Repr.unstage (Irmin.Type.to_bin_string K.t)) k))
 
     let add db va =
       let k, ik, iv = val_to_inner va in
@@ -327,10 +327,10 @@ functor
       | () -> Lwt.return k
 
     let unsafe_add db k va =
-      let raw_v = Irmin.Type.to_bin_string V.t va in
+      let raw_v = (Repr.unstage (Irmin.Type.to_bin_string V.t)) va in
       Log.debug (fun m ->
           m "CA.unsafe_add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
-      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let raw_k = (Repr.unstage (Irmin.Type.to_bin_string K.t)) k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
@@ -344,6 +344,8 @@ functor
     let batch t f = f (cast t)
 
     let close _t = Lwt.return_unit
+
+    let clear _ = Lwt.fail (Failure "Not implemented")
   end
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER =
@@ -360,18 +362,18 @@ functor
     type value = V.t
 
     let val_to_inner_val va =
-      DB.Stor.value_of_string ("A" ^ Irmin.Type.to_bin_string V.t va)
+      DB.Stor.value_of_string ("A" ^ (Repr.unstage (Irmin.Type.to_bin_string V.t)) va)
 
     let val_of_inner_val va =
       let va1 = DB.Stor.string_of_value va in
       assert (va1.[0] = 'A');
       let va2 = String.sub va1 1 (String.length va1 - 1) in
-      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+      Result.get_ok ((Repr.unstage (Irmin.Type.of_bin_string V.t)) va2)
 
     let find db k =
       Log.debug (fun l -> l "AO.find %a" (Irmin.Type.pp K.t) k);
       DB.Stor.lookup (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+        (DB.Stor.key_of_string ((Repr.unstage (Irmin.Type.to_bin_string K.t)) k))
       >>= function
       | None -> Lwt.return_none
       | Some v -> Lwt.return_some (val_of_inner_val v)
@@ -379,10 +381,10 @@ functor
     let mem db k =
       Log.debug (fun l -> l "AO.mem %a" (Irmin.Type.pp K.t) k);
       DB.Stor.mem (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+        (DB.Stor.key_of_string ((Repr.unstage (Irmin.Type.to_bin_string K.t)) k))
 
     let add db k va =
-      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let raw_k = (Repr.unstage (Irmin.Type.to_bin_string K.t)) k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
@@ -396,6 +398,8 @@ functor
     let batch t f = f (cast t)
 
     let close _t = Lwt.return_unit
+
+    let clear _ = Lwt.fail (Failure "Not implemented")
   end
 
 module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
@@ -434,33 +438,33 @@ functor
     (* The outside layer is Irmin, the inner layer is Wodan, here are some conversions *)
     let key_to_inner_key k =
       Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t
-           (H.hash (fun f -> f (Irmin.Type.to_bin_string K.t k))))
+        ((Repr.unstage (Irmin.Type.to_bin_string H.t))
+           (H.hash (fun f -> f ((Repr.unstage (Irmin.Type.to_bin_string K.t)) k))))
 
     (* Prefix values so that we can use both tombstones and empty values
 
-       Irmin.Type.to_bin_string can produce empty values, unlike some
+       (Repr.unstage (Irmin.Type.to_bin_string _)) can produce empty values, unlike some
        other Irmin serializers that encode length up-front *)
     let val_to_inner_val va =
-      Stor.value_of_string ("V" ^ Irmin.Type.to_bin_string V.t va)
+      Stor.value_of_string ("V" ^ (Repr.unstage (Irmin.Type.to_bin_string V.t)) va)
 
     let key_to_inner_val k =
-      Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
+      Stor.value_of_string ((Repr.unstage (Irmin.Type.to_bin_string K.t)) k)
 
     let key_of_inner_val va =
-      Result.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
+      Result.get_ok ((Repr.unstage (Irmin.Type.of_bin_string K.t)) (Stor.string_of_value va))
 
     let val_of_inner_val va =
       let va1 = Stor.string_of_value va in
       assert (va1.[0] = 'V');
       let va2 = String.sub va1 1 (String.length va1 - 1) in
-      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+      Result.get_ok ((Repr.unstage (Irmin.Type.of_bin_string V.t)) va2)
 
     (* Convert a Wodan value to a Wodan key
        Used to traverse the linked list that lists all keys stored through the AW interface *)
     let inner_val_to_inner_key va =
       Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t
+        ((Repr.unstage (Irmin.Type.to_bin_string H.t))
            (H.hash (fun f -> f (Stor.string_of_value va))))
 
     let make ~list_key ~config =
@@ -604,6 +608,8 @@ functor
     let mem db k = Stor.mem (db_root db) (key_to_inner_key k)
 
     let close _t = Lwt.return_unit
+
+    let clear _ = Lwt.fail (Failure "Not implemented")
   end
 
 module Make

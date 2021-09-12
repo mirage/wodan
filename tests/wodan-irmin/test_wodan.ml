@@ -43,4 +43,4 @@ let init () = Nocrypto_entropy_lwt.initialize ()
 
 let stats = None
 
-let suite = {Irmin_test.name = "WODAN"; init; clean; config; store; stats}
+let suite = {Irmin_test.name = "WODAN"; Irmin_test.layered_store=None; init; clean; config; store; stats; }
