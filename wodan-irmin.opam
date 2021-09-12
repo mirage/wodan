@@ -31,7 +31,7 @@ depends: [
   "checkseum" {>= "0.0.2"}
   "digestif"
   "io-page-unix"
-  "irmin"
+  "irmin" {>= "2.7.2"}
   "irmin-chunk"
   "irmin-git"
   "irmin-unix"
