@@ -29,9 +29,7 @@ module Dispatch (Store : Wodan.S) (S : HTTP) = struct
    * and construct a response with its contents. *)
   let rec dispatcher store uri =
     match Uri.path uri with
-    | ""
-    | "/" ->
-        dispatcher store (Uri.with_path uri "index.html")
+    | "" | "/" -> dispatcher store (Uri.with_path uri "index.html")
     | "/index.html" ->
         let headers = Cohttp.Header.init_with "Content-Type" "text/html" in
         next_camel store >>= fun counter ->

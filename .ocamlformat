@@ -1,5 +1,5 @@
-version=0.16.0
-break-cases=all
+version=0.17.0
+break-cases=fit-or-vertical
 break-infix=fit-or-vertical
 space-around-lists=false
 space-around-records=false

@@ -25,9 +25,7 @@ module Dispatch (S : HTTP) = struct
    * and construct a response with its contents. *)
   let rec dispatcher repo uri =
     match Uri.path uri with
-    | ""
-    | "/" ->
-        dispatcher repo (Uri.with_path uri "README.md")
+    | "" | "/" -> dispatcher repo (Uri.with_path uri "README.md")
     | "/README.md" ->
         let headers = Cohttp.Header.init_with "Content-Type" "text/plain" in
         Wodan_Git_KV.Head.list repo >>= fun commits ->
