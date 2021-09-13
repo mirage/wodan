@@ -29,8 +29,8 @@ module DB_ram =
 
 (* let store = Irmin_test.store (module Wodan_irmin.Make(DB_ram)) (module Irmin.Metadata.None) *)
 let store =
-  ( module Wodan_irmin.KV_chunked (DB_ram) (Irmin.Hash.SHA1)
-             (Irmin.Contents.String) : Irmin_test.S )
+  (module Wodan_irmin.KV_chunked (DB_ram) (Irmin.Hash.SHA1)
+            (Irmin.Contents.String) : Irmin_test.S)
 
 let config = Wodan_irmin.config ~path:"disk.img" ~create:true ()
 

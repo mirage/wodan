@@ -248,13 +248,13 @@ module Index = struct
     let block_count = Int64.(div size (of_int Stor.P.block_size)) in
     let disk = Backing.v disk Stor.P.block_size in
     Stor.prepare_io
-      ( if fresh then
-        Wodan.FormatEmptyDevice
-          {
-            logical_size = block_count;
-            preroots_interval = Wodan.default_preroots_interval;
-          }
-      else Wodan.OpenExistingDevice )
+      (if fresh then
+       Wodan.FormatEmptyDevice
+         {
+           logical_size = block_count;
+           preroots_interval = Wodan.default_preroots_interval;
+         }
+      else Wodan.OpenExistingDevice)
       disk
       {Wodan.standard_mount_options with fast_scan = true; cache_size = 1024}
     >>= fun (stor, _gen) ->
@@ -420,12 +420,12 @@ let init config =
   if config.with_metrics then (
     Metrics.enable_all ();
     Metrics_gnuplot.set_reporter ();
-    Metrics_unix.monitor_gc 0.1 );
+    Metrics_unix.monitor_gc 0.1);
   bindings_pool := make_bindings_pool config.nb_entries;
   if not config.minimal_flag then (
     absent_bindings_pool := make_bindings_pool config.nb_entries;
     sorted_bindings_pool := Array.copy !bindings_pool;
-    replace_sampling_interval := config.sampling_interval )
+    replace_sampling_interval := config.sampling_interval)
 
 let print fmt (config, results) =
   let pp_bench fmt (b, result) =
@@ -509,9 +509,9 @@ let run filter root output seed with_metrics log_size nb_entries json
          (b, result))
   |> fun results ->
   let fmt =
-    ( match output with
+    (match output with
     | None -> stdout
-    | Some filename -> open_out filename )
+    | Some filename -> open_out filename)
     |> Format.formatter_of_out_channel
   in
   Fmt.pf fmt "%a@." (if json then print_json else print) (config, results)

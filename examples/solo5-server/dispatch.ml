@@ -67,7 +67,7 @@ module Dispatch (Store : Wodan.S) (S : HTTP) = struct
         | Some x ->
             let x = Store.string_of_value x in
             S.respond_string ~status:`OK ~body:x ~headers ()
-        | _ -> S.respond_not_found () )
+        | _ -> S.respond_not_found ())
 
   let serve dispatch =
     let callback (_, cid) request _body =

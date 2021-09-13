@@ -92,7 +92,7 @@ module BlockWithStats (B : Mirage_block.S) = struct
         with type t := B.t
         (* this erases t from B's signature to prevent a namespace clash *)
          and type error = B.error
-         and type write_error = B.write_error )
+         and type write_error = B.write_error)
 
   let get_info t = B.get_info t.low
 
@@ -303,12 +303,12 @@ let lookup_parent_link lru entry =
   | Child parent_key -> (
       match lru_peek lru parent_key with
       | None -> raise (MissingLRUEntry parent_key)
-      | Some parent_entry -> Some (parent_key, parent_entry) )
+      | Some parent_entry -> Some (parent_key, parent_entry))
 
 let lru_trim lru =
   (* May raise LRUCantDiscardDirty *)
   while LRU.weight lru > LRU.capacity lru do
-    ( match LRU.lru lru with
+    (match LRU.lru lru with
     | Some (_alloc_id, entry) when entry.flush_children <> None ->
         raise LRUCantDiscardDirty
     | Some (_alloc_id, entry) when entry.prev_logical = None ->
@@ -332,11 +332,11 @@ let lru_trim lru =
                Raise LRUTooSmall instead of an LRUCantDiscardRoot *)
             raise LRUTooSmall
         | Some (_parent_key, parent_entry) ->
-            KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key )
+            KeyedMap.remove parent_entry.children_alloc_ids entry.highest_key)
     | None ->
         (* The LRU doesn't have room for a single element.
            This means it was misconfigured. *)
-        raise LRUTooSmall );
+        raise LRUTooSmall);
     LRU.drop_lru lru
   done
 
@@ -432,16 +432,16 @@ let rec reserve_dirty_rec cache alloc_id new_count dirty_count =
       match entry.flush_children with
       | Some _di -> ()
       | None -> (
-          ( match entry.meta with
+          (match entry.meta with
           | Root -> ()
           | Child parent_key -> (
               match lru_get cache.lru parent_key with
               | None -> failwith "missing parent_entry"
               | Some _parent_entry ->
-                  reserve_dirty_rec cache parent_key new_count dirty_count ) );
+                  reserve_dirty_rec cache parent_key new_count dirty_count));
           match entry.prev_logical with
           | None -> new_count := Int64.succ !new_count
-          | Some _plog -> dirty_count := Int64.succ !dirty_count ) )
+          | Some _plog -> dirty_count := Int64.succ !dirty_count))
 
 let reserve_dirty cache alloc_id new_count depth =
   (*Logs.debug (fun m -> m "reserve_dirty %Ld" alloc_id);*)
@@ -474,7 +474,7 @@ let reserve_dirty cache alloc_id new_count depth =
              (add cache.new_count (add !new_count (succ depth)))))
       >= 0
     then raise NeedsFlush (* flush and retry, it will succeed *)
-    else raise OutOfSpace )
+    else raise OutOfSpace)
 
 (* flush if you like, but retrying will not succeed *)
 
@@ -486,11 +486,11 @@ let rec mark_dirty cache (alloc_id : AllocId.t) =
       match entry.flush_children with
       | Some di -> di
       | None ->
-          ( match entry.meta with
+          (match entry.meta with
           | Root -> (
               match cache.flush_root with
               | None -> cache.flush_root <- Some alloc_id
-              | _ -> failwith "flush_root inconsistent" )
+              | _ -> failwith "flush_root inconsistent")
           | Child parent_key -> (
               match lru_get cache.lru parent_key with
               | None -> failwith "missing parent_entry"
@@ -498,10 +498,10 @@ let rec mark_dirty cache (alloc_id : AllocId.t) =
                   let parent_di = mark_dirty cache parent_key in
                   if KeyedMap.exists (fun _k lk -> lk = alloc_id) parent_di
                   then failwith "dirty_node inconsistent"
-                  else KeyedMap.add parent_di entry.highest_key alloc_id ) );
+                  else KeyedMap.add parent_di entry.highest_key alloc_id));
           let di = KeyedMap.create () in
           entry.flush_children <- Some di;
-          ( match entry.prev_logical with
+          (match entry.prev_logical with
           | None ->
               Logs.debug (fun m ->
                   m "Bumping cache.new_count for %a" AllocId.pp alloc_id);
@@ -521,8 +521,8 @@ let rec mark_dirty cache (alloc_id : AllocId.t) =
                     (add cache.new_count cache.dirty_count)
                     cache.free_count)
                 > 0
-              then failwith "Out of space" );
-          di )
+              then failwith "Out of space");
+          di)
 
 let get_superblock_io () =
   (* This will only work on Unix, which has buffered IO instead of direct IO.
@@ -693,7 +693,7 @@ module Testing = struct
   let cstruct_cond_reset cstr =
     if has_magic_crc cstr then (
       Crc32c.cstruct_reset cstr;
-      true )
+      true)
     else false
 end
 
@@ -713,7 +713,7 @@ let validate_and_extract_superblock_flags sb =
     OptionalSuperblockFlags.tombstones_enabled
   else (
     assert (optflags = 0l);
-    OptionalSuperblockFlags.empty )
+    OptionalSuperblockFlags.empty)
 
 let read_superblock_params (type disk)
     (module B : Mirage_block.S with type t = disk) disk relax =
@@ -734,13 +734,13 @@ let read_superblock_params (type disk)
               let optional_flags = validate_and_extract_superblock_flags sb in
               let block_size = Int32.to_int (get_superblock_block_size sb) in
               let key_size = get_superblock_key_size sb in
-              ( module struct
+              (module struct
                 let block_size = block_size
 
                 let key_size = key_size
 
                 let optional_flags = optional_flags
-              end : SUPERBLOCK_PARAMS ))
+              end : SUPERBLOCK_PARAMS))
 
 module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
   S with type disk = B.t = struct
@@ -1006,16 +1006,16 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
               AllocId.pp alloc_id Location.pp logical gen
               (KeyedMap.length entry.logdata.contents)
               entry.logdata.value_end);
-        ( match lookup_parent_link cache.lru entry with
+        (match lookup_parent_link cache.lru entry with
         | Some (parent_key, parent_entry) ->
             assert (parent_key <> alloc_id);
             KeyedMap.replace_existing parent_entry.children entry.highest_key
               logical
-        | None -> () );
-        ( if entry.rdepth = 0l then
-          match cache.scan_map with
-          | None -> ()
-          | Some scan_map -> Bitv64.set scan_map logical true );
+        | None -> ());
+        (if entry.rdepth = 0l then
+         match cache.scan_map with
+         | None -> ()
+         | Some scan_map -> Bitv64.set scan_map logical true);
         let offset = ref (header_size entry.meta) in
         (* XXX Writes in sorted order *)
         KeyedMap.iter
@@ -1039,7 +1039,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
             offset := !offset - childlink_size)
           entry.children;
         cstruct_reset raw_node open_fs.filesystem.mount_options.relax;
-        ( match entry.prev_logical with
+        (match entry.prev_logical with
         | Some plog ->
             Logs.debug (fun m -> m "Decreasing dirty_count");
             cache.dirty_count <- int64_pred_nowrap cache.dirty_count;
@@ -1056,7 +1056,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                 m "Decreasing cache.new_count from %Ld" cache.new_count);
             Logs.debug (fun m ->
                 m "Decreasing cache.new_count for %a" AllocId.pp alloc_id);
-            cache.new_count <- int64_pred_nowrap cache.new_count );
+            cache.new_count <- int64_pred_nowrap cache.new_count);
         assert (not (Bitv64.get cache.space_map logical));
         Bitv64.set cache.space_map logical true;
         cache.freed_intervals <-
@@ -1072,7 +1072,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
           io_data
         >>= function
         | Result.Ok () -> Lwt.return_unit
-        | Result.Error _ -> Lwt.fail WriteError )
+        | Result.Error _ -> Lwt.fail WriteError)
 
   let log_cache_statistics cache =
     Logs.info (fun m -> m "%a" Statistics.HighLevel.pp cache.statistics);
@@ -1100,9 +1100,9 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
     let cache = open_fs.node_cache in
     Logs.info (fun m ->
         m "Flushing %d dirty roots"
-          ( match cache.flush_root with
+          (match cache.flush_root with
           | None -> 0
-          | Some _ -> 1 ));
+          | Some _ -> 1));
     log_cache_statistics cache;
     if
       Int64.(compare cache.free_count (add cache.new_count cache.dirty_count))
@@ -1113,7 +1113,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
       if alloc_id = parent_key then (
         Logs.err (fun m ->
             m "Reference loop in flush_children at %a" AllocId.pp alloc_id);
-        failwith "Reference loop" );
+        failwith "Reference loop");
       match lru_get cache.lru alloc_id with
       | None -> raise (MissingLRUEntry alloc_id)
       | Some entry -> (
@@ -1128,13 +1128,13 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                 KeyedMap.fold (flush_rec alloc_id) di completion_list
               in
               entry.flush_children <- None;
-              write_node open_fs alloc_id :: completion_list )
+              write_node open_fs alloc_id :: completion_list)
     in
     let r =
       Lwt.join
-        ( match cache.flush_root with
+        (match cache.flush_root with
         | None -> []
-        | Some alloc_id -> flush_rec AllocId.zero zero_key alloc_id [] )
+        | Some alloc_id -> flush_rec AllocId.zero zero_key alloc_id [])
     in
     cache.flush_root <- None;
     assert (cache.new_count = 0L);
@@ -1172,11 +1172,11 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
             unused_start := None
         | _ -> ())
       cache.space_map;
-    ( match !unused_start with
+    (match !unused_start with
     | Some start ->
         let range_block_count = Int64.sub cache.logical_size start in
         to_discard := (start, range_block_count) :: !to_discard
-    | _ -> () );
+    | _ -> ());
     Lwt_list.iter_s
       (fun (start, range_block_count) ->
         discard_block_range open_fs start range_block_count)
@@ -1263,7 +1263,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
       else failwith "logical address referenced twice";
     if not expect_sm then (
       Bitv64.set cache.space_map logical true;
-      cache.free_count <- int64_pred_nowrap cache.free_count )
+      cache.free_count <- int64_pred_nowrap cache.free_count)
 
   let rec scan_all_nodes open_fs logical expect_root rdepth parent_gen
       expect_sm =
@@ -1309,20 +1309,19 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
         if log1 <> Location.zero then (
           (* Children here would mean the fast_scan free space map is borked *)
           if rdepth = 0l then failwith "Found children on a leaf node";
-          ( if rdepth = 1l && has_scan_map cache then (
-            update_space_map cache log1 false;
-            Lwt.return_unit )
-          else scan_all_nodes open_fs log1 false (Int32.pred rdepth) gen false
-          )
-          >>= fun () -> scan_cl (off - childlink_size) )
+          (if rdepth = 1l && has_scan_map cache then (
+           update_space_map cache log1 false;
+           Lwt.return_unit)
+          else scan_all_nodes open_fs log1 false (Int32.pred rdepth) gen false)
+          >>= fun () -> scan_cl (off - childlink_size))
         else Lwt.return_unit
       else Lwt.return_unit
     in
     scan_cl (block_end - childlink_size) >>= fun () ->
-    ( if rdepth = 0l then
-      match cache.scan_map with
-      | None -> ()
-      | Some scan_map -> Bitv64.set scan_map logical true );
+    (if rdepth = 0l then
+     match cache.scan_map with
+     | None -> ()
+     | Some scan_map -> Bitv64.set scan_map logical true);
     Lwt.return_unit
 
   let preload_child open_fs entry_key entry child_key =
@@ -1334,17 +1333,17 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
     match KeyedMap.find_opt entry.children_alloc_ids child_key with
     | None ->
         let logical = KeyedMap.find entry.children child_key in
-        ( if%lwt Lwt.return (has_scan_map cache) then
-          match cache.scan_map with
-          | None -> assert false
-          | Some scan_map ->
-              if%lwt
-                Lwt.return (rdepth = 0l && not (Bitv64.get scan_map logical))
-              then
-                (* generation may not be fresh, but is always initialised in this branch
-                   (no alloc_id -> not a new_node), so this is not a problem *)
-                let parent_gen = entry.generation in
-                scan_all_nodes open_fs logical false rdepth parent_gen true )
+        (if%lwt Lwt.return (has_scan_map cache) then
+         match cache.scan_map with
+         | None -> assert false
+         | Some scan_map ->
+             if%lwt
+               Lwt.return (rdepth = 0l && not (Bitv64.get scan_map logical))
+             then
+               (* generation may not be fresh, but is always initialised in this branch
+                  (no alloc_id -> not a new_node), so this is not a problem *)
+               let parent_gen = entry.generation in
+               scan_all_nodes open_fs logical false rdepth parent_gen true)
         >>= fun () ->
         let%lwt alloc_id, child_entry =
           load_child_node_at open_fs logical child_key entry_key rdepth
@@ -1358,7 +1357,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
               (Failure
                  (Format.asprintf "Missing LRU entry for loaded child %a"
                     AllocId.pp alloc_id))
-        | Some child_entry -> Lwt.return (alloc_id, child_entry) )
+        | Some child_entry -> Lwt.return (alloc_id, child_entry))
 
   let ins_req_space = function
     | InsValue value ->
@@ -1389,7 +1388,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                   (* No need to pad lengths *)
                   kd.value_end <- kd.value_end - String.length prev_val + len;
                   Some value);
-            ignore (mark_dirty fs.node_cache alloc_id) )
+            ignore (mark_dirty fs.node_cache alloc_id))
 
   let split_point entry =
     let child_count = KeyedMap.length entry.children in
@@ -1424,39 +1423,38 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
     match lru_peek fs.node_cache.lru alloc_id with
     | None -> raise (MissingLRUEntry alloc_id)
     | Some entry ->
-        ( if
-            has_children entry
-            && not
-                 (String.equal entry.highest_key
-                    (fst (KeyedMap.max_binding entry.children)))
-          then (
-            string_dump entry.highest_key;
-            string_dump (fst (KeyedMap.max_binding entry.children));
-            Logs.err (fun m ->
-                m "check_live_integrity %Ld invariant broken: highest_key"
-                  depth);
-            fail := true );
-          match entry.meta with
-          | Root -> ()
-          | Child parent_key -> (
-              match lru_peek fs.node_cache.lru parent_key with
-              | None -> raise (MissingLRUEntry parent_key)
-              | Some parent_entry -> (
-                  match
-                    KeyedMap.find_opt parent_entry.children entry.highest_key
-                  with
-                  | None ->
-                      Logs.err (fun m ->
-                          m
-                            "check_live_integrity %Ld invariant broken: \
-                             lookup_parent_link"
-                            depth);
-                      fail := true
-                  | Some _offset ->
-                      assert (
-                        KeyedMap.find_opt parent_entry.children_alloc_ids
-                          entry.highest_key
-                        = Some alloc_id ) ) ) );
+        (if
+           has_children entry
+           && not
+                (String.equal entry.highest_key
+                   (fst (KeyedMap.max_binding entry.children)))
+         then (
+           string_dump entry.highest_key;
+           string_dump (fst (KeyedMap.max_binding entry.children));
+           Logs.err (fun m ->
+               m "check_live_integrity %Ld invariant broken: highest_key" depth);
+           fail := true);
+         match entry.meta with
+         | Root -> ()
+         | Child parent_key -> (
+             match lru_peek fs.node_cache.lru parent_key with
+             | None -> raise (MissingLRUEntry parent_key)
+             | Some parent_entry -> (
+                 match
+                   KeyedMap.find_opt parent_entry.children entry.highest_key
+                 with
+                 | None ->
+                     Logs.err (fun m ->
+                         m
+                           "check_live_integrity %Ld invariant broken: \
+                            lookup_parent_link"
+                           depth);
+                     fail := true
+                 | Some _offset ->
+                     assert (
+                       KeyedMap.find_opt parent_entry.children_alloc_ids
+                         entry.highest_key
+                       = Some alloc_id))));
         let vend = ref (header_size entry.meta) in
         KeyedMap.iter
           (fun _k va ->
@@ -1467,8 +1465,8 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
               m "Inconsistent value_end depth:%Ld expected:%d actual:%d %a"
                 depth !vend entry.logdata.value_end Statistics.HighLevel.pp
                 fs.node_cache.statistics);
-          fail := true );
-        ( match entry.flush_children with
+          fail := true);
+        (match entry.flush_children with
         | Some di -> (
             if
               KeyedMap.exists
@@ -1476,7 +1474,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                 di
             then (
               Logs.err (fun m -> m "Self-pointing flush reference %Ld" depth);
-              fail := true );
+              fail := true);
             match entry.meta with
             | Root -> ()
             | Child parent_key -> (
@@ -1498,14 +1496,14 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                                 "Dirty but not registered in \
                                  parent_entry.flush_info %Ld %a"
                                 depth AllocId.pp alloc_id);
-                          fail := true )
+                          fail := true)
                         else if n > 1 then (
                           Logs.err (fun m ->
                               m
                                 "Dirty, registered %d times in \
                                  parent_entry.flush_info %Ld"
                                 n depth);
-                          fail := true ) ) ) )
+                          fail := true))))
         | None -> (
             match entry.meta with
             | Root -> ()
@@ -1522,12 +1520,12 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                                 "Not dirty but registered in \
                                  parent_entry.flush_info %Ld"
                                 depth);
-                          fail := true ) ) ) ) );
+                          fail := true)))));
         KeyedMap.iter
           (fun _k child_alloc_id ->
             if child_alloc_id = alloc_id then (
               Logs.err (fun m -> m "Self-pointing node %Ld" depth);
-              fail := true )
+              fail := true)
             else check_live_integrity fs child_alloc_id (Int64.succ depth))
           entry.children_alloc_ids;
         if !fail then failwith "Integrity errors"
@@ -1555,7 +1553,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
         assert (has_children entry = (entry.rdepth > 0l));
         if has_free_space entry space then (
           reserve_dirty fs.node_cache alloc_id 0L depth;
-          Lwt.return_unit )
+          Lwt.return_unit)
         else if (not split_path) && has_children entry && has_logdata entry
         then (
           (* log spilling *)
@@ -1570,7 +1568,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                 if String.compare k !scored_key > 0 then (
                   if !spill_score > !best_spill_score then (
                     best_spill_score := !spill_score;
-                    best_spill_key := !scored_key );
+                    best_spill_key := !scored_key);
                   spill_score := 0;
                   match KeyedMap.find_first_opt entry.children k with
                   | None ->
@@ -1578,14 +1576,14 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                       string_dump (fst (KeyedMap.max_binding entry.children));
                       string_dump entry.highest_key;
                       failwith "children invariant broken"
-                  | Some (sk, _cl) -> scored_key := sk );
+                  | Some (sk, _cl) -> scored_key := sk);
                 let len = String.length va in
                 let len1 = P.key_size + sizeof_datalen + len in
                 spill_score := !spill_score + len1)
               entry.logdata.contents;
             if !spill_score > !best_spill_score then (
               best_spill_score := !spill_score;
-              best_spill_key := !scored_key );
+              best_spill_key := !scored_key);
             (!best_spill_score, !best_spill_key)
           in
           let best_spill_score, best_spill_key = find_victim () in
@@ -1623,8 +1621,8 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
               (fun key va ->
                 fast_insert fs child_alloc_id key (InsValue va)
                   (Int64.succ depth))
-              carved_list );
-          reserve_insert fs alloc_id space split_path depth )
+              carved_list);
+          reserve_insert fs alloc_id space split_path depth)
         else
           match entry.meta with
           | Root -> (
@@ -1685,7 +1683,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                   add_child entry entry2 alloc2 fs.node_cache alloc_id;
                   entry1.flush_children <- Some di;
                   entry2.flush_children <- Some fc2;
-                  Lwt.return_unit )
+                  Lwt.return_unit)
           | Child parent_key -> (
               (* Node splitting (non root) *)
               assert (Int64.compare depth 0L > 0);
@@ -1748,12 +1746,12 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                             alloc_id);
                       raise (MissingLRUEntry parent_key)
                   | Some parent ->
-                      ( add_child parent entry1 alloc1 fs.node_cache parent_key;
-                        match parent.flush_children with
-                        | None -> failwith "Missing flush_info for parent"
-                        | Some di -> KeyedMap.add di median alloc1 );
+                      (add_child parent entry1 alloc1 fs.node_cache parent_key;
+                       match parent.flush_children with
+                       | None -> failwith "Missing flush_info for parent"
+                       | Some di -> KeyedMap.add di median alloc1);
                       entry1.flush_children <- Some fc1;
-                      reserve_insert fs alloc_id space split_path depth ) ) )
+                      reserve_insert fs alloc_id space split_path depth)))
 
   let insert root key value =
     root.open_fs.node_cache.statistics.inserts <-
@@ -1785,7 +1783,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
               let%lwt child_alloc_id, _ce =
                 preload_child open_fs alloc_id entry key1
               in
-              lookup_rec open_fs child_alloc_id key )
+              lookup_rec open_fs child_alloc_id key)
 
   let rec mem_rec open_fs alloc_id key =
     match lru_get open_fs.node_cache.lru alloc_id with
@@ -1801,7 +1799,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
               let%lwt child_alloc_id, _ce =
                 preload_child open_fs alloc_id entry key1
               in
-              mem_rec open_fs child_alloc_id key )
+              mem_rec open_fs child_alloc_id key)
 
   let lookup root key =
     root.open_fs.node_cache.statistics.lookups <-
@@ -1900,7 +1898,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
                     m "Bad superblock size %ld %d"
                       (get_superblock_block_size sb)
                       P.block_size);
-                raise BadParams )
+                raise BadParams)
               else if get_superblock_key_size sb <> P.key_size then
                 raise BadParams
               else
@@ -1934,7 +1932,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
             loc := Int64.sub !loc n;
             wrapped := true;
             (* asserted because preroots_interval < n *)
-            assert (!loc < n) );
+            assert (!loc < n));
           if !loc = 0L then loc := 1L;
           if !wrapped && !loc >= loc0 then Lwt.fail Exit
           else
@@ -2162,4 +2160,4 @@ let open_for_reading (type disk) (module B : Mirage_block.S with type t = disk)
   | sp -> (
       let module Stor = Make (B) ((val sp)) in
       Stor.prepare_io OpenExistingDevice disk mount_options >>= function
-      | root, gen -> Lwt.return (OPEN_RET ((module Stor), root, gen)) )
+      | root, gen -> Lwt.return (OPEN_RET ((module Stor), root, gen)))

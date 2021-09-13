@@ -208,7 +208,7 @@ functor
       try%lwt op ()
       with Wodan.NeedsFlush -> (
         Stor.flush root >>= function
-        | _gen -> op () )
+        | _gen -> op ())
 
     let may_autoflush db op =
       if db.autoflush then do_autoflush db.root op else op ()
@@ -232,7 +232,7 @@ functor
                 else Wodan.OpenExistingDevice
               in
               Stor.prepare_io open_arg disk mount_options
-              >>= fun (root, _gen) -> Lwt.return {root; autoflush} )
+              >>= fun (root, _gen) -> Lwt.return {root; autoflush})
 
     module Cache = Cache (struct
       type nonrec t = t
@@ -255,7 +255,7 @@ functor
        all cases, and extend values by one byte everywhere. *)
     let () =
       assert (
-        P.optional_flags = Wodan.OptionalSuperblockFlags.tombstones_enabled )
+        P.optional_flags = Wodan.OptionalSuperblockFlags.tombstones_enabled)
 
     let v config =
       let module C = Irmin.Private.Conf in
@@ -477,17 +477,17 @@ functor
           lock = L.v ();
         }
       in
-      ( try%lwt
-          while%lwt true do
-            Stor.lookup root db.magic_key >>= function
-            | None -> Lwt.fail Exit
-            | Some va ->
-                let ik = inner_val_to_inner_key va in
-                KeyHashtbl.add db.keydata ik db.magic_key;
-                db.magic_key <- Stor.next_key db.magic_key;
-                Lwt.return_unit
-          done
-        with Exit -> Lwt.return_unit )
+      (try%lwt
+         while%lwt true do
+           Stor.lookup root db.magic_key >>= function
+           | None -> Lwt.fail Exit
+           | Some va ->
+               let ik = inner_val_to_inner_key va in
+               KeyHashtbl.add db.keydata ik db.magic_key;
+               db.magic_key <- Stor.next_key db.magic_key;
+               Lwt.return_unit
+         done
+       with Exit -> Lwt.return_unit)
       >|= fun () -> db
 
     module Cache = Cache (struct
@@ -512,13 +512,13 @@ functor
 
     let set_and_list db ik iv ikv =
       assert (not (Stor.is_tombstone iv));
-      ( if not (KeyHashtbl.mem db.keydata ik) then (
-        KeyHashtbl.add db.keydata ik db.magic_key;
-        may_autoflush db (fun () -> Stor.insert (db_root db) db.magic_key ikv)
-        >>= fun () ->
-        db.magic_key <- Stor.next_key db.magic_key;
-        Lwt.return_unit )
-      else Lwt.return_unit )
+      (if not (KeyHashtbl.mem db.keydata ik) then (
+       KeyHashtbl.add db.keydata ik db.magic_key;
+       may_autoflush db (fun () -> Stor.insert (db_root db) db.magic_key ikv)
+       >>= fun () ->
+       db.magic_key <- Stor.next_key db.magic_key;
+       Lwt.return_unit)
+      else Lwt.return_unit)
       >>= fun () -> may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
 
     let set db k va =
@@ -557,13 +557,13 @@ functor
           Stor.lookup root ik >>= function
           | v0 ->
               if opt_equal Stor.value_equal v0 test then
-                ( match set with
+                (match set with
                 | Some va ->
                     set_and_list db ik (val_to_inner_val va)
                       (key_to_inner_val k)
                 | None ->
                     may_autoflush db (fun () ->
-                        Stor.insert root ik (Stor.value_of_string "")) )
+                        Stor.insert root ik (Stor.value_of_string "")))
                 >>= fun () -> Lwt.return_true
               else Lwt.return_false)
       >>= fun updated ->
@@ -591,8 +591,8 @@ functor
               | true -> (
                   Stor.lookup root mk >>= function
                   | None -> Lwt.fail (Failure "Missing metadata key")
-                  | Some iv -> Lwt.return (key_of_inner_val iv :: l) )
-              | false -> Lwt.return l ))
+                  | Some iv -> Lwt.return (key_of_inner_val iv :: l))
+              | false -> Lwt.return l))
         db.keydata (Lwt.return [])
 
     let find db k =

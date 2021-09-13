@@ -86,7 +86,7 @@ let help _copts man_format cmds topic =
       | `Ok t when List.mem t cmds -> `Help (man_format, Some t)
       | `Ok _t ->
           let page = ((topic, 7, "", "", ""), [`S topic; `P "Placeholder"]) in
-          `Ok (Manpage.print man_format Format.std_formatter page) )
+          `Ok (Manpage.print man_format Format.std_formatter page))
 
 (* Options common to all commands *)
 

@@ -67,13 +67,13 @@ module Client (B : Mirage_block.S) = struct
             match l with
             | [k; v] ->
                 compl :=
-                  ( try%lwt
-                      Stor.insert root
-                        (Stor.key_of_string (Base64.decode_exn k))
-                        (Stor.value_of_string (Base64.decode_exn v))
-                    with Wodan.NeedsFlush ->
-                      let%lwt _gen = Stor.flush root in
-                      Lwt.return_unit )
+                  (try%lwt
+                     Stor.insert root
+                       (Stor.key_of_string (Base64.decode_exn k))
+                       (Stor.value_of_string (Base64.decode_exn v))
+                   with Wodan.NeedsFlush ->
+                     let%lwt _gen = Stor.flush root in
+                     Lwt.return_unit)
                   :: !compl
             | _ -> failwith "Bad CSV format")
           csv_in;
@@ -142,7 +142,7 @@ module Client (B : Mirage_block.S) = struct
              assert (
                Cstruct.equal
                  (Stor.cstruct_of_value cval)
-                 (Stor.cstruct_of_value cval1) );
+                 (Stor.cstruct_of_value cval1));
              let%lwt rootval, gen2 =
                Stor.prepare_io Wodan.OpenExistingDevice disk
                  Wodan.standard_mount_options
@@ -154,10 +154,10 @@ module Client (B : Mirage_block.S) = struct
                  assert (
                    Cstruct.equal
                      (Stor.cstruct_of_value cval)
-                     (Stor.cstruct_of_value cval2) );
+                     (Stor.cstruct_of_value cval2));
                  if gen1 <> gen2 then (
                    Logs.err (fun m -> m "Generation fail %Ld %Ld" gen1 gen2);
-                   assert false );
+                   assert false);
                  time0 := Unix.gettimeofday ();
                  let should_continue = ref true in
                  while%lwt !should_continue do
@@ -165,19 +165,19 @@ module Client (B : Mirage_block.S) = struct
                    and cval =
                      Stor.value_of_cstruct (Nocrypto.Rng.generate 40)
                    in
-                   ( try%lwt
-                       ios := succ !ios;
-                       Stor.insert !root key cval
-                     with
+                   (try%lwt
+                      ios := succ !ios;
+                      Stor.insert !root key cval
+                    with
                    | Wodan.NeedsFlush -> (
                        Logs.info (fun m -> m "Emergency flushing");
                        Stor.flush !root >>= function
-                       | _gen -> Stor.insert !root key cval )
+                       | _gen -> Stor.insert !root key cval)
                    | Wodan.OutOfSpace ->
                        Logs.info (fun m -> m "Final flush");
                        Stor.flush !root >|= ignore >>= fun () ->
                        should_continue := false;
-                       Lwt.return_unit )
+                       Lwt.return_unit)
                    >>= fun () ->
                    if%lwt Lwt.return (Nocrypto.Rng.Int.gen 16384 = 0) then (
                      (* Infrequent re-opening *)
@@ -189,14 +189,14 @@ module Client (B : Mirage_block.S) = struct
                          in
                          root := rootval;
                          assert (gen3 = gen4);
-                         Lwt.return_unit )
+                         Lwt.return_unit)
                    else
                      if%lwt Lwt.return (false && Nocrypto.Rng.Int.gen 8192 = 0)
                      then (
                        (* Infrequent flushing *)
                        Stor.log_statistics !root;
-                       Stor.flush !root >|= ignore )
-                 done ) ))
+                       Stor.flush !root >|= ignore)
+                 done)))
       [%lwt.finally
         let time1 = Unix.gettimeofday () in
         let iops = float_of_int !ios /. (time1 -. !time0) in
@@ -322,7 +322,7 @@ module Client (B : Mirage_block.S) = struct
           assert (
             Cstruct.equal
               (Stor.cstruct_of_value cval)
-              (Stor.cstruct_of_value cval1) );
+              (Stor.cstruct_of_value cval1));
           let%lwt root, _rgen =
             Stor.prepare_io Wodan.OpenExistingDevice disk
               Wodan.standard_mount_options
@@ -331,6 +331,6 @@ module Client (B : Mirage_block.S) = struct
           assert (
             Cstruct.equal
               (Stor.cstruct_of_value cval)
-              (Stor.cstruct_of_value cval2) );
-          Lwt.return_unit )
+              (Stor.cstruct_of_value cval2));
+          Lwt.return_unit)
 end
