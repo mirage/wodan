@@ -216,7 +216,7 @@ let sizeof_logical = 8
 
 let make_fanned_io_list size cstr =
   let r = ref [] in
-  let l = Cstruct.len cstr in
+  let l = Cstruct.length cstr in
   let rec iter off =
     if off = 0 then ()
     else
@@ -671,7 +671,7 @@ end
 let magic_crc = Cstruct.of_string "\xff\xff\xff\xff"
 
 let has_magic_crc cstr =
-  let crcoffset = Cstruct.len cstr - 4 in
+  let crcoffset = Cstruct.length cstr - 4 in
   let crc = Cstruct.sub cstr crcoffset 4 in
   (* Don't use Cstruct.equal, it will use memcmp, be opaque to AFL *)
   (*Cstruct.equal crc magic_crc*)
@@ -685,7 +685,7 @@ let cstruct_valid cstr relax =
 
 let cstruct_reset cstr relax =
   if relax.magic_crc_write then
-    let crcoffset = Cstruct.len cstr - 4 in
+    let crcoffset = Cstruct.length cstr - 4 in
     Cstruct.blit magic_crc 0 cstr crcoffset 4
   else Crc32c.cstruct_reset cstr
 
@@ -759,7 +759,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
   end
 
   let key_of_cstruct key =
-    if Cstruct.len key <> P.key_size then
+    if Cstruct.length key <> P.key_size then
       raise (BadKey (Cstruct.to_string key))
     else Cstruct.to_string key
 
@@ -909,7 +909,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
     Logs.debug (fun m -> m "load_root_node_at");
     let%lwt cstr = load_data_at open_fs.filesystem logical in
     let cache = open_fs.node_cache in
-    assert (Cstruct.len cstr = P.block_size);
+    assert (Cstruct.length cstr = P.block_size);
     let meta, logdata =
       match get_anynode_hdr_nodetype cstr with
       | 1 -> (Root, index_logdata cstr sizeof_rootnode_hdr)
@@ -939,7 +939,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
     let cache = open_fs.node_cache in
     assert (Bitv64.get cache.space_map logical);
     let%lwt cstr = load_data_at open_fs.filesystem logical in
-    assert (Cstruct.len cstr = P.block_size);
+    assert (Cstruct.length cstr = P.block_size);
     let meta, logdata =
       match get_anynode_hdr_nodetype cstr with
       | 2 -> (Child parent_key, index_logdata cstr sizeof_childnode_hdr)
@@ -1210,7 +1210,7 @@ module Make (B : Mirage_block.S) (P : SUPERBLOCK_PARAMS) :
     Logs.debug (fun m ->
         m "new_node type:%d alloc_id:%a" tycode AllocId.pp alloc_id);
     let cstr = get_block_io () in
-    assert (Cstruct.len cstr = P.block_size);
+    assert (Cstruct.length cstr = P.block_size);
     set_anynode_hdr_nodetype cstr tycode;
     set_anynode_hdr_fsid cache.fsid 0 cstr;
     let meta =
