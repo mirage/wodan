@@ -2144,13 +2144,13 @@ end
 
 (* This is a GADT
 
-  'a and the module type are existential since they are not named
-  in the open_ret type
+   'a and the module type are existential since they are not named
+   in the open_ret type
 
-  https://caml.inria.fr/pub/docs/manual-ocaml/gadts.html
-  https://caml.inria.fr/pub/docs/manual-ocaml/firstclassmodules.html
-  https://discuss.ocaml.org/t/first-class-modules-and-gadt-existentials/1657
-  *)
+   https://caml.inria.fr/pub/docs/manual-ocaml/gadts.html
+   https://caml.inria.fr/pub/docs/manual-ocaml/firstclassmodules.html
+   https://discuss.ocaml.org/t/first-class-modules-and-gadt-existentials/1657
+*)
 type open_ret =
   | OPEN_RET : (module S with type root = 'a) * 'a * int64 -> open_ret
 

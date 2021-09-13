@@ -36,7 +36,7 @@ let cstruct ?(crc = 0l) cstr =
 let cstruct_valid str = ~~~(cstruct str) = 0l
 
 (*$T cstruct_reset
-let cstr = Cstruct.of_string "123456789...." in begin cstruct_reset cstr; cstruct_valid cstr end
+  let cstr = Cstruct.of_string "123456789...." in begin cstruct_reset cstr; cstruct_valid cstr end
 *)
 let cstruct_reset str =
   let sublen = Cstruct.length str - 4 in

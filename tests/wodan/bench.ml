@@ -1,5 +1,5 @@
 (* Defaults:
-  BENCH_NB_ENTRIES (10_000_000 for index, lowered to 1M here) entries, with key_size=32 and value_size=13 -> large *)
+   BENCH_NB_ENTRIES (10_000_000 for index, lowered to 1M here) entries, with key_size=32 and value_size=13 -> large *)
 
 open Lwt.Infix
 

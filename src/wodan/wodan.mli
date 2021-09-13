@@ -164,8 +164,8 @@ module OptionalSuperblockFlags : sig
   (** The flag for tombstone support
 
       If set, the empty value will be considered a tombstone, meaning that
-      functions that query values (mem, lookup, iter, search_range…) will
-      treat it as if there was no value.
+      functions that query values (mem, lookup, iter, search_range…) will treat
+      it as if there was no value.
 
       This enables optimisations on the write path, allowing tombstones to
       fully disappear from storage eventually *)
