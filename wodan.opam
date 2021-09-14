@@ -40,6 +40,7 @@ depends: [
   "nocrypto"
   "odoc" {with-doc}
   "ppx_cstruct"
+  "ppx_deriving_yojson" {with-test}
 ]
 
 pin-depends: [
