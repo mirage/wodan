@@ -19,7 +19,10 @@ open Lwt.Infix
 module BlockCon = struct
   include Ramdisk
 
-  let connect name = Ramdisk.connect ~name
+  let connect name =
+    (* Ramdisk.connect ~name defaults to 32K sectors (16MiB), we need more for wide inode tests *)
+    Ramdisk.create ~name ~size_sectors:131072L ~sector_size:512
+    >|= Result.get_ok
 
   let discard _ _ _ = Lwt.return (Ok ())
 end
@@ -43,4 +46,13 @@ let init () = Nocrypto_entropy_lwt.initialize ()
 
 let stats = None
 
-let suite = {Irmin_test.name = "WODAN"; init; clean; config; store; stats}
+let suite =
+  {
+    Irmin_test.name = "WODAN";
+    Irmin_test.layered_store = None;
+    init;
+    clean;
+    config;
+    store;
+    stats;
+  }

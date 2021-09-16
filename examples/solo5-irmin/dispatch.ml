@@ -42,12 +42,12 @@ module Dispatch (S : HTTP) = struct
             Logs.debug (fun m -> m "L %a" Fmt.exn err);
             raise err)
         >>= fun contents ->
-        let body = Irmin.Type.to_string Wodan_Git_KV.contents_t contents in
+        let body = Repr.to_string Wodan_Git_KV.contents_t contents in
         S.respond_string ~status:`OK ~body ~headers ()
     | str when str.[0] = '/' ->
         let headers = Cohttp.Header.init_with "Content-Type" "text/plain" in
         let head = String.sub str 1 (pred (String.length str)) in
-        let head = Irmin.Type.of_string Wodan_Git_KV.Commit.Hash.t head in
+        let head = Repr.of_string Wodan_Git_KV.Commit.Hash.t head in
         let head =
           match head with
           | Error _ -> assert false
@@ -61,7 +61,7 @@ module Dispatch (S : HTTP) = struct
         in
         Wodan_Git_KV.of_commit commit >>= fun t ->
         Wodan_Git_KV.get t ["README.md"] >>= fun t ->
-        let body = Irmin.Type.to_string Wodan_Git_KV.contents_t t in
+        let body = Repr.to_string Wodan_Git_KV.contents_t t in
         S.respond_string ~status:`OK ~body ~headers ()
     | _ -> S.respond_not_found ()
 

@@ -282,7 +282,7 @@ module CA_BUILDER : functor (DB : DB) ->
 functor
   (DB : DB)
   (K : Irmin.Hash.S)
-  (V : Irmin.Type.S)
+  (V : Repr.S)
   ->
   struct
     type 'a t = DB.t
@@ -293,44 +293,47 @@ functor
 
     let () = assert (K.hash_size = DB.Stor.P.key_size)
 
+    let ser_val = Repr.unstage (Repr.to_bin_string V.t)
+
+    let deser_val = Repr.unstage (Repr.of_bin_string V.t)
+
+    let ser_key = Repr.unstage (Repr.to_bin_string K.t)
+
     let val_to_inner va =
-      let raw_v = Irmin.Type.to_bin_string V.t va in
+      let raw_v = ser_val va in
       let k = K.hash (fun f -> f raw_v) in
-      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let raw_k = ser_key k in
       (k, DB.Stor.key_of_string raw_k, DB.Stor.value_of_string ("C" ^ raw_v))
 
     let val_of_inner_val va =
       let va1 = DB.Stor.string_of_value va in
       assert (va1.[0] = 'C');
       let va2 = String.sub va1 1 (String.length va1 - 1) in
-      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+      Result.get_ok (deser_val va2)
 
     let find db k =
-      Log.debug (fun l -> l "CA.find %a" (Irmin.Type.pp K.t) k);
-      DB.Stor.lookup (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+      Log.debug (fun l -> l "CA.find %a" (Repr.pp K.t) k);
+      DB.Stor.lookup (DB.db_root db) (DB.Stor.key_of_string (ser_key k))
       >>= function
       | None -> Lwt.return_none
       | Some v -> Lwt.return_some (val_of_inner_val v)
 
     let mem db k =
-      Log.debug (fun l -> l "CA.mem %a" (Irmin.Type.pp K.t) k);
-      DB.Stor.mem (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+      Log.debug (fun l -> l "CA.mem %a" (Repr.pp K.t) k);
+      DB.Stor.mem (DB.db_root db) (DB.Stor.key_of_string (ser_key k))
 
     let add db va =
       let k, ik, iv = val_to_inner va in
-      Log.debug (fun m ->
-          m "CA.add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
+      Log.debug (fun m -> m "CA.add -> %a (%d)" (Repr.pp K.t) k K.hash_size);
       let root = DB.db_root db in
       DB.may_autoflush db (fun () -> DB.Stor.insert root ik iv) >>= function
       | () -> Lwt.return k
 
     let unsafe_add db k va =
-      let raw_v = Irmin.Type.to_bin_string V.t va in
+      let raw_v = ser_val va in
       Log.debug (fun m ->
-          m "CA.unsafe_add -> %a (%d)" (Irmin.Type.pp K.t) k K.hash_size);
-      let raw_k = Irmin.Type.to_bin_string K.t k in
+          m "CA.unsafe_add -> %a (%d)" (Repr.pp K.t) k K.hash_size);
+      let raw_k = ser_key k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
@@ -344,13 +347,21 @@ functor
     let batch t f = f (cast t)
 
     let close _t = Lwt.return_unit
+
+    (* Clear the store of references
+
+       Arguably this doesn't make sense for a content-addressable store,
+       especially as other stores build on it by storing their own layer
+       of data in the same place.
+    *)
+    let clear _t = Lwt.fail (Failure "Not implemented")
   end
 
 module AO_BUILDER : functor (_ : DB) -> Irmin.APPEND_ONLY_STORE_MAKER =
 functor
   (DB : DB)
-  (K : Irmin.Type.S)
-  (V : Irmin.Type.S)
+  (K : Repr.S)
+  (V : Repr.S)
   ->
   struct
     type 'a t = DB.t
@@ -359,30 +370,33 @@ functor
 
     type value = V.t
 
-    let val_to_inner_val va =
-      DB.Stor.value_of_string ("A" ^ Irmin.Type.to_bin_string V.t va)
+    let ser_val = Repr.unstage (Repr.to_bin_string V.t)
+
+    let deser_val = Repr.unstage (Repr.of_bin_string V.t)
+
+    let ser_key = Repr.unstage (Repr.to_bin_string K.t)
+
+    let val_to_inner_val va = DB.Stor.value_of_string ("A" ^ ser_val va)
 
     let val_of_inner_val va =
       let va1 = DB.Stor.string_of_value va in
       assert (va1.[0] = 'A');
       let va2 = String.sub va1 1 (String.length va1 - 1) in
-      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+      Result.get_ok (deser_val va2)
 
     let find db k =
-      Log.debug (fun l -> l "AO.find %a" (Irmin.Type.pp K.t) k);
-      DB.Stor.lookup (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+      Log.debug (fun l -> l "AO.find %a" (Repr.pp K.t) k);
+      DB.Stor.lookup (DB.db_root db) (DB.Stor.key_of_string (ser_key k))
       >>= function
       | None -> Lwt.return_none
       | Some v -> Lwt.return_some (val_of_inner_val v)
 
     let mem db k =
-      Log.debug (fun l -> l "AO.mem %a" (Irmin.Type.pp K.t) k);
-      DB.Stor.mem (DB.db_root db)
-        (DB.Stor.key_of_string (Irmin.Type.to_bin_string K.t k))
+      Log.debug (fun l -> l "AO.mem %a" (Repr.pp K.t) k);
+      DB.Stor.mem (DB.db_root db) (DB.Stor.key_of_string (ser_key k))
 
     let add db k va =
-      let raw_k = Irmin.Type.to_bin_string K.t k in
+      let raw_k = ser_key k in
       let root = DB.db_root db in
       DB.may_autoflush db (fun () ->
           DB.Stor.insert root
@@ -396,6 +410,14 @@ functor
     let batch t f = f (cast t)
 
     let close _t = Lwt.return_unit
+
+    (* Clear the store of references
+
+       Arguably this doesn't make sense for an append-only store,
+       especially as other stores build on it by storing their own layer
+       of data in the same place.
+    *)
+    let clear _t = Lwt.fail (Failure "Not implemented")
   end
 
 module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
@@ -403,8 +425,8 @@ module AW_BUILDER : functor (_ : DB) (_ : Irmin.Hash.S) ->
 functor
   (DB : DB)
   (H : Irmin.Hash.S)
-  (K : Irmin.Type.S)
-  (V : Irmin.Type.S)
+  (K : Repr.S)
+  (V : Repr.S)
   ->
   struct
     module BUILDER = DB
@@ -417,6 +439,7 @@ functor
       nested : BUILDER.t;
       keydata : Stor.key KeyHashtbl.t;
       mutable magic_key : Stor.key;
+      magic_key0 : Stor.key;
       watches : W.t;
       lock : L.t;
     }
@@ -431,48 +454,55 @@ functor
 
     type value = V.t
 
+    let ser_hash = Repr.unstage (Repr.to_bin_string H.t)
+
+    let ser_key = Repr.unstage (Repr.to_bin_string K.t)
+
+    let ser_val = Repr.unstage (Repr.to_bin_string V.t)
+
+    let deser_key = Repr.unstage (Repr.of_bin_string K.t)
+
+    let deser_val = Repr.unstage (Repr.of_bin_string V.t)
+
     (* The outside layer is Irmin, the inner layer is Wodan, here are some conversions *)
     let key_to_inner_key k =
-      Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t
-           (H.hash (fun f -> f (Irmin.Type.to_bin_string K.t k))))
+      Stor.key_of_string (ser_hash (H.hash (fun f -> f (ser_key k))))
 
     (* Prefix values so that we can use both tombstones and empty values
 
-       Irmin.Type.to_bin_string can produce empty values, unlike some
+       Repr.to_bin_string can produce empty values, unlike some
        other Irmin serializers that encode length up-front *)
-    let val_to_inner_val va =
-      Stor.value_of_string ("V" ^ Irmin.Type.to_bin_string V.t va)
+    let val_to_inner_val va = Stor.value_of_string ("V" ^ ser_val va)
 
-    let key_to_inner_val k =
-      Stor.value_of_string (Irmin.Type.to_bin_string K.t k)
+    let key_to_inner_val k = Stor.value_of_string (ser_key k)
 
     let key_of_inner_val va =
-      Result.get_ok (Irmin.Type.of_bin_string K.t (Stor.string_of_value va))
+      Result.get_ok (deser_key (Stor.string_of_value va))
 
     let val_of_inner_val va =
       let va1 = Stor.string_of_value va in
       assert (va1.[0] = 'V');
       let va2 = String.sub va1 1 (String.length va1 - 1) in
-      Result.get_ok (Irmin.Type.of_bin_string V.t va2)
+      Result.get_ok (deser_val va2)
 
     (* Convert a Wodan value to a Wodan key
        Used to traverse the linked list that lists all keys stored through the AW interface *)
     let inner_val_to_inner_key va =
       Stor.key_of_string
-        (Irmin.Type.to_bin_string H.t
-           (H.hash (fun f -> f (Stor.string_of_value va))))
+        (ser_hash (H.hash (fun f -> f (Stor.string_of_value va))))
 
     let make ~list_key ~config =
       let%lwt db = BUILDER.v config in
       let root = BUILDER.db_root db in
       let magic_key = Bytes.make H.hash_size '\000' in
       Bytes.blit_string list_key 0 magic_key 0 (String.length list_key);
+      let magic_key = Stor.key_of_string (Bytes.unsafe_to_string magic_key) in
       let db =
         {
           nested = db;
           keydata = KeyHashtbl.create 10;
-          magic_key = Stor.key_of_string (Bytes.unsafe_to_string magic_key);
+          magic_key;
+          magic_key0 = magic_key;
           watches = W.v ();
           lock = L.v ();
         }
@@ -522,7 +552,7 @@ functor
       >>= fun () -> may_autoflush db (fun () -> Stor.insert (db_root db) ik iv)
 
     let set db k va =
-      Log.debug (fun m -> m "AW.set -> %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun m -> m "AW.set -> %a" (Repr.pp K.t) k);
       let ik = key_to_inner_key k in
       let iv = val_to_inner_val va in
       L.with_lock db.lock k (fun () ->
@@ -545,7 +575,7 @@ functor
 
     (* XXX With autoflush, this might flush some data without finishing the insert *)
     let test_and_set db k ~test ~set =
-      Log.debug (fun m -> m "AW.test_and_set -> %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun m -> m "AW.test_and_set -> %a" (Repr.pp K.t) k);
       let ik = key_to_inner_key k in
       let root = db_root db in
       let test =
@@ -573,7 +603,7 @@ functor
     let tombstone = Stor.value_of_string ""
 
     let remove db k =
-      Log.debug (fun l -> l "AW.remove %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun l -> l "AW.remove %a" (Repr.pp K.t) k);
       let ik = key_to_inner_key k in
       let root = db_root db in
       L.with_lock db.lock k (fun () ->
@@ -596,7 +626,7 @@ functor
         db.keydata (Lwt.return [])
 
     let find db k =
-      Log.debug (fun l -> l "AW.find %a" (Irmin.Type.pp K.t) k);
+      Log.debug (fun l -> l "AW.find %a" (Repr.pp K.t) k);
       Stor.lookup (db_root db) (key_to_inner_key k) >>= function
       | None -> Lwt.return_none
       | Some va -> Lwt.return_some (val_of_inner_val va)
@@ -604,6 +634,22 @@ functor
     let mem db k = Stor.mem (db_root db) (key_to_inner_key k)
 
     let close _t = Lwt.return_unit
+
+    (* Clear the store of references
+
+       Non-reference data is kept.
+    *)
+    let clear db =
+      let root = db_root db in
+      KeyHashtbl.fold
+        (fun _ik mk io ->
+          io >>= function
+          | () -> Stor.insert root mk tombstone)
+        db.keydata Lwt.return_unit
+      >>= fun () ->
+      KeyHashtbl.clear db.keydata;
+      db.magic_key <- db.magic_key0;
+      Lwt.return_unit
   end
 
 module Make
